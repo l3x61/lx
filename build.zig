@@ -14,6 +14,9 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    exe.linkLibC();
+    exe.linkSystemLibrary("readline");
+
     const run_cmd = b.addRunArtifact(exe);
 
     run_cmd.step.dependOn(b.getInstallStep());
