@@ -26,8 +26,11 @@ pub fn nextToken(self: *Lexer) Token {
 
     const start = iterator.i;
 
-    switch (iterator.nextCodepoint() orelse return Token.init(.eof, "")) {
-        ':' => return Token.init(.colon, iterator.bytes[start..iterator.i]),
+    const cp = iterator.nextCodepoint() orelse return Token.init(.eof, "");
+
+    switch (cp) {
+        '\\', 'λ' => return Token.init(.lambda, iterator.bytes[start..iterator.i]),
+        '.' => return Token.init(.dot, iterator.bytes[start..iterator.i]),
         '(' => return Token.init(.lparen, iterator.bytes[start..iterator.i]),
         ')' => return Token.init(.rparen, iterator.bytes[start..iterator.i]),
         else => {},
@@ -66,7 +69,12 @@ fn isSpace(codepoint: u21) bool {
 }
 
 fn isSymbol(codepoint: u21) bool {
-    return !isSpace(codepoint) and codepoint != ':' and codepoint != '(' and codepoint != ')';
+    return !isSpace(codepoint) and
+        codepoint != '.' and
+        codepoint != '(' and
+        codepoint != ')' and
+        codepoint != '\\' and
+        codepoint != 'λ';
 }
 
 fn runTest(input: []const u8, tokens: []const Token) !void {
@@ -122,15 +130,25 @@ test "symbols" {
     try runTest(input, &tokens);
 }
 
-test "expression" {
-    const input = "(x:x)y";
+test "lambda with dot" {
+    const input = "\\x.x";
     const tokens = [_]Token{
-        Token.init(.lparen, "("),
+        Token.init(.lambda, "\\"),
         Token.init(.symbol, "x"),
-        Token.init(.colon, ":"),
+        Token.init(.dot, "."),
         Token.init(.symbol, "x"),
-        Token.init(.rparen, ")"),
-        Token.init(.symbol, "y"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "lambda with unicode λ" {
+    const input = "λx.x";
+    const tokens = [_]Token{
+        Token.init(.lambda, "λ"),
+        Token.init(.symbol, "x"),
+        Token.init(.dot, "."),
+        Token.init(.symbol, "x"),
         Token.init(.eof, ""),
     };
     try runTest(input, &tokens);

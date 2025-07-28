@@ -10,7 +10,8 @@ lexeme: []const u8,
 pub const Tag = enum {
     eof,
 
-    colon,
+    lambda,
+    dot,
     lparen,
     rparen,
 
