@@ -1,0 +1,137 @@
+const std = @import("std");
+const Utf8View = std.unicode.Utf8View;
+const Utf8Iterator = std.unicode.Utf8Iterator;
+const parseFloat = std.fmt.parseFloat;
+const print = std.debug.print;
+const expect = std.testing.expect;
+const expectError = std.testing.expectError;
+const fmtSliceEscapeUpper = std.fmt.fmtSliceEscapeUpper;
+
+const ansi = @import("Ansi.zig");
+const Token = @import("Token.zig");
+
+const Lexer = @This();
+
+iterator: Utf8Iterator,
+
+pub fn init(input: []const u8) error{InvalidUtf8}!Lexer {
+    var utf8_view = try Utf8View.init(input);
+    return Lexer{ .iterator = utf8_view.iterator() };
+}
+
+pub fn nextToken(self: *Lexer) Token {
+    const iterator = &self.iterator;
+
+    consumeWhile(iterator, isSpace);
+
+    const start = iterator.i;
+
+    switch (iterator.nextCodepoint() orelse return Token.init(.eof, "")) {
+        ':' => return Token.init(.colon, iterator.bytes[start..iterator.i]),
+        '(' => return Token.init(.lparen, iterator.bytes[start..iterator.i]),
+        ')' => return Token.init(.rparen, iterator.bytes[start..iterator.i]),
+        else => {},
+    }
+
+    consumeWhile(iterator, isSymbol);
+    const lexeme = iterator.bytes[start..iterator.i];
+
+    _ = parseFloat(f64, lexeme) catch return Token.init(.symbol, lexeme);
+    return Token.init(.number, lexeme);
+}
+
+fn consumeWhile(iterator: *Utf8Iterator, predicate: fn (u21) bool) void {
+    while (true) {
+        const i = iterator.i;
+        const codepoint = iterator.nextCodepoint() orelse return;
+        if (!predicate(codepoint)) {
+            iterator.i = i;
+            return;
+        }
+    }
+}
+
+fn isSpace(codepoint: u21) bool {
+    return switch (codepoint) {
+        '\t',
+        '\n',
+        '\r',
+        ' ',
+        0x0C,
+        0x85,
+        0xA0,
+        => true,
+        else => false,
+    };
+}
+
+fn isSymbol(codepoint: u21) bool {
+    return !isSpace(codepoint) and codepoint != ':' and codepoint != '(' and codepoint != ')';
+}
+
+fn runTest(input: []const u8, tokens: []const Token) !void {
+    var lexer = try Lexer.init(input);
+
+    for (0.., tokens) |i, expected| {
+        const actual = lexer.nextToken();
+        expect(expected.equal(actual)) catch |err| {
+            print(ansi.red ++ "error: " ++ ansi.reset, .{});
+            print("at token {d} of {d} in `{s}`\n", .{ i, tokens.len, fmtSliceEscapeUpper(input) });
+            print("expected: {s}\n", .{expected});
+            print("     got: {s}\n\n", .{actual});
+            return err;
+        };
+    }
+}
+
+test "empty" {
+    const input = "";
+    const tokens = [_]Token{
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "lone continuation byte" {
+    const input = "\x80";
+    try expectError(error.InvalidUtf8, runTest(input, &.{}));
+}
+
+test "truncated 2-byte sequence" {
+    const input = "\xC2";
+    try expectError(error.InvalidUtf8, runTest(input, &.{}));
+}
+
+test "symbol" {
+    const input = "abc";
+    const tokens = [_]Token{
+        Token.init(.symbol, "abc"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "symbols" {
+    const input = "a b c";
+    const tokens = [_]Token{
+        Token.init(.symbol, "a"),
+        Token.init(.symbol, "b"),
+        Token.init(.symbol, "c"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "expression" {
+    const input = "(x:x)y";
+    const tokens = [_]Token{
+        Token.init(.lparen, "("),
+        Token.init(.symbol, "x"),
+        Token.init(.colon, ":"),
+        Token.init(.symbol, "x"),
+        Token.init(.rparen, ")"),
+        Token.init(.symbol, "y"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}

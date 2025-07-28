@@ -1,0 +1,41 @@
+const std = @import("std");
+const eql = std.mem.eql;
+const FormatOptions = std.fmt.FormatOptions;
+
+const Token = @This();
+
+tag: Tag,
+lexeme: []const u8,
+
+pub const Tag = enum {
+    eof,
+
+    colon,
+    lparen,
+    rparen,
+
+    number,
+    string,
+    symbol,
+
+    pub fn format(
+        self: Tag,
+        comptime _: []const u8,
+        _: FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{s}", .{@tagName(self)});
+    }
+};
+
+pub fn init(tag: Tag, lexeme: []const u8) Token {
+    return .{ .tag = tag, .lexeme = lexeme };
+}
+
+pub fn equal(a: Token, b: Token) bool {
+    return a.tag == b.tag and eql(u8, a.lexeme, b.lexeme);
+}
+
+pub fn format(self: Token, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    try writer.print("{s} `{s}`", .{ @tagName(self.tag), self.lexeme });
+}
