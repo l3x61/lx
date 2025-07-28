@@ -40,3 +40,8 @@ pub fn equal(a: Token, b: Token) bool {
 pub fn format(self: Token, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
     try writer.print("{s} `{s}`", .{ @tagName(self.tag), self.lexeme });
 }
+
+pub fn isOneOf(self: Token, expected: []const Tag) bool {
+    for (expected) |tag| if (self.tag == tag) return true;
+    return false;
+}

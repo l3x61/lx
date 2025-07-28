@@ -7,7 +7,7 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const fmtSliceEscapeUpper = std.fmt.fmtSliceEscapeUpper;
 
-const ansi = @import("Ansi.zig");
+const ansi = @import("ansi.zig");
 const Token = @import("Token.zig");
 
 const Lexer = @This();
@@ -26,9 +26,10 @@ pub fn nextToken(self: *Lexer) Token {
 
     const start = iterator.i;
 
-    const cp = iterator.nextCodepoint() orelse return Token.init(.eof, "");
+    const codepoint = iterator.nextCodepoint() orelse
+        return Token.init(.eof, "");
 
-    switch (cp) {
+    switch (codepoint) {
         '\\', 'λ' => return Token.init(.lambda, iterator.bytes[start..iterator.i]),
         '.' => return Token.init(.dot, iterator.bytes[start..iterator.i]),
         '(' => return Token.init(.lparen, iterator.bytes[start..iterator.i]),
