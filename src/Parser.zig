@@ -63,7 +63,7 @@ fn abstraction(self: *Parser) !*Node {
     const body = try self.expression();
     errdefer body.deinit(self.allocator);
 
-    return Node.Function.init(self.allocator, parameter, body);
+    return Node.Abstraction.init(self.allocator, parameter, body);
 }
 
 fn application(self: *Parser) !*Node {
@@ -156,7 +156,7 @@ test "lambda" {
     const input = "λx. x";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Function.init(
+        try Node.Abstraction.init(
             testing.allocator,
             Token.init(.symbol, "x"),
             try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -169,10 +169,10 @@ test "nested lambdas" {
     const input = "λx. λy. x";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Function.init(
+        try Node.Abstraction.init(
             testing.allocator,
             Token.init(.symbol, "x"),
-            try Node.Function.init(
+            try Node.Abstraction.init(
                 testing.allocator,
                 Token.init(.symbol, "y"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -206,7 +206,7 @@ test "application" {
         testing.allocator,
         try Node.Application.init(
             testing.allocator,
-            try Node.Function.init(
+            try Node.Abstraction.init(
                 testing.allocator,
                 Token.init(.symbol, "x"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -227,7 +227,7 @@ test "applications" {
                 testing.allocator,
                 try Node.Application.init(
                     testing.allocator,
-                    try Node.Function.init(
+                    try Node.Abstraction.init(
                         testing.allocator,
                         Token.init(.symbol, "x"),
                         try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),

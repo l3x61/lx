@@ -13,7 +13,7 @@ const String = std.ArrayList(u8);
 pub const Tag = enum {
     program,
     primary,
-    function,
+    abstraction,
     application,
 
     pub fn format(
@@ -29,7 +29,7 @@ pub const Tag = enum {
 pub const Node = union(Tag) {
     program: Program,
     primary: Primary,
-    function: Function,
+    abstraction: Abstraction,
     application: Application,
 
     fn tag(self: Node) Tag {
@@ -69,37 +69,37 @@ pub const Node = union(Tag) {
         }
     };
 
-    pub const Function = struct {
+    pub const Abstraction = struct {
         parameter: Token,
         body: *Node,
 
         pub fn init(allocator: Allocator, parameter: Token, body: *Node) !*Node {
             const node = try allocator.create(Node);
             node.* = Node{
-                .function = .{ .parameter = parameter, .body = body },
+                .abstraction = .{ .parameter = parameter, .body = body },
             };
             return node;
         }
 
-        fn deinit(self: *Function, allocator: Allocator) void {
+        fn deinit(self: *Abstraction, allocator: Allocator) void {
             self.body.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("function", self)));
+            allocator.destroy(@as(*Node, @fieldParentPtr("abstraction", self)));
         }
     };
 
     pub const Application = struct {
-        function: *Node,
+        abstraction: *Node,
         argument: *Node,
 
         pub fn init(
             allocator: Allocator,
-            function: *Node,
+            abstraction: *Node,
             argument: *Node,
         ) !*Node {
             const node = try allocator.create(Node);
             node.* = Node{
                 .application = .{
-                    .function = function,
+                    .abstraction = abstraction,
                     .argument = argument,
                 },
             };
@@ -107,7 +107,7 @@ pub const Node = union(Tag) {
         }
 
         pub fn deinit(self: *Application, allocator: Allocator) void {
-            self.function.deinit(allocator);
+            self.abstraction.deinit(allocator);
             self.argument.deinit(allocator);
             allocator.destroy(@as(*Node, @fieldParentPtr("application", self)));
         }
@@ -117,7 +117,7 @@ pub const Node = union(Tag) {
         switch (self.*) {
             .program => |*program| program.deinit(allocator),
             .primary => |*primary| primary.deinit(allocator),
-            .function => |*function| function.deinit(allocator),
+            .abstraction => |*abstraction| abstraction.deinit(allocator),
             .application => |*application| application.deinit(allocator),
         }
     }
@@ -157,16 +157,16 @@ pub const Node = union(Tag) {
                     operand.lexeme,
                 });
             },
-            .function => |function| {
+            .abstraction => |abstraction| {
                 print("{s} " ++ ansi.magenta ++ "{s}\n" ++ ansi.reset, .{
                     @as(Tag, self.*),
-                    function.parameter.lexeme,
+                    abstraction.parameter.lexeme,
                 });
-                try function.body._debug(&_prefix, true);
+                try abstraction.body._debug(&_prefix, true);
             },
             .application => |application| {
                 print("{s}\n", .{@as(Tag, self.*)});
-                try application.function._debug(&_prefix, false);
+                try application.abstraction._debug(&_prefix, false);
                 try application.argument._debug(&_prefix, true);
             },
         }
@@ -186,14 +186,14 @@ pub const Node = union(Tag) {
                 const b = node_b.primary;
                 return a.operand.equal(b.operand);
             },
-            .function => |a| {
-                const b = node_b.function;
+            .abstraction => |a| {
+                const b = node_b.abstraction;
                 return a.parameter.equal(b.parameter) and
                     a.body.equal(b.body);
             },
             .application => |a| {
                 const b = node_b.application;
-                return a.function.equal(b.function) and
+                return a.abstraction.equal(b.abstraction) and
                     a.argument.equal(b.argument);
             },
         };
