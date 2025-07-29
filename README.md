@@ -4,36 +4,38 @@ Experimental functional language written in Zig.
 
 ## ToDo
 
-- [x] lexer
-    - [x] utf-8 support
-- [x] parser
-- [x] interpreter
-    - [x] environment
-        - [ ] scope resolution
-    - [x] closures
-- [x] types
-    - [x] null
-    - [ ] boolean
-    - [x] number
-    - [ ] string
-    - [ ] list
-    - [ ] table
-    - [x] function
-- [ ] operators
-    - [ ] arithmetic
-    - [ ] logic
-    - [ ] relational
+lexer
+- [x] utf-8 support
+interpreter
+- [x] environment
+- [x] closures
+repl
+- [ ] help/usage
+- [ ] reuse result in new expression
+- [ ] syntax highlighting
+types
+- [x] null
+- [ ] boolean
+- [x] number
+- [ ] string
+- [ ] list
+- [ ] table
+- [x] function
+operators
+- [ ] arithmetic
+- [ ] logic
+- [ ] relational
 - [ ] comments
 - [ ] let expression
 - [ ] recursive let expression
 - [ ] if-then-else expression
 - [ ] garbage collector
 - [ ] type system
-- [ ] syntax sugar
-    - [ ] arguments
-    - [ ] bindings
-- [ ] better error messages
-    - [ ] which line and what token
+syntax sugar
+- [ ] arguments
+- [ ] bindings
+error messages
+- [ ] which line and what token
 
 ## Grammar
 
