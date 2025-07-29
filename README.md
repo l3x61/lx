@@ -66,7 +66,7 @@ primary
 NUMBER
     = # whatever std.fmt.parseFloat accepts
 IDENTIFIER
-    = # anything that is not '(', ')', '\\', or 'λ'
+    = # anything that is not '(', ')', '\\', 'λ', or WHITESPACE
 WHITESPACE
     = # ' ', '\t', '\f', '\r', '\n', NEL (U+0085), NBSP (U+00A0)
 ```
