@@ -6,13 +6,16 @@ Experimental functional language written in Zig.
 
 lexer
 - [x] utf-8 support
+
 interpreter
 - [x] environment
 - [x] closures
+
 repl
 - [ ] help/usage
 - [ ] reuse result in new expression
 - [ ] syntax highlighting
+
 types
 - [x] null
 - [ ] boolean
@@ -21,19 +24,24 @@ types
 - [ ] list
 - [ ] table
 - [x] function
+
 operators
 - [ ] arithmetic
 - [ ] logic
 - [ ] relational
+
+language
 - [ ] comments
 - [ ] let expression
 - [ ] recursive let expression
 - [ ] if-then-else expression
 - [ ] garbage collector
 - [ ] type system
+
 syntax sugar
 - [ ] arguments
 - [ ] bindings
+
 error messages
 - [ ] which line and what token
 
