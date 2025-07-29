@@ -9,7 +9,7 @@ const Node = @import("node.zig").Node;
 pub const Tag = enum {
     null,
     number,
-    function,
+    closure,
 
     pub fn format(self: Tag, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
         try writer.print("{s}", .{@tagName(self)});
@@ -19,7 +19,7 @@ pub const Tag = enum {
 pub const Value = union(Tag) {
     null: void,
     number: Number,
-    function: *Function,
+    closure: *Closure,
 
     fn tag(self: Value) Tag {
         return @as(Tag, self);
@@ -44,33 +44,33 @@ pub const Value = union(Tag) {
         }
     };
 
-    pub const Function = struct {
+    pub const Closure = struct {
         parameter: []const u8,
         body: *Node,
-        closure: *Environment,
+        env: *Environment,
 
         pub fn init(
             allocator: Allocator,
             function: Node.Abstraction,
             env: *Environment,
         ) !Value {
-            const func = try allocator.create(Function);
-            func.* = Function{
+            const closure = try allocator.create(Closure);
+            closure.* = Closure{
                 .parameter = function.parameter.lexeme,
                 .body = function.body,
-                .closure = env,
+                .env = env,
             };
-            return Value{ .function = func };
+            return Value{ .closure = closure };
         }
 
-        pub fn deinit(self: *Function, allocator: Allocator) void {
+        pub fn deinit(self: *Closure, allocator: Allocator) void {
             allocator.destroy(self);
         }
     };
 
     pub fn deinit(self: *Value, allocator: Allocator) void {
         return switch (self.*) {
-            .function => |function| function.deinit(allocator),
+            .closure => |closure| closure.deinit(allocator),
             else => {},
         };
     }
@@ -82,9 +82,9 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn asFunction(self: Value) ?*Function {
+    pub fn asFunction(self: Value) ?*Closure {
         return switch (self) {
-            .function => |function| function,
+            .closure => |closure| closure,
             else => null,
         };
     }
@@ -93,7 +93,7 @@ pub const Value = union(Tag) {
         switch (self) {
             .null => try writer.print("null", .{}),
             .number => |number| try writer.print("{d}", .{number.value}),
-            .function => |*function| try writer.print("λ@{x}", .{@intFromPtr(function)}),
+            .closure => |*closure| try writer.print("λ@{x}", .{@intFromPtr(closure)}),
         }
     }
 
@@ -103,7 +103,7 @@ pub const Value = union(Tag) {
         return switch (self) {
             .null => true,
             .number => |number| number.value == other.asNumber().?.value,
-            .function => |function| function == other.asFunction().?,
+            .closure => |closure| closure == other.asFunction().?,
         };
     }
 };

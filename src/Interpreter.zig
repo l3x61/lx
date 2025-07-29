@@ -6,6 +6,7 @@ const expect = testing.expect;
 
 const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
+const Object = @import("object.zig").Object;
 const Token = @import("Token.zig");
 const Value = @import("value.zig").Value;
 
@@ -13,12 +14,12 @@ const Interpreter = @This();
 
 allocator: Allocator,
 env: *Environment,
-objects: ArrayList(Value),
+objects: ArrayList(Object),
 
 pub fn init(allocator: Allocator) !Interpreter {
     return Interpreter{
         .allocator = allocator,
-        .objects = ArrayList(Value).init(allocator),
+        .objects = ArrayList(Object).init(allocator),
         .env = try Environment.init(allocator, null),
     };
 }
@@ -49,21 +50,21 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             };
         },
         .abstraction => |abstraction| {
-            const function = try Value.Function.init(self.allocator, abstraction, env);
-            try self.objects.append(function);
-            return function;
+            const closure = try Value.Closure.init(self.allocator, abstraction, env);
+            try self.objects.append(Object{ .value = closure });
+            return closure;
         },
         .application => |application| {
             const abstraction = try self._evaluate(application.abstraction, env);
             const argument = try self._evaluate(application.argument, env);
 
             return switch (abstraction) {
-                .function => |function| {
-                    var activation_env = try Environment.init(self.allocator, function.closure);
-                    defer activation_env.deinitSelf(self.allocator);
-                    try activation_env.define(function.parameter, argument);
+                .closure => |closure| {
+                    var call_env = try Environment.init(self.allocator, closure.env);
+                    try call_env.define(closure.parameter, argument);
+                    try self.objects.append(Object{ .env = call_env });
 
-                    return try self._evaluate(function.body, activation_env);
+                    return try self._evaluate(closure.body, call_env);
                 },
                 else => error.NotCallable,
             };
@@ -165,5 +166,33 @@ test "shadowing" {
     defer ast.deinit(testing.allocator);
 
     const expected = Value.Number.init(2);
+    try runTest(testing.allocator, ast, expected);
+}
+
+test "closure" {
+    // (λx. (λy. x)) -1 -2
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.Application.init(
+            testing.allocator,
+            try Node.Application.init(
+                testing.allocator,
+                try Node.Abstraction.init(
+                    testing.allocator,
+                    Token.init(.symbol, "x"),
+                    try Node.Abstraction.init(
+                        testing.allocator,
+                        Token.init(.symbol, "y"),
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                    ),
+                ),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "-1")),
+            ),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "-2")),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Number.init(-1);
     try runTest(testing.allocator, ast, expected);
 }

@@ -24,10 +24,10 @@ pub fn main() !void {
         defer ast.deinit(allocator);
         //try ast.debug(allocator);
 
-        var interpreter = try Interpreter.init(allocator);
-        defer interpreter.deinit();
+        var int = try Interpreter.init(allocator);
+        defer int.deinit();
 
-        const result = interpreter.evaluate(ast) catch |err| {
+        const result = int.evaluate(ast) catch |err| {
             print(ansi.red ++ "runtime error:" ++ ansi.reset ++ " {s}\n", .{@errorName(err)});
             continue;
         };
