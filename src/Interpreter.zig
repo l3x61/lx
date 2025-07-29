@@ -54,15 +54,16 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             return function;
         },
         .application => |application| {
-            const function = try self._evaluate(application.abstraction, env);
+            const abstraction = try self._evaluate(application.abstraction, env);
             const argument = try self._evaluate(application.argument, env);
 
-            return switch (function) {
-                .function => |func| {
-                    var child_env = try Environment.init(self.allocator, func.closure);
-                    defer child_env.deinitSelf(self.allocator);
-                    try child_env.define(func.parameter, argument);
-                    return try self._evaluate(func.body, child_env);
+            return switch (abstraction) {
+                .function => |function| {
+                    var activation_env = try Environment.init(self.allocator, function.closure);
+                    defer activation_env.deinitSelf(self.allocator);
+                    try activation_env.define(function.parameter, argument);
+
+                    return try self._evaluate(function.body, activation_env);
                 },
                 else => error.NotCallable,
             };
