@@ -104,9 +104,7 @@ pub const Value = union(Tag) {
             .null => print("null", .{}),
             .number => |number| print("{d}", .{number.value}),
             .closure => |closure| {
-                print(ansi.dimmed ++ "(λ{s}. ", .{closure.parameter});
-                try closure.body.debug();
-                print(")\n" ++ ansi.reset, .{});
+                print("{s}(λ{s}. {s}){s}", .{ ansi.dimmed, closure.parameter, closure.body, ansi.reset });
             },
         }
         print("\n", .{});

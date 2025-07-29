@@ -3,7 +3,9 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const testing = std.testing;
 const expect = testing.expect;
+const print = std.debug.print;
 
+const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
 const Object = @import("object.zig").Object;
@@ -66,7 +68,17 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
 
                     return try self._evaluate(closure.body, call_env);
                 },
-                else => error.NotCallable,
+                else => {
+                    print("can not apply {s}{s}{s} to {s}{s}{s}\n", .{
+                        ansi.dimmed,
+                        application.abstraction,
+                        ansi.reset,
+                        ansi.dimmed,
+                        application.argument,
+                        ansi.reset,
+                    });
+                    return error.NotCallable;
+                },
             };
         },
     };

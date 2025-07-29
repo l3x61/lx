@@ -32,7 +32,7 @@ pub const Node = union(Tag) {
     abstraction: Abstraction,
     application: Application,
 
-    fn tag(self: Node) Tag {
+    pub fn tag(self: Node) Tag {
         return @as(Tag, self);
     }
 
@@ -145,53 +145,54 @@ pub const Node = union(Tag) {
 
         switch (self.*) {
             .program => |program| {
-                print("{s}\n", .{@as(Tag, self.*)});
+                print("{s}\n", .{self.tag()});
                 if (program.expression) |expression| {
                     try expression._debugTree(&_prefix, true);
                 }
             },
             .primary => |primary| {
                 const operand = primary.operand;
-                print("{s} " ++ ansi.cyan ++ "{s}\n" ++ ansi.reset, .{
-                    operand.tag,
-                    operand.lexeme,
-                });
+                print("{s} {s}{s}{s}\n" ++ .{ ansi.cyan, self.tag(), operand.lexeme, ansi.reset });
             },
             .abstraction => |abstraction| {
-                print("{s} " ++ ansi.magenta ++ "{s}\n" ++ ansi.reset, .{
-                    @as(Tag, self.*),
+                print("{s} {s}{s}{s}\n", .{
+                    self.tag(),
+                    ansi.magenta,
                     abstraction.parameter.lexeme,
+                    ansi.reset,
                 });
                 try abstraction.body._debugTree(&_prefix, true);
             },
             .application => |application| {
-                print("{s}\n", .{@as(Tag, self.*)});
+                print("{s}\n", .{self.tag()});
                 try application.abstraction._debugTree(&_prefix, false);
                 try application.argument._debugTree(&_prefix, true);
             },
         }
     }
 
-    pub fn debug(self: *Node) !void {
+    pub fn format(
+        self: *Node,
+        comptime fmt: []const u8,
+        options: FormatOptions,
+        writer: anytype,
+    ) !void {
         switch (self.*) {
-            .program => |program| {
-                if (program.expression) |expression| {
-                    try expression.debug();
-                }
-            },
+            .program => |program| if (program.expression) |expression|
+                try expression.format(fmt, options, writer),
             .primary => |primary| {
                 const operand = primary.operand;
-                print("{s}", .{operand.lexeme});
+                try writer.print("{s}", .{operand.lexeme});
             },
             .abstraction => |abstraction| {
-                print("(λ{s}. ", .{abstraction.parameter.lexeme});
-                try abstraction.body.debug();
-                print(")", .{});
+                try writer.print("(λ{s}. ", .{abstraction.parameter.lexeme});
+                try abstraction.body.format(fmt, options, writer);
+                try writer.print(")", .{});
             },
             .application => |application| {
-                try application.abstraction.debug();
-                print(" ", .{});
-                try application.argument.debug();
+                try application.abstraction.format(fmt, options, writer);
+                try writer.print(" ", .{});
+                try application.argument.format(fmt, options, writer);
             },
         }
     }
