@@ -111,10 +111,7 @@ fn runTest(input: []const u8, expected: *Node) !void {
     defer actual.deinit(allocator);
 
     expect(actual.equal(expected)) catch {
-        print(ansi.red ++ "error: " ++ ansi.reset ++ "expected:\n", .{});
-        try expected.debug(allocator);
-        print("... but got ...\n", .{});
-        try actual.debug(allocator);
+        print("{s}error:{s} expected: {s} but got {s}\n", .{ ansi.red, ansi.reset, expected, actual });
         return error.TestFailed;
     };
 }
