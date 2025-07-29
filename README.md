@@ -9,6 +9,7 @@ Experimental functional language written in Zig.
 - [x] parser
 - [x] interpreter
     - [x] environment
+        - [ ] scope resolution
     - [x] closures
 - [x] types
     - [x] null
@@ -28,6 +29,9 @@ Experimental functional language written in Zig.
 - [ ] if-then-else expression
 - [ ] garbage collector
 - [ ] type system
+- [ ] syntax sugar
+    - [ ] arguments
+    - [ ] bindings
 - [ ] better error messages
     - [ ] which line and what token
 
