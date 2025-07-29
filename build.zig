@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "lya",
+        .name = "ly",
         .root_module = exe_mod,
     });
 

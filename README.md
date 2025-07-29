@@ -1,22 +1,26 @@
-# lya
+# ly
 
 Experimental functional language written in Zig.
 
 ## ToDo
 
 lexer
+
 - [x] utf-8 support
 
 interpreter
+
 - [x] environment
 - [x] closures
 
 repl
+
 - [ ] help/usage
 - [ ] reuse result in new expression
 - [ ] syntax highlighting
 
 types
+
 - [x] null
 - [ ] boolean
 - [x] number
@@ -26,11 +30,13 @@ types
 - [x] function
 
 operators
+
 - [ ] arithmetic
 - [ ] logic
 - [ ] relational
 
 language
+
 - [ ] comments
 - [ ] let expression
 - [ ] recursive let expression
@@ -39,10 +45,12 @@ language
 - [ ] type system
 
 syntax sugar
+
 - [ ] arguments
 - [ ] bindings
 
 error messages
+
 - [ ] which line and what token
 
 ## Grammar
