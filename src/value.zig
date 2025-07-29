@@ -8,20 +8,20 @@ const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
 
-pub const Tag = enum {
-    null,
-    number,
-    closure,
-
-    pub fn format(self: Tag, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
-        try writer.print("{s}", .{@tagName(self)});
-    }
-};
-
 pub const Value = union(Tag) {
     null: void,
     number: Number,
     closure: *Closure,
+
+    pub const Tag = enum {
+        null,
+        number,
+        closure,
+
+        pub fn format(self: Tag, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+            try writer.print("{s}", .{@tagName(self)});
+        }
+    };
 
     fn tag(self: Value) Tag {
         return @as(Tag, self);
