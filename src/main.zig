@@ -22,7 +22,6 @@ pub fn main() !void {
             continue;
         };
         defer ast.deinit(allocator);
-        //try ast.debug(allocator);
 
         var int = try Interpreter.init(allocator);
         defer int.deinit();
@@ -31,7 +30,7 @@ pub fn main() !void {
             print(ansi.red ++ "runtime error:" ++ ansi.reset ++ " {s}\n", .{@errorName(err)});
             continue;
         };
-        try stdout.print("{s}\n", .{result});
+        try result.debug();
     }
 }
 

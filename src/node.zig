@@ -122,13 +122,13 @@ pub const Node = union(Tag) {
         }
     }
 
-    pub fn debug(self: *Node, allocator: Allocator) !void {
+    pub fn debugTree(self: *Node, allocator: Allocator) !void {
         var prefix = String.init(allocator);
         defer prefix.deinit();
-        try self._debug(&prefix, true);
+        try self._debugTree(&prefix, true);
     }
 
-    fn _debug(self: *Node, prefix: *String, is_last: bool) !void {
+    fn _debugTree(self: *Node, prefix: *String, is_last: bool) !void {
         print(ansi.dimmed ++ "{s}", .{prefix.items});
         var _prefix = try prefix.clone();
         defer _prefix.deinit();
@@ -147,7 +147,7 @@ pub const Node = union(Tag) {
             .program => |program| {
                 print("{s}\n", .{@as(Tag, self.*)});
                 if (program.expression) |expression| {
-                    try expression._debug(&_prefix, true);
+                    try expression._debugTree(&_prefix, true);
                 }
             },
             .primary => |primary| {
@@ -162,12 +162,36 @@ pub const Node = union(Tag) {
                     @as(Tag, self.*),
                     abstraction.parameter.lexeme,
                 });
-                try abstraction.body._debug(&_prefix, true);
+                try abstraction.body._debugTree(&_prefix, true);
             },
             .application => |application| {
                 print("{s}\n", .{@as(Tag, self.*)});
-                try application.abstraction._debug(&_prefix, false);
-                try application.argument._debug(&_prefix, true);
+                try application.abstraction._debugTree(&_prefix, false);
+                try application.argument._debugTree(&_prefix, true);
+            },
+        }
+    }
+
+    pub fn debug(self: *Node) !void {
+        switch (self.*) {
+            .program => |program| {
+                if (program.expression) |expression| {
+                    try expression.debug();
+                }
+            },
+            .primary => |primary| {
+                const operand = primary.operand;
+                print("{s}", .{operand.lexeme});
+            },
+            .abstraction => |abstraction| {
+                print("(λ{s}. ", .{abstraction.parameter.lexeme});
+                try abstraction.body.debug();
+                print(")", .{});
+            },
+            .application => |application| {
+                try application.abstraction.debug();
+                print(" ", .{});
+                try application.argument.debug();
             },
         }
     }

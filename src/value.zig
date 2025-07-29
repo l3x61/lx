@@ -2,7 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const parseFloat = std.fmt.parseFloat;
 const FormatOptions = std.fmt.FormatOptions;
+const print = std.debug.print;
 
+const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
 
@@ -93,10 +95,22 @@ pub const Value = union(Tag) {
         switch (self) {
             .null => try writer.print("null", .{}),
             .number => |number| try writer.print("{d}", .{number.value}),
-            .closure => |*closure| try writer.print("λ@{x}", .{@intFromPtr(closure)}),
+            .closure => |closure| try writer.print("λ@{x}", .{@intFromPtr(closure)}),
         }
     }
 
+    pub fn debug(self: Value) !void {
+        switch (self) {
+            .null => print("null", .{}),
+            .number => |number| print("{d}", .{number.value}),
+            .closure => |closure| {
+                print(ansi.dimmed ++ "(λ{s}. ", .{closure.parameter});
+                try closure.body.debug();
+                print(")\n" ++ ansi.reset, .{});
+            },
+        }
+        print("\n", .{});
+    }
     pub fn equal(self: Value, other: Value) bool {
         if (self.tag() != other.tag()) return false;
 
