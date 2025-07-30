@@ -59,6 +59,76 @@ let AND = λp. λq. p q p in
     AND true true
 ```
 
+## Language Concepts
+
+### Name
+
+A name (or identifier) is a sybolic label used to refer a value.
+Names are bound to values within an enviroment.
+
+### Value
+
+A value is the result of evaluating an expression.
+Values can be numbers or functions (for now).
+
+### Variable
+
+    TODO
+
+### Lifetime
+
+    TODO
+
+### Environment
+
+An environment is a mapping from names to values.
+
+Environments can be chained, where each environment may have a parent. When looking up a name,\
+the current environment is checked first, followed by its parent, and so on.
+
+New environments are created by either:
+
+- Applying a function to an argument `(\x. x) 1`
+  Here an environment with the mapping `x = 1` is created for the body.
+- Using a let expression `let f = \x. x in f 1`
+  Here an environment with the mapping `f = \x. x` is created for the body.
+
+### Bindings
+
+A binding associates a name with a value within an environment.
+
+In the expression `let f = \x. x in f 1` two bindings occur:
+
+1. The name `f` is bound to `\x. x` for the expression `f 1`.
+2. When `f` is applied to `1`, the argument `1` is bound to the parameter `x` within `f`.
+
+### Shadowing
+
+Shadowing occurs when an inner binding uses the same name as an outer one.
+
+```
+let x = 1 in
+let x = 2 in
+    x
+```
+
+Here the inner `x = 2` shadows the outer `x = 1` one. The result of this expression is `2`\
+because only the inner binding is visible in the innermost scope.
+
+### Closures
+
+A closure is a function along with the enviroment in which it was defined.
+
+```
+(\x. \y. x) 1 2
+```
+
+Here the inner function `\y. x` captures the environment of the outer one, enabling it to access the variable `x`.
+
+### Scope
+
+A region in which a variable is valid. TODO
+
 ## Syntax Grammar
 
 ```py
@@ -98,6 +168,8 @@ WHITESPACE
 
 ## ToDo
 
+- [ ] move to docs/
+
 lexer
 
 - [x] utf-8 support
@@ -131,6 +203,7 @@ operators
 
 language
 
+- [ ] define expression
 - [ ] comments
 - [x] let expression
 - [ ] recursive let expression
