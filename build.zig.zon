@@ -1,7 +1,7 @@
 .{
-    .name = .ly,
+    .name = .lx,
     .version = "0.0.0",
-    .fingerprint = 0xa148ffcc285a7ec2,
+    .fingerprint = 0xd64fcf5ad405ca20,
     .minimum_zig_version = "0.14.1",
     .dependencies = .{},
     .paths = .{
