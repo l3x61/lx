@@ -81,6 +81,15 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 },
             };
         },
+        .let_in => |let_in| {
+            var let_env = try Environment.init(self.allocator, env);
+            const name = let_in.name.lexeme;
+            const value = try self._evaluate(let_in.value, let_env);
+            try let_env.define(name, value);
+            try self.objects.append(Object{ .env = let_env });
+
+            return try self._evaluate(let_in.body, let_env);
+        },
     };
 }
 
@@ -206,5 +215,22 @@ test "closure" {
     defer ast.deinit(testing.allocator);
 
     const expected = Value.Number.init(-1);
+    try runTest(testing.allocator, ast, expected);
+}
+
+test "let-in" {
+    // let one = 1 in one
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.LetIn.init(
+            testing.allocator,
+            Token.init(.symbol, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Number.init(1);
     try runTest(testing.allocator, ast, expected);
 }

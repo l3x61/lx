@@ -15,6 +15,7 @@ pub const Tag = enum {
     primary,
     abstraction,
     application,
+    let_in,
 
     pub fn format(
         self: Tag,
@@ -31,6 +32,7 @@ pub const Node = union(Tag) {
     primary: Primary,
     abstraction: Abstraction,
     application: Application,
+    let_in: LetIn,
 
     pub fn tag(self: Node) Tag {
         return @as(Tag, self);
@@ -66,6 +68,24 @@ pub const Node = union(Tag) {
 
         fn deinit(self: *Primary, allocator: Allocator) void {
             allocator.destroy(@as(*Node, @fieldParentPtr("primary", self)));
+        }
+    };
+
+    pub const LetIn = struct {
+        name: Token,
+        value: *Node,
+        body: *Node,
+
+        pub fn init(allocator: Allocator, name: Token, value: *Node, body: *Node) !*Node {
+            const node = try allocator.create(Node);
+            node.* = Node{ .let_in = .{ .name = name, .value = value, .body = body } };
+            return node;
+        }
+
+        pub fn deinit(self: *LetIn, allocator: Allocator) void {
+            self.value.deinit(allocator);
+            self.body.deinit(allocator);
+            allocator.destroy(@as(*Node, @fieldParentPtr("let_in", self)));
         }
     };
 
@@ -119,55 +139,7 @@ pub const Node = union(Tag) {
             .primary => |*primary| primary.deinit(allocator),
             .abstraction => |*abstraction| abstraction.deinit(allocator),
             .application => |*application| application.deinit(allocator),
-        }
-    }
-
-    pub fn debugTree(self: *Node, allocator: Allocator) !void {
-        var prefix = String.init(allocator);
-        defer prefix.deinit();
-        try self._debugTree(&prefix, true);
-    }
-
-    fn _debugTree(self: *Node, prefix: *String, is_last: bool) !void {
-        print(ansi.dimmed ++ "{s}", .{prefix.items});
-        var _prefix = try prefix.clone();
-        defer _prefix.deinit();
-        if (!is_last) {
-            print("├── ", .{});
-            try _prefix.appendSlice("│   ");
-        } else {
-            if (@as(Tag, self.*) != .program) {
-                print("└── ", .{});
-                try _prefix.appendSlice("    ");
-            }
-        }
-        print(ansi.reset, .{});
-
-        switch (self.*) {
-            .program => |program| {
-                print("{s}\n", .{self.tag()});
-                if (program.expression) |expression| {
-                    try expression._debugTree(&_prefix, true);
-                }
-            },
-            .primary => |primary| {
-                const operand = primary.operand;
-                print("{s} {s}{s}{s}\n" ++ .{ ansi.cyan, self.tag(), operand.lexeme, ansi.reset });
-            },
-            .abstraction => |abstraction| {
-                print("{s} {s}{s}{s}\n", .{
-                    self.tag(),
-                    ansi.magenta,
-                    abstraction.parameter.lexeme,
-                    ansi.reset,
-                });
-                try abstraction.body._debugTree(&_prefix, true);
-            },
-            .application => |application| {
-                print("{s}\n", .{self.tag()});
-                try application.abstraction._debugTree(&_prefix, false);
-                try application.argument._debugTree(&_prefix, true);
-            },
+            .let_in => |*let_in| let_in.deinit(allocator),
         }
     }
 
@@ -194,12 +166,19 @@ pub const Node = union(Tag) {
                 try writer.print(" ", .{});
                 try application.argument.format(fmt, options, writer);
             },
+            .let_in => |let_in| {
+                try writer.print("let ", .{});
+                try let_in.name.format(fmt, options, writer);
+                try writer.print(" = ", .{});
+                try let_in.value.format(fmt, options, writer);
+                try writer.print(" in ", .{});
+                try let_in.body.format(fmt, options, writer);
+            },
         }
     }
 
     pub fn equal(node_a: *Node, node_b: *Node) bool {
         if (node_a.tag() != node_b.tag()) return false;
-
         return switch (node_a.*) {
             .program => |a| {
                 const b = node_b.program;
@@ -220,6 +199,12 @@ pub const Node = union(Tag) {
                 const b = node_b.application;
                 return a.abstraction.equal(b.abstraction) and
                     a.argument.equal(b.argument);
+            },
+            .let_in => |a| {
+                const b = node_b.let_in;
+                return a.name.equal(b.name) and
+                    a.value.equal(b.value) and
+                    a.body.equal(b.body);
             },
         };
     }

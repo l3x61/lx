@@ -59,8 +59,11 @@ error messages
 program
     = expression* EOF
 expression
-    = abstraction
+    = let_in
+    | abstraction
     | application
+let_in
+    = 'let' IDENTIFIER '=' expression 'in' expression
 abstraction
     = ('\\' | 'λ') IDENTIFIER '.' expression
 application

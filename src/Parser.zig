@@ -30,11 +30,12 @@ pub fn parse(self: *Parser) !*Node {
     return self.program();
 }
 
-fn expectToken(self: *Parser, expected: []const Token.Tag) !Token {
+fn eatToken(self: *Parser, expected: []const Token.Tag) !Token {
     const token = self.token;
     self.token = self.lexer.nextToken();
 
     if (!token.isOneOf(expected)) {
+        print("expected {s} but got {s}\n", .{ expected, token });
         return error.SyntaxError;
     }
     return token;
@@ -50,16 +51,30 @@ fn program(self: *Parser) !*Node {
 
 fn expression(self: *Parser) anyerror!*Node {
     return switch (self.token.tag) {
+        .let => self.letIn(),
         .lambda => self.abstraction(),
         .number, .symbol, .lparen => self.application(),
         else => return error.SyntaxError,
     };
 }
 
+fn letIn(self: *Parser) !*Node {
+    _ = try self.eatToken(&[_]Token.Tag{.let});
+    const name = try self.eatToken(&[_]Token.Tag{.symbol});
+    _ = try self.eatToken(&[_]Token.Tag{.equal});
+    const value = try self.expression();
+    errdefer value.deinit(self.allocator);
+    _ = try self.eatToken(&[_]Token.Tag{.in});
+    const body = try self.expression();
+    errdefer body.deinit(self.allocator);
+
+    return Node.LetIn.init(self.allocator, name, value, body);
+}
+
 fn abstraction(self: *Parser) !*Node {
-    _ = try self.expectToken(&[_]Token.Tag{.lambda});
-    const parameter = try self.expectToken(&[_]Token.Tag{.symbol});
-    _ = try self.expectToken(&[_]Token.Tag{.dot});
+    _ = try self.eatToken(&[_]Token.Tag{.lambda});
+    const parameter = try self.eatToken(&[_]Token.Tag{.symbol});
+    _ = try self.eatToken(&[_]Token.Tag{.dot});
     const body = try self.expression();
     errdefer body.deinit(self.allocator);
 
@@ -87,14 +102,14 @@ fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
         .lambda => self.abstraction(),
         .lparen => {
-            _ = try self.expectToken(&[_]Token.Tag{.lparen});
+            _ = try self.eatToken(&[_]Token.Tag{.lparen});
             const node = try self.expression();
             errdefer node.deinit(self.allocator);
-            _ = try self.expectToken(&[_]Token.Tag{.rparen});
+            _ = try self.eatToken(&[_]Token.Tag{.rparen});
             return node;
         },
         .number, .symbol => {
-            const token = try self.expectToken(&[_]Token.Tag{ .number, .symbol });
+            const token = try self.eatToken(&[_]Token.Tag{ .number, .symbol });
             return Node.Primary.init(self.allocator, token);
         },
         else => self.application(),
@@ -234,6 +249,47 @@ test "applications" {
                 try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
             ),
             try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "let-in" {
+    const input = "let one = 1 in one";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.LetIn.init(
+            testing.allocator,
+            Token.init(.symbol, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "nested let-in" {
+    const input =
+        \\let one = 1 in
+        \\let two = 2 in
+        \\one two
+    ;
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.LetIn.init(
+            testing.allocator,
+            Token.init(.symbol, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            try Node.LetIn.init(
+                testing.allocator,
+                Token.init(.symbol, "two"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Application.init(
+                    testing.allocator,
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
+                ),
+            ),
         ),
     );
     try runTest(input, expected);

@@ -12,6 +12,11 @@ const Token = @import("Token.zig");
 
 const Lexer = @This();
 
+const keywords_map = std.StaticStringMap(Token.Tag).initComptime(.{
+    .{ "let", .let },
+    .{ "in", .in },
+});
+
 iterator: Utf8Iterator,
 
 pub fn init(input: []const u8) error{InvalidUtf8}!Lexer {
@@ -32,6 +37,7 @@ pub fn nextToken(self: *Lexer) Token {
     switch (codepoint) {
         '\\', 'λ' => return Token.init(.lambda, iterator.bytes[start..iterator.i]),
         '.' => return Token.init(.dot, iterator.bytes[start..iterator.i]),
+        '=' => return Token.init(.equal, iterator.bytes[start..iterator.i]),
         '(' => return Token.init(.lparen, iterator.bytes[start..iterator.i]),
         ')' => return Token.init(.rparen, iterator.bytes[start..iterator.i]),
         else => {},
@@ -39,6 +45,10 @@ pub fn nextToken(self: *Lexer) Token {
 
     consumeWhile(iterator, isSymbol);
     const lexeme = iterator.bytes[start..iterator.i];
+
+    if (keywords_map.get(lexeme)) |keyword_tag| {
+        return Token.init(keyword_tag, lexeme);
+    }
 
     _ = parseFloat(f64, lexeme) catch return Token.init(.symbol, lexeme);
     return Token.init(.number, lexeme);
@@ -150,6 +160,36 @@ test "lambda with unicode λ" {
         Token.init(.symbol, "x"),
         Token.init(.dot, "."),
         Token.init(.symbol, "x"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "let in" {
+    const input = "let id = λx.x in id 5";
+    const tokens = [_]Token{
+        Token.init(.let, "let"),
+        Token.init(.symbol, "id"),
+        Token.init(.equal, "="),
+        Token.init(.lambda, "λ"),
+        Token.init(.symbol, "x"),
+        Token.init(.dot, "."),
+        Token.init(.symbol, "x"),
+        Token.init(.in, "in"),
+        Token.init(.symbol, "id"),
+        Token.init(.number, "5"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "not let-in" {
+    const input = "letlet inin letin let-in";
+    const tokens = [_]Token{
+        Token.init(.symbol, "letlet"),
+        Token.init(.symbol, "inin"),
+        Token.init(.symbol, "letin"),
+        Token.init(.symbol, "let-in"),
         Token.init(.eof, ""),
     };
     try runTest(input, &tokens);
