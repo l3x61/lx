@@ -1,37 +1,13 @@
 const std = @import("std");
 const allocator = std.heap.c_allocator;
-const print = std.debug.print;
-const eql = std.mem.eql;
 
-const ansi = @import("ansi.zig");
-const Interpreter = @import("Interpreter.zig");
-const Lexer = @import("Lexer.zig");
-const Parser = @import("Parser.zig");
-const readLine = @import("readline.zig").readline;
-
-const stdout = std.io.getStdOut().writer();
+const Repl = @import("Repl.zig");
 
 pub fn main() !void {
-    while (true) {
-        const line = try readLine(allocator, ansi.cyan ++ "> " ++ ansi.reset);
-        defer allocator.free(line);
+    var repl = Repl.init(allocator);
+    defer repl.deinit();
 
-        var parser = try Parser.init(allocator, line);
-        const ast = parser.parse() catch |err| {
-            print(ansi.red ++ "parser error:" ++ ansi.reset ++ " {s}\n", .{@errorName(err)});
-            continue;
-        };
-        defer ast.deinit(allocator);
-
-        var int = try Interpreter.init(allocator);
-        defer int.deinit();
-
-        const result = int.evaluate(ast) catch |err| {
-            print(ansi.red ++ "runtime error:" ++ ansi.reset ++ " {s}\n", .{@errorName(err)});
-            continue;
-        };
-        try result.debug();
-    }
+    try repl.run();
 }
 
 test "all" {

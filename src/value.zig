@@ -99,16 +99,6 @@ pub const Value = union(Tag) {
         }
     }
 
-    pub fn debug(self: Value) !void {
-        switch (self) {
-            .null => print("null", .{}),
-            .number => |number| print("{d}", .{number.value}),
-            .closure => |closure| {
-                print("{s}(λ{s}. {s}){s}", .{ ansi.dimmed, closure.parameter, closure.body, ansi.reset });
-            },
-        }
-        print("\n", .{});
-    }
     pub fn equal(self: Value, other: Value) bool {
         if (self.tag() != other.tag()) return false;
 
