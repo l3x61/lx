@@ -95,7 +95,10 @@ pub const Value = union(Tag) {
         switch (self) {
             .null => try writer.print("null", .{}),
             .number => |number| try writer.print("{d}", .{number.value}),
-            .closure => |closure| try writer.print("λ@{x}", .{@intFromPtr(closure)}),
+            .closure => |closure| try writer.print("λ@0x{x} {s}", .{
+                @intFromPtr(closure),
+                closure.body,
+            }),
         }
     }
 
