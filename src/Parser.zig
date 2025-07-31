@@ -41,6 +41,9 @@ fn eatToken(self: *Parser, expected: []const Token.Tag) !Token {
     return token;
 }
 
+/// ```
+/// program = [ expression ] .
+/// ```
 fn program(self: *Parser) !*Node {
     const node = try Node.Program.init(self.allocator, null);
     errdefer node.deinit(self.allocator);
@@ -49,6 +52,9 @@ fn program(self: *Parser) !*Node {
     return node;
 }
 
+/// ```
+/// expression = let_in | abstraction | application .
+/// ```
 fn expression(self: *Parser) anyerror!*Node {
     return switch (self.token.tag) {
         .let => self.letIn(),
@@ -58,6 +64,9 @@ fn expression(self: *Parser) anyerror!*Node {
     };
 }
 
+/// ```
+/// let_in = "let" IDENTIFIER "=" expression "in" expression .
+/// ```
 fn letIn(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.let});
     const name = try self.eatToken(&[_]Token.Tag{.symbol});
@@ -71,6 +80,9 @@ fn letIn(self: *Parser) !*Node {
     return Node.LetIn.init(self.allocator, name, value, body);
 }
 
+/// ```
+/// abstraction = ("\\" | "λ") IDENTIFIER "." expression ;
+/// ```
 fn abstraction(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.lambda});
     const parameter = try self.eatToken(&[_]Token.Tag{.symbol});
@@ -81,6 +93,9 @@ fn abstraction(self: *Parser) !*Node {
     return Node.Abstraction.init(self.allocator, parameter, body);
 }
 
+/// ```
+/// application = primary primary* ;
+/// ```
 fn application(self: *Parser) !*Node {
     var left = try self.primary();
     errdefer left.deinit(self.allocator);
@@ -98,8 +113,15 @@ fn application(self: *Parser) !*Node {
     return left;
 }
 
+/// ```
+/// primary = NUMBER | IDENTIFIER | abstraction | "(" expression ")" .
+/// ```
 fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
+        .number, .symbol => {
+            const token = try self.eatToken(&[_]Token.Tag{ .number, .symbol });
+            return Node.Primary.init(self.allocator, token);
+        },
         .lambda => self.abstraction(),
         .lparen => {
             _ = try self.eatToken(&[_]Token.Tag{.lparen});
@@ -107,10 +129,6 @@ fn primary(self: *Parser) !*Node {
             errdefer node.deinit(self.allocator);
             _ = try self.eatToken(&[_]Token.Tag{.rparen});
             return node;
-        },
-        .number, .symbol => {
-            const token = try self.eatToken(&[_]Token.Tag{ .number, .symbol });
-            return Node.Primary.init(self.allocator, token);
         },
         else => self.application(),
     };

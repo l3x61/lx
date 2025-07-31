@@ -2,39 +2,6 @@
 
 Experimental functional language written in Zig.
 
-## Syntax Grammar
-
-```py
-program
-    = expression* EOF
-expression
-    = let_in
-    | abstraction
-    | application
-let_in
-    = 'let' IDENTIFIER '=' expression 'in' expression
-abstraction
-    = ('\\' | 'λ') IDENTIFIER '.' expression
-application
-    = primary primary*
-primary
-    = NUMBER
-    | IDENTIFIER
-    | abstraction
-    | '(' expression ')'
-
-NUMBER
-    = # whatever std.fmt.parseFloat accepts
-KEYWORD
-    = '\\' | 'λ' | 'let' | 'in'
-OPERATOR
-    = '(' | ')' | '.' | '='
-IDENTIFIER
-    = # anything that is not and OPERATOR, KEYWORD, or WHITESPACE
-WHITESPACE
-    = # ' ', '\t', '\f', '\r', '\n', NEL (U+0085), NBSP (U+00A0)
-```
-
 ## Dependencies
 
 - `readline` [GNU Readline](https://tiswww.cwru.edu/php/chet/readline/rltop.html)
