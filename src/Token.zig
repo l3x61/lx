@@ -19,6 +19,10 @@ pub const Tag = enum {
     let,
     in,
 
+    @"if",
+    then,
+    @"else",
+
     number,
     string,
     symbol,

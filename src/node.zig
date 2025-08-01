@@ -16,6 +16,7 @@ pub const Tag = enum {
     abstraction,
     application,
     let_in,
+    if_then_else,
 
     pub fn format(
         self: Tag,
@@ -33,6 +34,7 @@ pub const Node = union(Tag) {
     abstraction: Abstraction,
     application: Application,
     let_in: LetIn,
+    if_then_else: IfThenElse,
 
     pub fn tag(self: Node) Tag {
         return @as(Tag, self);
@@ -89,6 +91,34 @@ pub const Node = union(Tag) {
         }
     };
 
+    pub const IfThenElse = struct {
+        condition: *Node,
+        consequent: *Node,
+        alternate: *Node,
+
+        pub fn init(
+            allocator: Allocator,
+            condition: *Node,
+            consequent: *Node,
+            alternate: *Node,
+        ) !*Node {
+            const node = try allocator.create(Node);
+            node.* = Node{ .if_then_else = .{
+                .condition = condition,
+                .consequent = consequent,
+                .alternate = alternate,
+            } };
+            return node;
+        }
+
+        pub fn deinit(self: *IfThenElse, allocator: Allocator) void {
+            self.condition.deinit(allocator);
+            self.consequent.deinit(allocator);
+            self.alternate.deinit(allocator);
+            allocator.destroy(@as(*Node, @fieldParentPtr("if_then_else", self)));
+        }
+    };
+
     pub const Abstraction = struct {
         parameter: Token,
         body: *Node,
@@ -140,6 +170,7 @@ pub const Node = union(Tag) {
             .abstraction => |*abstraction| abstraction.deinit(allocator),
             .application => |*application| application.deinit(allocator),
             .let_in => |*let_in| let_in.deinit(allocator),
+            .if_then_else => |*if_then_else| if_then_else.deinit(allocator),
         }
     }
 
@@ -174,6 +205,14 @@ pub const Node = union(Tag) {
                 try writer.print(" in ", .{});
                 try let_in.body.format(fmt, options, writer);
             },
+            .if_then_else => |if_then_else| {
+                try writer.print("if ", .{});
+                try if_then_else.condition.format(fmt, options, writer);
+                try writer.print(" then ", .{});
+                try if_then_else.consequent.format(fmt, options, writer);
+                try writer.print(" else ", .{});
+                try if_then_else.alternate.format(fmt, options, writer);
+            },
         }
     }
 
@@ -205,6 +244,12 @@ pub const Node = union(Tag) {
                 return a.name.equal(b.name) and
                     a.value.equal(b.value) and
                     a.body.equal(b.body);
+            },
+            .if_then_else => |a| {
+                const b = node_b.if_then_else;
+                return a.condition.equal(b.condition) and
+                    a.consequent.equal(b.consequent) and
+                    a.alternate.equal(b.alternate);
             },
         };
     }

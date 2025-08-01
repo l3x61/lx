@@ -32,6 +32,7 @@ pub fn run(self: *Repl) !void {
 
         var parser = try Parser.init(self.allocator, line);
         const ast = parser.parse() catch continue;
+        try stdout.print("{s}{s}{s}\n", .{ ansi.dimmed, ast, ansi.reset });
         defer ast.deinit(self.allocator);
 
         var int = try Interpreter.init(self.allocator);

@@ -15,6 +15,9 @@ const Lexer = @This();
 const keywords_map = std.StaticStringMap(Token.Tag).initComptime(.{
     .{ "let", .let },
     .{ "in", .in },
+    .{ "if", .@"if" },
+    .{ "then", .then },
+    .{ "else", .@"else" },
 });
 
 iterator: Utf8Iterator,
@@ -195,6 +198,20 @@ test "not let-in" {
         Token.init(.symbol, "inin"),
         Token.init(.symbol, "letin"),
         Token.init(.symbol, "let-in"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "if then else" {
+    const input = "if 1 then 2 else 3";
+    const tokens = [_]Token{
+        Token.init(.@"if", "if"),
+        Token.init(.number, "1"),
+        Token.init(.then, "then"),
+        Token.init(.number, "2"),
+        Token.init(.@"else", "else"),
+        Token.init(.number, "3"),
         Token.init(.eof, ""),
     };
     try runTest(input, &tokens);

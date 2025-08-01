@@ -10,11 +10,13 @@ const Node = @import("node.zig").Node;
 
 pub const Value = union(Tag) {
     null: void,
+    boolean: bool,
     number: Number,
     closure: *Closure,
 
     pub const Tag = enum {
         null,
+        boolean,
         number,
         closure,
 
@@ -30,6 +32,12 @@ pub const Value = union(Tag) {
     pub const Null = struct {
         pub fn init() Value {
             return Value{ .null = {} };
+        }
+    };
+
+    pub const Boolean = struct {
+        pub fn init(value: bool) Value {
+            return Value{ .boolean = value };
         }
     };
 
@@ -84,6 +92,15 @@ pub const Value = union(Tag) {
         };
     }
 
+    pub fn asBoolean(self: *const Value) ?bool {
+        return switch (self.*) {
+            .null => false,
+            .number => |number| number.value != 0,
+            .boolean => |boolean| boolean,
+            else => null,
+        };
+    }
+
     pub fn asFunction(self: Value) ?*Closure {
         return switch (self) {
             .closure => |closure| closure,
@@ -94,6 +111,7 @@ pub const Value = union(Tag) {
     pub fn format(self: Value, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
         switch (self) {
             .null => try writer.print("null", .{}),
+            .boolean => |boolean| try writer.print("{}", .{boolean}),
             .number => |number| try writer.print("{d}", .{number.value}),
             .closure => |closure| try writer.print("λ@0x{x} {s}", .{
                 @intFromPtr(closure),
@@ -107,6 +125,7 @@ pub const Value = union(Tag) {
 
         return switch (self) {
             .null => true,
+            .boolean => |boolean| boolean == other.asBoolean().?,
             .number => |number| number.value == other.asNumber().?.value,
             .closure => |closure| closure == other.asFunction().?,
         };

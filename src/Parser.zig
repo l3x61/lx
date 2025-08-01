@@ -49,15 +49,17 @@ fn program(self: *Parser) !*Node {
     errdefer node.deinit(self.allocator);
 
     if (self.token.tag != .eof) node.program.expression = try self.expression();
+    _ = try self.eatToken(&[_]Token.Tag{.eof});
     return node;
 }
 
 /// ```
-/// expression = let_in | abstraction | application .
+/// expression = let_in | if_then_else | abstraction | application .
 /// ```
 fn expression(self: *Parser) anyerror!*Node {
     return switch (self.token.tag) {
         .let => self.letIn(),
+        .@"if" => self.ifThenElse(),
         .lambda => self.abstraction(),
         .number, .symbol, .lparen => self.application(),
         else => return error.SyntaxError,
@@ -70,14 +72,35 @@ fn expression(self: *Parser) anyerror!*Node {
 fn letIn(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.let});
     const name = try self.eatToken(&[_]Token.Tag{.symbol});
+
     _ = try self.eatToken(&[_]Token.Tag{.equal});
     const value = try self.expression();
     errdefer value.deinit(self.allocator);
+
     _ = try self.eatToken(&[_]Token.Tag{.in});
     const body = try self.expression();
     errdefer body.deinit(self.allocator);
 
     return Node.LetIn.init(self.allocator, name, value, body);
+}
+
+/// ```
+/// if_then_else = "if" expression "then" expression "else" expression .
+/// ```
+fn ifThenElse(self: *Parser) !*Node {
+    _ = try self.eatToken(&[_]Token.Tag{.@"if"});
+    const condition = try self.expression();
+    errdefer condition.deinit(self.allocator);
+
+    _ = try self.eatToken(&[_]Token.Tag{.then});
+    const consequent = try self.expression();
+    errdefer consequent.deinit(self.allocator);
+
+    _ = try self.eatToken(&[_]Token.Tag{.@"else"});
+    const alternate = try self.expression();
+    errdefer alternate.deinit(self.allocator);
+
+    return Node.IfThenElse.init(self.allocator, condition, consequent, alternate);
 }
 
 /// ```
@@ -307,6 +330,50 @@ test "nested let-in" {
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
                 ),
+            ),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "if then else" {
+    const input = "if 1 then 2 else 3";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.IfThenElse.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "fail to apply if-then-else" {
+    // if-then-else has a lower precedence than application
+    // hence EOF will be expected after parsing the abstraction
+    const input = "(\\x. x) if 1 then 2 else 3";
+    var parser = try Parser.init(testing.allocator, input);
+    try expectError(error.SyntaxError, parser.parse());
+}
+
+test "apply to if-then-else" {
+    const input = "(\\x. x) (if 1 then 2 else 3)";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Application.init(
+            testing.allocator,
+            try Node.Abstraction.init(
+                testing.allocator,
+                Token.init(.symbol, "x"),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+            ),
+            try Node.IfThenElse.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
             ),
         ),
     );

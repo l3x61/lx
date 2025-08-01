@@ -90,6 +90,17 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
 
             return try self._evaluate(let_in.body, let_env);
         },
+        .if_then_else => |if_then_else| {
+            const condition = try self._evaluate(if_then_else.condition, env);
+            if (condition.asBoolean()) |boolean| {
+                return if (boolean)
+                    self._evaluate(if_then_else.consequent, env)
+                else
+                    self._evaluate(if_then_else.alternate, env);
+            } else {
+                return error.NotABoolean;
+            }
+        },
     };
 }
 
