@@ -61,7 +61,7 @@ fn expression(self: *Parser) anyerror!*Node {
         .let => self.letIn(),
         .@"if" => self.ifThenElse(),
         .lambda => self.abstraction(),
-        .number, .symbol, .lparen => self.application(),
+        .null, .true, .false, .number, .symbol, .lparen => self.application(),
         else => return error.SyntaxError,
     };
 }
@@ -137,12 +137,12 @@ fn application(self: *Parser) !*Node {
 }
 
 /// ```
-/// primary = NUMBER | IDENTIFIER | abstraction | "(" expression ")" .
+/// primary = "null" | "true" | "false" | NUMBER | IDENTIFIER | abstraction | "(" expression ")" .
 /// ```
 fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
-        .number, .symbol => {
-            const token = try self.eatToken(&[_]Token.Tag{ .number, .symbol });
+        .null, .true, .false, .number, .symbol => {
+            const token = try self.eatToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol });
             return Node.Primary.init(self.allocator, token);
         },
         .lambda => self.abstraction(),
@@ -375,6 +375,20 @@ test "apply to if-then-else" {
                 try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
                 try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
             ),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "literals" {
+    const input = "if null then true else false";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.IfThenElse.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.null, "null")),
+            try Node.Primary.init(testing.allocator, Token.init(.true, "true")),
+            try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
         ),
     );
     try runTest(input, expected);

@@ -13,11 +13,16 @@ const Token = @import("Token.zig");
 const Lexer = @This();
 
 const keywords_map = std.StaticStringMap(Token.Tag).initComptime(.{
+    // keywords
     .{ "let", .let },
     .{ "in", .in },
     .{ "if", .@"if" },
     .{ "then", .then },
     .{ "else", .@"else" },
+    // literals
+    .{ "null", .null },
+    .{ "true", .true },
+    .{ "false", .false },
 });
 
 iterator: Utf8Iterator,
@@ -212,6 +217,17 @@ test "if then else" {
         Token.init(.number, "2"),
         Token.init(.@"else", "else"),
         Token.init(.number, "3"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "null true false" {
+    const input = "null true false";
+    const tokens = [_]Token{
+        Token.init(.null, "null"),
+        Token.init(.true, "true"),
+        Token.init(.false, "false"),
         Token.init(.eof, ""),
     };
     try runTest(input, &tokens);

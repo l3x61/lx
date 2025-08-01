@@ -23,6 +23,10 @@ pub const Tag = enum {
     then,
     @"else",
 
+    null,
+    true,
+    false,
+
     number,
     string,
     symbol,

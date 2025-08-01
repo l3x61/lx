@@ -46,6 +46,9 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
         .primary => |primary| {
             const operand = primary.operand;
             return switch (operand.tag) {
+                .null => Value.Null.init(),
+                .true => Value.Boolean.init(true),
+                .false => Value.Boolean.init(false),
                 .number => try Value.Number.parse(operand.lexeme),
                 .symbol => env.lookup(primary.operand.lexeme) orelse Value.Null.init(),
                 else => unreachable,
@@ -110,7 +113,10 @@ fn runTest(allocator: Allocator, node: *Node, expected: Value) !void {
 
     const actual = try interpreter.evaluate(node);
 
-    try expect(expected.equal(actual));
+    expect(expected.equal(actual)) catch |err| {
+        print("expected {s} but got {s}\n", .{ expected, actual });
+        return err;
+    };
 }
 
 test "empty" {
@@ -243,5 +249,22 @@ test "let-in" {
     defer ast.deinit(testing.allocator);
 
     const expected = Value.Number.init(1);
+    try runTest(testing.allocator, ast, expected);
+}
+
+test "literals" {
+    // if null then true else false
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.IfThenElse.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.null, "null")),
+            try Node.Primary.init(testing.allocator, Token.init(.true, "true")),
+            try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Boolean.init(false);
     try runTest(testing.allocator, ast, expected);
 }
