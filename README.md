@@ -8,7 +8,6 @@ Experimental functional language written in Zig.
 
 ## ToDo
 
-- [ ] move to docs/
 
 lexer
 
@@ -29,7 +28,7 @@ repl
 types
 
 - [x] null
-- [ ] boolean
+- [x] boolean
 - [x] number
 - [ ] string
 - [ ] list
@@ -48,7 +47,7 @@ language
 - [ ] comments
 - [x] let expression
 - [ ] recursive let expression
-- [ ] if-then-else expression
+- [x] if-then-else expression
 - [ ] garbage collector
 - [ ] type system
 
