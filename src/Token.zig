@@ -50,7 +50,10 @@ pub fn equal(a: Token, b: Token) bool {
 }
 
 pub fn format(self: Token, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
-    try writer.print("{s} `{s}`", .{ @tagName(self.tag), self.lexeme });
+    switch (self.tag) {
+        .eof => try writer.print("end-of-file", .{}),
+        else => try writer.print("{s}", .{self.lexeme}),
+    }
 }
 
 pub fn isOneOf(self: Token, expected: []const Tag) bool {

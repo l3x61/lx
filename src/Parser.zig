@@ -62,7 +62,10 @@ fn expression(self: *Parser) anyerror!*Node {
         .@"if" => self.ifThenElse(),
         .lambda => self.abstraction(),
         .null, .true, .false, .number, .symbol, .lparen => self.application(),
-        else => return error.SyntaxError,
+        else => {
+            print("expected an expression but got {s}\n", .{self.token});
+            return error.SyntaxError;
+        },
     };
 }
 

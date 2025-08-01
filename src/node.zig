@@ -198,11 +198,12 @@ pub const Node = union(Tag) {
                 try application.argument.format(fmt, options, writer);
             },
             .let_in => |let_in| {
-                try writer.print("let ", .{});
+                try writer.print("\nlet ", .{});
                 try let_in.name.format(fmt, options, writer);
                 try writer.print(" = ", .{});
                 try let_in.value.format(fmt, options, writer);
                 try writer.print(" in ", .{});
+                if (let_in.body.tag() != .let_in) try writer.print("\n  ", .{});
                 try let_in.body.format(fmt, options, writer);
             },
             .if_then_else => |if_then_else| {
