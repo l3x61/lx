@@ -9,34 +9,42 @@ const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const readLine = @import("readline.zig").readline;
 
+const Line = std.ArrayList([]u8);
 const Repl = @This();
 
 allocator: Allocator,
-
+lines: Line,
 pub fn init(allocator: Allocator) Repl {
     return Repl{
         .allocator = allocator,
+        .lines = Line.init(allocator),
     };
 }
 
 pub fn deinit(self: *Repl) void {
-    _ = self;
+    for (self.lines.items) |line| self.allocator.free(line);
+    self.lines.deinit();
 }
 
 pub fn run(self: *Repl) !void {
     const stdout = std.io.getStdOut().writer();
     const prompt = ansi.cyan ++ "> " ++ ansi.reset;
+
+    var int = try Interpreter.init(self.allocator);
+    defer int.deinit();
+
     while (true) {
         const line = try readLine(self.allocator, prompt);
-        defer self.allocator.free(line);
+        try self.lines.append(line);
+
+        // TODO: should be built ins
+        if (eql(u8, line, "exit")) break;
+        if (eql(u8, line, "env")) int.env.debug();
 
         var parser = try Parser.init(self.allocator, line);
         const ast = parser.parse() catch continue;
-        try stdout.print("{s}{s}{s}\n", .{ ansi.dimmed, ast, ansi.reset });
-        defer ast.deinit(self.allocator);
 
-        var int = try Interpreter.init(self.allocator);
-        defer int.deinit();
+        try stdout.print("{s}{s}{s}\n", .{ ansi.dimmed, ast, ansi.reset });
 
         const result = int.evaluate(ast) catch continue;
         try stdout.print("{s}\n", .{result});

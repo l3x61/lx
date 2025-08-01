@@ -23,6 +23,8 @@ repl
 - [ ] help/usage
 - [ ] implement own readline (with syntax highlighting)
 - [ ] reuse result in new expression
+- [x] exit
+- [x] env
 - [ ] syntax highlighting
 
 types
@@ -43,9 +45,9 @@ operators
 
 language
 
-- [ ] define expression
 - [ ] comments
 - [x] let expression
+- [x] let-in expression
 - [ ] recursive let expression
 - [x] if-then-else expression
 - [ ] garbage collector

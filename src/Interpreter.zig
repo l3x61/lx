@@ -65,11 +65,13 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
 
             return switch (abstraction) {
                 .closure => |closure| {
-                    var call_env = try Environment.init(self.allocator, closure.env);
-                    try call_env.define(closure.parameter, argument);
-                    try self.objects.append(Object{ .env = call_env });
+                    var child_env = try Environment.init(self.allocator, closure.env);
+                    try child_env.define(self.allocator, closure.parameter, argument);
+                    try self.objects.append(Object{ .env = child_env });
 
-                    return try self._evaluate(closure.body, call_env);
+                    const body = try closure.body.clone(self.allocator);
+                    try self.objects.append(Object{ .node = body });
+                    return try self._evaluate(body, child_env);
                 },
                 else => {
                     print("can not apply {s}{s}{s} to {s}{s}{s}\n", .{
@@ -84,14 +86,21 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 },
             };
         },
-        .let_in => |let_in| {
-            var let_env = try Environment.init(self.allocator, env);
-            const name = let_in.name.lexeme;
-            const value = try self._evaluate(let_in.value, let_env);
-            try let_env.define(name, value);
-            try self.objects.append(Object{ .env = let_env });
+        .let => |let| {
+            const name = let.name.lexeme;
+            const value = try self._evaluate(let.value, env);
+            try env.define(self.allocator, name, value);
 
-            return try self._evaluate(let_in.body, let_env);
+            return value;
+        },
+        .let_in => |let_in| {
+            var scope = try Environment.init(self.allocator, env);
+            const name = let_in.name.lexeme;
+            const value = try self._evaluate(let_in.value, scope);
+            try scope.define(self.allocator, name, value);
+            try self.objects.append(Object{ .env = scope });
+
+            return try self._evaluate(let_in.body, scope);
         },
         .if_then_else => |if_then_else| {
             const condition = try self._evaluate(if_then_else.condition, env);
