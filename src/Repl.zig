@@ -39,7 +39,10 @@ pub fn run(self: *Repl) !void {
 
         // TODO: should be built ins
         if (eql(u8, line, "exit")) break;
-        if (eql(u8, line, "env")) int.env.debug();
+        if (eql(u8, line, "env")) {
+            int.env.debug();
+            continue;
+        }
 
         var parser = try Parser.init(self.allocator, line);
         const ast = parser.parse() catch continue;

@@ -5,6 +5,7 @@ const testing = std.testing;
 const print = std.debug.print;
 const expect = testing.expect;
 
+const ansi = @import("ansi.zig");
 const Value = @import("value.zig").Value;
 
 const Environment = @This();
@@ -49,6 +50,9 @@ pub fn lookup(self: *Environment, key: []const u8) ?Value {
 }
 
 pub fn debug(self: *Environment) void {
+    if (self.record.unmanaged.entries.len == 0) {
+        print("{s}empty{s}\n", .{ ansi.dimmed, ansi.reset });
+    }
     self._debug(0);
 }
 

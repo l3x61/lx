@@ -41,7 +41,9 @@ pub fn evaluate(self: *Interpreter, node: *Node) !Value {
 pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
     return switch (node.*) {
         .program => |program| {
-            return try self._evaluate(program.expression orelse return Value.Null.init(), env);
+            const expression = program.expression orelse
+                return Value.Null.init();
+            return try self._evaluate(expression, env);
         },
         .primary => |primary| {
             const operand = primary.operand;
