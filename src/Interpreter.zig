@@ -18,11 +18,11 @@ allocator: Allocator,
 env: *Environment,
 objects: ArrayList(Object),
 
-pub fn init(allocator: Allocator) !Interpreter {
+pub fn init(allocator: Allocator, env: ?*Environment) !Interpreter {
     return Interpreter{
         .allocator = allocator,
         .objects = ArrayList(Object).init(allocator),
-        .env = try Environment.init(allocator, null),
+        .env = try Environment.init(allocator, env),
     };
 }
 
@@ -75,6 +75,9 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                     try self.objects.append(Object{ .node = body });
                     return try self._evaluate(body, child_env);
                 },
+                .builtin => |builtin| {
+                    return try builtin.function(argument, env);
+                },
                 else => {
                     print("can not apply {s}{s}{s} to {s}{s}{s}\n", .{
                         ansi.dimmed,
@@ -119,7 +122,7 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
 }
 
 fn runTest(allocator: Allocator, node: *Node, expected: Value) !void {
-    var interpreter = try Interpreter.init(allocator);
+    var interpreter = try Interpreter.init(allocator, null);
     defer interpreter.deinit();
 
     const actual = try interpreter.evaluate(node);

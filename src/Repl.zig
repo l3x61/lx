@@ -4,21 +4,33 @@ const print = std.debug.print;
 const eql = std.mem.eql;
 
 const ansi = @import("ansi.zig");
+const Environment = @import("Environment.zig");
 const Interpreter = @import("Interpreter.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const readLine = @import("readline.zig").readline;
+const Value = @import("value.zig").Value;
 
 const Line = std.ArrayList([]u8);
 const Repl = @This();
 
 allocator: Allocator,
 lines: Line,
-pub fn init(allocator: Allocator) Repl {
+env: *Environment,
+
+pub fn init(allocator: Allocator) !Repl {
     return Repl{
         .allocator = allocator,
         .lines = Line.init(allocator),
+        .env = try initEnvironment(allocator),
     };
+}
+
+fn initEnvironment(allocator: Allocator) !*Environment {
+    var env = try Environment.init(allocator, null);
+    try env.define(allocator, "#exit", Value.Builtin.init(@import("builtin/exit.zig").exit));
+    try env.define(allocator, "#env", Value.Builtin.init(@import("builtin/env.zig").env));
+    return env;
 }
 
 pub fn deinit(self: *Repl) void {
@@ -30,26 +42,24 @@ pub fn run(self: *Repl) !void {
     const stdout = std.io.getStdOut().writer();
     const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
-    var int = try Interpreter.init(self.allocator);
+    var int = try Interpreter.init(self.allocator, self.env);
     defer int.deinit();
 
     while (true) {
         const line = try readLine(self.allocator, prompt);
         try self.lines.append(line);
 
-        // TODO: should be built ins
-        if (eql(u8, line, "exit")) break;
-        if (eql(u8, line, "env")) {
-            int.env.debug();
-            continue;
-        }
-
         var parser = try Parser.init(self.allocator, line);
         const ast = parser.parse() catch continue;
 
         try stdout.print("{s}{s}{s}\n", .{ ansi.dimmed, ast, ansi.reset });
 
-        const result = int.evaluate(ast) catch continue;
+        const result = int.evaluate(ast) catch |err| {
+            switch (err) {
+                error.NormalExit => return,
+                else => continue,
+            }
+        };
         try stdout.print("{s}\n", .{result});
     }
 }

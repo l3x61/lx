@@ -12,12 +12,14 @@ pub const Value = union(Tag) {
     null: void,
     boolean: bool,
     number: Number,
+    builtin: Builtin,
     closure: *Closure,
 
     pub const Tag = enum {
         null,
         boolean,
         number,
+        builtin,
         closure,
 
         pub fn format(self: Tag, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
@@ -51,6 +53,16 @@ pub const Value = union(Tag) {
         pub fn parse(lexeme: []const u8) !Value {
             const value = try parseFloat(f64, lexeme);
             return Value{ .number = Number{ .value = value } };
+        }
+    };
+
+    pub const Builtin = struct {
+        function: *const fn (argument: Value, env: *Environment) anyerror!Value,
+
+        pub fn init(
+            function: fn (argument: Value, env: *Environment) anyerror!Value,
+        ) Value {
+            return Value{ .builtin = Builtin{ .function = function } };
         }
     };
 
@@ -101,6 +113,13 @@ pub const Value = union(Tag) {
         };
     }
 
+    pub fn asBuiltin(self: Value) ?Builtin {
+        return switch (self) {
+            .builtin => |builtin| builtin,
+            else => null,
+        };
+    }
+
     pub fn asFunction(self: Value) ?*Closure {
         return switch (self) {
             .closure => |closure| closure,
@@ -113,6 +132,9 @@ pub const Value = union(Tag) {
             .null => try writer.print("null", .{}),
             .boolean => |boolean| try writer.print("{}", .{boolean}),
             .number => |number| try writer.print("{d}", .{number.value}),
+            .builtin => |builtin| try writer.print("@0x{x}", .{
+                @intFromPtr(builtin.function),
+            }),
             .closure => |closure| try writer.print("λ@0x{x} {s}", .{
                 @intFromPtr(closure),
                 closure.body,
@@ -127,6 +149,7 @@ pub const Value = union(Tag) {
             .null => true,
             .boolean => |boolean| boolean == other.asBoolean().?,
             .number => |number| number.value == other.asNumber().?.value,
+            .builtin => |builtin| builtin.function == other.asBuiltin().?.function,
             .closure => |closure| closure == other.asFunction().?,
         };
     }

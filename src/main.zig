@@ -4,7 +4,7 @@ const allocator = std.heap.c_allocator;
 const Repl = @import("Repl.zig");
 
 pub fn main() !void {
-    var repl = Repl.init(allocator);
+    var repl = try Repl.init(allocator);
     defer repl.deinit();
 
     try repl.run();
