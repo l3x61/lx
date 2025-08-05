@@ -11,7 +11,7 @@ const Node = @import("node.zig").Node;
 pub const Value = union(Tag) {
     null: void,
     boolean: bool,
-    number: Number,
+    number: f64,
     builtin: Builtin,
     closure: *Closure,
 
@@ -44,15 +44,13 @@ pub const Value = union(Tag) {
     };
 
     pub const Number = struct {
-        value: f64,
-
         pub fn init(value: f64) Value {
-            return Value{ .number = Number{ .value = value } };
+            return Value{ .number = value };
         }
 
         pub fn parse(lexeme: []const u8) !Value {
             const value = try parseFloat(f64, lexeme);
-            return Value{ .number = Number{ .value = value } };
+            return Value{ .number = value };
         }
     };
 
@@ -96,19 +94,18 @@ pub const Value = union(Tag) {
             else => {},
         };
     }
-
-    pub fn asNumber(self: *const Value) ?Number {
+    pub fn asBoolean(self: *const Value) ?bool {
         return switch (self.*) {
-            .number => |number| number,
+            .null => false,
+            .number => |number| number != 0,
+            .boolean => |boolean| boolean,
             else => null,
         };
     }
 
-    pub fn asBoolean(self: *const Value) ?bool {
+    pub fn asNumber(self: *const Value) ?f64 {
         return switch (self.*) {
-            .null => false,
-            .number => |number| number.value != 0,
-            .boolean => |boolean| boolean,
+            .number => |number| number,
             else => null,
         };
     }
@@ -131,7 +128,7 @@ pub const Value = union(Tag) {
         switch (self) {
             .null => try writer.print("null", .{}),
             .boolean => |boolean| try writer.print("{}", .{boolean}),
-            .number => |number| try writer.print("{d}", .{number.value}),
+            .number => |number| try writer.print("{d}", .{number}),
             .builtin => |builtin| try writer.print("@0x{x}", .{
                 @intFromPtr(builtin.function),
             }),
@@ -148,7 +145,7 @@ pub const Value = union(Tag) {
         return switch (self) {
             .null => true,
             .boolean => |boolean| boolean == other.asBoolean().?,
-            .number => |number| number.value == other.asNumber().?.value,
+            .number => |number| number == other.asNumber().?,
             .builtin => |builtin| builtin.function == other.asBuiltin().?.function,
             .closure => |closure| closure == other.asFunction().?,
         };
