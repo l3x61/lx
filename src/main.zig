@@ -1,9 +1,14 @@
 const std = @import("std");
-const allocator = std.heap.c_allocator;
+const builtin = @import("builtin");
 
 const Repl = @import("Repl.zig");
 
+var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+
 pub fn main() !void {
+    const allocator = debug_allocator.allocator();
+    defer _ = debug_allocator.deinit();
+
     var repl = try Repl.init(allocator);
     defer repl.deinit();
 
