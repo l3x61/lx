@@ -139,7 +139,7 @@ fn application(self: *Parser) !*Node {
 
     while (true) {
         switch (self.token.tag) {
-            .lambda, .number, .symbol, .lparen => {
+            .null, .true, .false, .lambda, .number, .symbol, .lparen => {
                 const right = try self.primary();
                 errdefer right.deinit(self.allocator);
                 left = try Node.Application.init(self.allocator, left, right);
@@ -443,6 +443,23 @@ test "literals" {
             testing.allocator,
             try Node.Primary.init(testing.allocator, Token.init(.null, "null")),
             try Node.Primary.init(testing.allocator, Token.init(.true, "true")),
+            try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "apply to literals" {
+    const input = "fn true false";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Application.init(
+            testing.allocator,
+            try Node.Application.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
+                try Node.Primary.init(testing.allocator, Token.init(.true, "true")),
+            ),
             try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
         ),
     );
