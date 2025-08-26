@@ -63,12 +63,16 @@ pub const Value = union(Tag) {
     };
 
     pub const Builtin = struct {
-        function: *const fn (argument: Value, env: *Environment) anyerror!Value,
+        name: []const u8,
+        function: *const fn (argument: Value, env: *Environment, capture_env: ?*Environment) anyerror!Value,
+        capture_env: ?*Environment,
 
         pub fn init(
-            function: fn (argument: Value, env: *Environment) anyerror!Value,
+            name: []const u8,
+            function: fn (argument: Value, env: *Environment, capture_env: ?*Environment) anyerror!Value,
+            capture_env: ?*Environment,
         ) Value {
-            return Value{ .builtin = Builtin{ .function = function } };
+            return Value{ .builtin = Builtin{ .name = name, .function = function, .capture_env = capture_env } };
         }
     };
 
@@ -99,6 +103,7 @@ pub const Value = union(Tag) {
     pub fn deinit(self: *Value, allocator: Allocator) void {
         return switch (self.*) {
             .closure => |closure| closure.deinit(allocator),
+            .builtin => |builtin| if (builtin.capture_env) |ce| ce.deinitSelf(allocator),
             else => {},
         };
     }
@@ -143,13 +148,8 @@ pub const Value = union(Tag) {
             .null => try writer.print("null", .{}),
             .boolean => |boolean| try writer.print("{}", .{boolean}),
             .number => |number| try writer.print("{d}", .{number}),
-            .builtin => |builtin| try writer.print("@0x{x}", .{
-                @intFromPtr(builtin.function),
-            }),
-            .closure => |closure| try writer.print("λ@0x{x} {s}", .{
-                @intFromPtr(closure),
-                closure.body,
-            }),
+            .builtin => |builtin| try writer.print("<{s}>", .{builtin.name}),
+            .closure => |closure| try writer.print("<λ{s}. {s}>", .{ closure.parameter, closure.body }),
         }
     }
 

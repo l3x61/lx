@@ -27,9 +27,16 @@ pub fn init(allocator: Allocator) !Repl {
 }
 
 fn initEnvironment(allocator: Allocator) !*Environment {
+    const builtin_exit = @import("builtin/exit.zig");
+    const builtin_env = @import("builtin/env.zig");
+    const builtin_add = @import("builtin/add.zig");
+
     var env = try Environment.init(allocator, null);
-    try env.define(allocator, "#exit", Value.Builtin.init(@import("builtin/exit.zig").exit));
-    try env.define(allocator, "#env", Value.Builtin.init(@import("builtin/env.zig").env));
+
+    try env.define(allocator, builtin_exit.name, Value.Builtin.init(builtin_exit.name, builtin_exit.function, null));
+    try env.define(allocator, builtin_env.name, Value.Builtin.init(builtin_env.name, builtin_env.function, null));
+    try env.define(allocator, builtin_add.name, Value.Builtin.init(builtin_add.name, builtin_add.function, null));
+
     return env;
 }
 

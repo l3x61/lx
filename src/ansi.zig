@@ -1,7 +1,7 @@
 pub const reset = "\x1b[0m";
 pub const bold = "\x1b[1m";
 pub const dimmed = "\x1b[2m";
-pub const italic = "\x1b[3m]";
+pub const italic = "\x1b[3m";
 pub const underline = "\x1b[4m";
 pub const blink = "\x1b[5m";
 pub const reverse = "\x1b[7m";

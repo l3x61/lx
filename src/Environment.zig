@@ -11,12 +11,14 @@ const Value = @import("value.zig").Value;
 
 const Environment = @This();
 
+allocator: Allocator,
 parent: ?*Environment,
 record: StringHashMap(Value),
 
 pub fn init(allocator: Allocator, parent: ?*Environment) !*Environment {
     const self = try allocator.create(Environment);
     self.* = Environment{
+        .allocator = allocator,
         .parent = parent,
         .record = StringHashMap(Value).init(allocator),
     };

@@ -63,7 +63,7 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             return closure;
         },
         .application => |application| {
-            const abstraction = try self._evaluate(application.abstraction, env);
+            var abstraction = try self._evaluate(application.abstraction, env);
             const argument = try self._evaluate(application.argument, env);
 
             return switch (abstraction) {
@@ -81,7 +81,9 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                     return try self._evaluate(body, scope);
                 },
                 .builtin => |builtin| {
-                    return try builtin.function(argument, env);
+                    const result = try builtin.function(argument, env, builtin.capture_env);
+                    defer abstraction.deinit(self.allocator);
+                    return result;
                 },
                 else => {
                     print("can not apply {s}{s}{s} to {s}{s}{s}\n", .{
