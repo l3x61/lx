@@ -43,6 +43,22 @@ pub fn define(self: *Environment, allocator: Allocator, key: []const u8, value: 
     entry.value_ptr.* = value;
 }
 
+pub fn bind(self: *Environment, key: []const u8, value: Value) !void {
+    if (self.record.getPtr(key)) |key_ptr| {
+        if (key_ptr.*.isFree()) {
+            key_ptr.* = value;
+            return;
+        } else {
+            return error.AlreadyDefined;
+        }
+    }
+
+    if (self.parent) |parent|
+        return try parent.bind(key, value);
+
+    return error.NotDefined;
+}
+
 pub fn lookup(self: *Environment, key: []const u8) ?Value {
     if (self.record.get(key)) |value| return value;
     if (self.parent) |parent| return parent.lookup(key);

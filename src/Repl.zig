@@ -40,6 +40,7 @@ pub fn deinit(self: *Repl) void {
 
 pub fn run(self: *Repl) !void {
     const stdout = std.io.getStdOut().writer();
+    const stderr = std.io.getStdErr().writer();
     const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
     var int = try Interpreter.init(self.allocator, self.env);
@@ -57,8 +58,9 @@ pub fn run(self: *Repl) !void {
         const result = int.evaluate(ast) catch |err| {
             switch (err) {
                 error.NormalExit => return,
-                else => continue,
+                else => try stderr.print("{s}{s}{s}\n", .{ ansi.red, @errorName(err), ansi.reset }),
             }
+            continue;
         };
 
         try stdout.print("{s}\n", .{result});
