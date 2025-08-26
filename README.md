@@ -47,7 +47,6 @@ language
 
 - [ ] comments
 - [x] let expression
-- [x] let-in expression
 - [ ] recursive let expression
 - [x] if-then-else expression
 - [ ] garbage collector

@@ -70,7 +70,7 @@ fn expression(self: *Parser) anyerror!*Node {
 }
 
 /// ```
-/// let_in = "let" ["rec"] IDENTIFIER "=" expression ["in" expression] .
+/// let_in = "let" ["rec"] IDENTIFIER "=" expression "in" expression .
 /// ```
 fn letIn(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.let});
@@ -86,9 +86,6 @@ fn letIn(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.equal});
     const value = try self.expression();
     errdefer value.deinit(self.allocator);
-
-    if (!is_rec and self.token.tag != .in)
-        return Node.Let.init(self.allocator, name, value);
 
     _ = try self.eatToken(&[_]Token.Tag{.in});
     const body = try self.expression();
@@ -362,6 +359,12 @@ test "let-rec-in" {
         ),
     );
     try runTest(input, expected);
+}
+
+test "let without in is error" {
+    const input = "let one = 1";
+    var parser = try Parser.init(testing.allocator, input);
+    try expectError(error.SyntaxError, parser.parse());
 }
 
 test "nested let-rec in" {

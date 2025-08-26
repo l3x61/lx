@@ -98,13 +98,6 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 },
             };
         },
-        .let => |let| {
-            const name = let.name.lexeme;
-            const value = try self._evaluate(let.value, env);
-            try env.define(self.allocator, name, value);
-
-            return value;
-        },
         .let_in => |let_in| {
             var scope_owned: bool = false;
             var scope = try Environment.init(self.allocator, env);

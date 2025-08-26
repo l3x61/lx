@@ -15,7 +15,6 @@ pub const Tag = enum {
     primary,
     abstraction,
     application,
-    let,
     let_in,
     let_rec_in,
     if_then_else,
@@ -35,7 +34,6 @@ pub const Node = union(Tag) {
     primary: Primary,
     abstraction: Abstraction,
     application: Application,
-    let: Let,
     let_in: LetIn,
     let_rec_in: LetRecIn,
     if_then_else: IfThenElse,
@@ -87,27 +85,6 @@ pub const Node = union(Tag) {
 
         fn clone(self: *Primary, allocator: Allocator) !*Node {
             return try Primary.init(allocator, self.operand);
-        }
-    };
-
-    pub const Let = struct {
-        name: Token,
-        value: *Node,
-
-        pub fn init(allocator: Allocator, name: Token, value: *Node) !*Node {
-            const node = try allocator.create(Node);
-            node.* = Node{ .let = .{ .name = name, .value = value } };
-            return node;
-        }
-
-        pub fn deinit(self: *Let, allocator: Allocator) void {
-            self.value.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("let", self)));
-        }
-
-        pub fn clone(self: *Let, allocator: Allocator) !*Node {
-            const value = try self.value.clone(allocator);
-            return try Let.init(allocator, self.name, value);
         }
     };
 
@@ -255,7 +232,6 @@ pub const Node = union(Tag) {
             .primary => |*primary| primary.deinit(allocator),
             .abstraction => |*abstraction| abstraction.deinit(allocator),
             .application => |*application| application.deinit(allocator),
-            .let => |*let| let.deinit(allocator),
             .let_in => |*let_in| let_in.deinit(allocator),
             .let_rec_in => |*let_rec_in| let_rec_in.deinit(allocator),
             .if_then_else => |*if_then_else| if_then_else.deinit(allocator),
@@ -268,7 +244,6 @@ pub const Node = union(Tag) {
             .primary => |*primary| try primary.clone(allocator),
             .abstraction => |*abstraction| try abstraction.clone(allocator),
             .application => |*application| try application.clone(allocator),
-            .let => |*let| try let.clone(allocator),
             .let_in => |*let_in| try let_in.clone(allocator),
             .let_rec_in => |*let_rec_in| try let_rec_in.clone(allocator),
             .if_then_else => |*if_then_else| try if_then_else.clone(allocator),
@@ -297,13 +272,6 @@ pub const Node = union(Tag) {
                 try application.abstraction.format(fmt, options, writer);
                 try writer.print(" ", .{});
                 try application.argument.format(fmt, options, writer);
-            },
-            .let => |let| {
-                try writer.print("\nlet ", .{});
-                try let.name.format(fmt, options, writer);
-                try writer.print(" = ", .{});
-                try let.value.format(fmt, options, writer);
-                try writer.print("\n", .{});
             },
             .let_in => |let_in| {
                 try writer.print("\nlet ", .{});
@@ -354,10 +322,6 @@ pub const Node = union(Tag) {
             .application => |a| {
                 const b = node_b.application;
                 return a.abstraction.equal(b.abstraction) and a.argument.equal(b.argument);
-            },
-            .let => |a| {
-                const b = node_b.let_in;
-                return a.name.equal(b.name) and a.value.equal(b.value);
             },
             .let_in => |a| {
                 const b = node_b.let_in;
