@@ -15,6 +15,7 @@ const Lexer = @This();
 const keywords_map = std.StaticStringMap(Token.Tag).initComptime(.{
     // keywords
     .{ "let", .let },
+    .{ "rec", .rec },
     .{ "in", .in },
     .{ "if", .@"if" },
     .{ "then", .then },
@@ -62,7 +63,7 @@ pub fn nextToken(self: *Lexer) Token {
         return Token.init(keyword_tag, lexeme);
     }
 
-    //if lexeme matches a number then token=number else token=symbol
+    // if lexeme matches a number then token=number else token=symbol
     _ = parseFloat(f64, lexeme) catch return Token.init(.symbol, lexeme);
     return Token.init(.number, lexeme);
 }
@@ -182,6 +183,25 @@ test "let in" {
     const input = "let id = λx.x in id 5";
     const tokens = [_]Token{
         Token.init(.let, "let"),
+        Token.init(.symbol, "id"),
+        Token.init(.equal, "="),
+        Token.init(.lambda, "λ"),
+        Token.init(.symbol, "x"),
+        Token.init(.dot, "."),
+        Token.init(.symbol, "x"),
+        Token.init(.in, "in"),
+        Token.init(.symbol, "id"),
+        Token.init(.number, "5"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "let rec in" {
+    const input = "let rec id = λx.x in id 5";
+    const tokens = [_]Token{
+        Token.init(.let, "let"),
+        Token.init(.rec, "rec"),
         Token.init(.symbol, "id"),
         Token.init(.equal, "="),
         Token.init(.lambda, "λ"),
