@@ -53,7 +53,7 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 .true => Value.Boolean.init(true),
                 .false => Value.Boolean.init(false),
                 .number => try Value.Number.parse(operand.lexeme),
-                .symbol => env.lookup(primary.operand.lexeme) orelse Value.Null.init(),
+                .symbol => try env.lookup(primary.operand.lexeme),
                 else => unreachable,
             };
         },

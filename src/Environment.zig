@@ -4,6 +4,7 @@ const StringHashMap = std.StringArrayHashMap;
 const testing = std.testing;
 const print = std.debug.print;
 const expect = testing.expect;
+const expectError = testing.expectError;
 
 const ansi = @import("ansi.zig");
 const Value = @import("value.zig").Value;
@@ -53,16 +54,15 @@ pub fn bind(self: *Environment, key: []const u8, value: Value) !void {
         }
     }
 
-    if (self.parent) |parent|
-        return try parent.bind(key, value);
+    if (self.parent) |parent| return try parent.bind(key, value);
 
     return error.NotDefined;
 }
 
-pub fn lookup(self: *Environment, key: []const u8) ?Value {
+pub fn lookup(self: *Environment, key: []const u8) !Value {
     if (self.record.get(key)) |value| return value;
     if (self.parent) |parent| return parent.lookup(key);
-    return null;
+    return error.NotDefined;
 }
 
 pub fn debug(self: *Environment) void {
@@ -85,8 +85,8 @@ test "define and lookup variable" {
     const x = Value.Number.init(123);
     try env.define(testing.allocator, "x", x);
 
-    try expect(env.lookup("x").?.equal(x));
-    try expect(env.lookup("y") == null);
+    try expect((try env.lookup("x")).equal(x));
+    try expectError(error.NotDefined, env.lookup("y"));
 }
 
 test "lookup variable via parent" {
@@ -97,8 +97,8 @@ test "lookup variable via parent" {
     const child = try Environment.init(testing.allocator, parent);
     defer child.deinitAll(testing.allocator);
 
-    try expect(child.lookup("x").?.equal(x));
-    try expect(child.lookup("y") == null);
+    try expect((try child.lookup("x")).equal(x));
+    try expectError(error.NotDefined, child.lookup("y"));
 }
 
 test "shadowing" {
@@ -111,5 +111,5 @@ test "shadowing" {
     const x_child = Value.Number.init(99);
     try child.define(testing.allocator, "x", x_child);
 
-    try expect(child.lookup("x").?.equal(x_child));
+    try expect((try child.lookup("x")).equal(x_child));
 }
