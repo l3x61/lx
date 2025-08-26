@@ -52,12 +52,15 @@ pub fn run(self: *Repl) !void {
         var parser = try Parser.init(self.allocator, line);
         const ast = parser.parse() catch continue;
 
+        try stdout.print("{s}{s}{s}\n", .{ ansi.dimmed, ast, ansi.reset });
+
         const result = int.evaluate(ast) catch |err| {
             switch (err) {
                 error.NormalExit => return,
                 else => continue,
             }
         };
+
         try stdout.print("{s}\n", .{result});
     }
 }

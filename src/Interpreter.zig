@@ -107,6 +107,10 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
 
             return try self._evaluate(let_in.body, scope);
         },
+        .let_rec_in => |let_rec_in| {
+            _ = let_rec_in;
+            @panic("let rec ... in ... not implemented yet");
+        },
         .if_then_else => |if_then_else| {
             const condition = try self._evaluate(if_then_else.condition, env);
             if (condition.asBoolean()) |boolean| {
