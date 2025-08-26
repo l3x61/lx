@@ -17,6 +17,7 @@ pub const Tag = enum {
     application,
     let,
     let_in,
+    let_rec_in,
     if_then_else,
 
     pub fn format(
@@ -36,6 +37,7 @@ pub const Node = union(Tag) {
     application: Application,
     let: Let,
     let_in: LetIn,
+    let_rec_in: LetRecIn,
     if_then_else: IfThenElse,
 
     pub fn tag(self: Node) Tag {
@@ -130,6 +132,30 @@ pub const Node = union(Tag) {
             const value = try self.value.clone(allocator);
             const body = try self.body.clone(allocator);
             return try LetIn.init(allocator, self.name, value, body);
+        }
+    };
+
+    pub const LetRecIn = struct {
+        name: Token,
+        value: *Node,
+        body: *Node,
+
+        pub fn init(allocator: Allocator, name: Token, value: *Node, body: *Node) !*Node {
+            const node = try allocator.create(Node);
+            node.* = Node{ .let_rec_in = .{ .name = name, .value = value, .body = body } };
+            return node;
+        }
+
+        pub fn deinit(self: *LetRecIn, allocator: Allocator) void {
+            self.value.deinit(allocator);
+            self.body.deinit(allocator);
+            allocator.destroy(@as(*Node, @fieldParentPtr("let_rec_in", self)));
+        }
+
+        pub fn clone(self: *LetRecIn, allocator: Allocator) !*Node {
+            const value = try self.value.clone(allocator);
+            const body = try self.body.clone(allocator);
+            return try LetRecIn.init(allocator, self.name, value, body);
         }
     };
 
@@ -231,6 +257,7 @@ pub const Node = union(Tag) {
             .application => |*application| application.deinit(allocator),
             .let => |*let| let.deinit(allocator),
             .let_in => |*let_in| let_in.deinit(allocator),
+            .let_rec_in => |*let_rec_in| let_rec_in.deinit(allocator),
             .if_then_else => |*if_then_else| if_then_else.deinit(allocator),
         }
     }
@@ -243,6 +270,7 @@ pub const Node = union(Tag) {
             .application => |*application| try application.clone(allocator),
             .let => |*let| try let.clone(allocator),
             .let_in => |*let_in| try let_in.clone(allocator),
+            .let_rec_in => |*let_rec_in| try let_rec_in.clone(allocator),
             .if_then_else => |*if_then_else| try if_then_else.clone(allocator),
         };
     }
@@ -286,6 +314,15 @@ pub const Node = union(Tag) {
                 if (let_in.body.tag() != .let_in) try writer.print("\n  ", .{});
                 try let_in.body.format(fmt, options, writer);
             },
+            .let_rec_in => |let_rec_in| {
+                try writer.print("\nlet rec ", .{});
+                try let_rec_in.name.format(fmt, options, writer);
+                try writer.print(" = ", .{});
+                try let_rec_in.value.format(fmt, options, writer);
+                try writer.print(" in ", .{});
+                if (let_rec_in.body.tag() != .let_in) try writer.print("\n  ", .{});
+                try let_rec_in.body.format(fmt, options, writer);
+            },
             .if_then_else => |if_then_else| {
                 try writer.print("if ", .{});
                 try if_then_else.condition.format(fmt, options, writer);
@@ -324,6 +361,10 @@ pub const Node = union(Tag) {
             },
             .let_in => |a| {
                 const b = node_b.let_in;
+                return a.name.equal(b.name) and a.value.equal(b.value) and a.body.equal(b.body);
+            },
+            .let_rec_in => |a| {
+                const b = node_b.let_rec_in;
                 return a.name.equal(b.name) and a.value.equal(b.value) and a.body.equal(b.body);
             },
             .if_then_else => |a| {

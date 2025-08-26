@@ -17,6 +17,7 @@ pub const Tag = enum {
     rparen,
 
     let,
+    rec,
     in,
 
     @"if",

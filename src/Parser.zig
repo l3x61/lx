@@ -70,23 +70,31 @@ fn expression(self: *Parser) anyerror!*Node {
 }
 
 /// ```
-/// let_in = "let" IDENTIFIER "=" expression ["in" expression] .
+/// let_in = "let" ["rec"] IDENTIFIER "=" expression ["in" expression] .
 /// ```
 fn letIn(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.let});
+
+    var is_rec: bool = false;
+    if (self.token.tag == .rec) {
+        _ = try self.eatToken(&[_]Token.Tag{.rec});
+        is_rec = true;
+    }
+
     const name = try self.eatToken(&[_]Token.Tag{.symbol});
 
     _ = try self.eatToken(&[_]Token.Tag{.equal});
     const value = try self.expression();
     errdefer value.deinit(self.allocator);
 
-    if (self.token.tag != .in)
+    if (!is_rec and self.token.tag != .in)
         return Node.Let.init(self.allocator, name, value);
 
     _ = try self.eatToken(&[_]Token.Tag{.in});
     const body = try self.expression();
     errdefer body.deinit(self.allocator);
 
+    if (is_rec) return Node.LetRecIn.init(self.allocator, name, value, body);
     return Node.LetIn.init(self.allocator, name, value, body);
 }
 
@@ -328,6 +336,47 @@ test "nested let-in" {
             Token.init(.symbol, "one"),
             try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
             try Node.LetIn.init(
+                testing.allocator,
+                Token.init(.symbol, "two"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Application.init(
+                    testing.allocator,
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
+                ),
+            ),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "let-rec-in" {
+    const input = "let rec x = x in x";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.LetRecIn.init(
+            testing.allocator,
+            Token.init(.symbol, "x"),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "nested let-rec in" {
+    const input =
+        \\let rec one = 1 in
+        \\let rec two = 2 in
+        \\one two
+    ;
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.LetRecIn.init(
+            testing.allocator,
+            Token.init(.symbol, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            try Node.LetRecIn.init(
                 testing.allocator,
                 Token.init(.symbol, "two"),
                 try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
