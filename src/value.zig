@@ -9,7 +9,7 @@ const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
 
 pub const Value = union(Tag) {
-    free: void,
+    void: void,
     null: void,
     boolean: bool,
     number: f64,
@@ -17,7 +17,7 @@ pub const Value = union(Tag) {
     closure: *Closure,
 
     pub const Tag = enum {
-        free,
+        void,
         null,
         boolean,
         number,
@@ -33,11 +33,9 @@ pub const Value = union(Tag) {
         return @as(Tag, self);
     }
 
-    pub const Free = struct {
-        pub fn init() Value {
-            return Value{ .free = {} };
-        }
-    };
+    pub fn init() Value {
+        return Value{ .void = {} };
+    }
 
     pub const Null = struct {
         pub fn init() Value {
@@ -109,7 +107,7 @@ pub const Value = union(Tag) {
     }
 
     pub fn isFree(self: *const Value) bool {
-        return self.tag() == .free;
+        return self.tag() == .void;
     }
 
     pub fn asBoolean(self: *const Value) ?bool {
@@ -144,7 +142,7 @@ pub const Value = union(Tag) {
 
     pub fn format(self: Value, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
         switch (self) {
-            .free => try writer.print("<free>", .{}),
+            .void => try writer.print("<void>", .{}),
             .null => try writer.print("null", .{}),
             .boolean => |boolean| try writer.print("{}", .{boolean}),
             .number => |number| try writer.print("{d}", .{number}),
@@ -157,7 +155,7 @@ pub const Value = union(Tag) {
         if (self.tag() != other.tag()) return false;
 
         return switch (self) {
-            .free => true, // TODO: unreachable ?
+            .void => true,
             .null => true,
             .boolean => |boolean| boolean == other.asBoolean().?,
             .number => |number| number == other.asNumber().?,

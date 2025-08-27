@@ -104,7 +104,7 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             errdefer if (!scope_owned) scope.deinitSelf(self.allocator);
 
             const name = let_in.name.lexeme;
-            try scope.define(self.allocator, name, Value.Free.init());
+            try scope.define(self.allocator, name, Value.init());
 
             const value = try self._evaluate(let_in.value, scope);
             if (value.isFree()) return error.RecursiveBinding;
@@ -121,7 +121,7 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             errdefer if (!scope_owned) scope.deinitSelf(self.allocator);
 
             const name = let_rec_in.name.lexeme;
-            try scope.define(self.allocator, name, Value.Free.init());
+            try scope.define(self.allocator, name, Value.init());
             const value = try self._evaluate(let_rec_in.value, scope);
 
             if (value.asFunction() == null) return error.RecursiveBinding;
