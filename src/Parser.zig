@@ -42,7 +42,9 @@ fn eatToken(self: *Parser, expected: []const Token.Tag) !Token {
 }
 
 /// ```
-/// program = [ expression ] .
+/// program
+///     = [ expression ]
+///     .
 /// ```
 fn program(self: *Parser) !*Node {
     const node = try Node.Program.init(self.allocator, null);
@@ -54,11 +56,16 @@ fn program(self: *Parser) !*Node {
 }
 
 /// ```
-/// expression = let_in | if_then_else | abstraction | application .
+/// expression
+///     = let_rec_in
+///     | if_then_else
+///     | abstraction
+///     | application
+///     .
 /// ```
 fn expression(self: *Parser) anyerror!*Node {
     return switch (self.token.tag) {
-        .let => self.letIn(),
+        .let => self.letRecIn(),
         .@"if" => self.ifThenElse(),
         .lambda => self.abstraction(),
         .null, .true, .false, .number, .symbol, .lparen => self.application(),
@@ -70,9 +77,11 @@ fn expression(self: *Parser) anyerror!*Node {
 }
 
 /// ```
-/// let_in = "let" ["rec"] IDENTIFIER "=" expression "in" expression .
+/// let_in
+///     = "let" ["rec"] IDENTIFIER "=" expression "in" expression
+///     .
 /// ```
-fn letIn(self: *Parser) !*Node {
+fn letRecIn(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.let});
 
     var is_rec: bool = false;
@@ -96,7 +105,9 @@ fn letIn(self: *Parser) !*Node {
 }
 
 /// ```
-/// if_then_else = "if" expression "then" expression "else" expression .
+/// if_then_else
+///     = "if" expression "then" expression "else" expression
+///     .
 /// ```
 fn ifThenElse(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.@"if"});
@@ -115,7 +126,9 @@ fn ifThenElse(self: *Parser) !*Node {
 }
 
 /// ```
-/// abstraction = ("\\" | "λ") IDENTIFIER "." expression ;
+/// abstraction
+///     = ("\\" | "λ") IDENTIFIER "." expression
+///     .
 /// ```
 fn abstraction(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.lambda});
@@ -128,7 +141,9 @@ fn abstraction(self: *Parser) !*Node {
 }
 
 /// ```
-/// application = primary primary* ;
+/// application
+///     = primary primary*
+///     .
 /// ```
 fn application(self: *Parser) !*Node {
     var left = try self.primary();
@@ -148,7 +163,15 @@ fn application(self: *Parser) !*Node {
 }
 
 /// ```
-/// primary = "null" | "true" | "false" | NUMBER | IDENTIFIER | abstraction | "(" expression ")" .
+/// primary
+///     = "null"
+///     | "true"
+///     | "false"
+///     | NUMBER
+///     | IDENTIFIER
+///     | abstraction
+///     | "(" expression ")"
+/// .
 /// ```
 fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
@@ -164,7 +187,9 @@ fn primary(self: *Parser) !*Node {
             _ = try self.eatToken(&[_]Token.Tag{.rparen});
             return node;
         },
-        else => self.application(),
+        else => {
+            try self.eatToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol, .lambda, .lparen });
+        },
     };
 }
 
