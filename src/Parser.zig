@@ -188,7 +188,8 @@ fn primary(self: *Parser) !*Node {
             return node;
         },
         else => {
-            try self.eatToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol, .lambda, .lparen });
+            _ = try self.eatToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol, .lambda, .lparen });
+            return error.SyntaxError;
         },
     };
 }
