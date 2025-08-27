@@ -47,7 +47,9 @@ fn initEnvironment(allocator: Allocator) !*Environment {
 }
 
 pub fn deinit(self: *Repl) void {
-    for (self.lines.items) |line| self.allocator.free(line);
+    for (self.lines.items) |line| {
+        self.allocator.free(line);
+    }
     self.lines.deinit();
 }
 

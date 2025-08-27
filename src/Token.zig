@@ -58,6 +58,10 @@ pub fn format(self: Token, comptime _: []const u8, _: FormatOptions, writer: any
 }
 
 pub fn isOneOf(self: Token, expected: []const Tag) bool {
-    for (expected) |tag| if (self.tag == tag) return true;
+    for (expected) |tag| {
+        if (self.tag == tag) {
+            return true;
+        }
+    }
     return false;
 }

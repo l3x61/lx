@@ -39,7 +39,7 @@ pub fn evaluate(self: *Interpreter, node: *Node) !Value {
     return self._evaluate(node, self.env);
 }
 
-pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
+fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
     return switch (node.*) {
         .program => |program| {
             const expression = program.expression orelse
@@ -57,16 +57,16 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 else => unreachable,
             };
         },
-        .abstraction => |abstraction| {
-            const closure = try Value.Closure.init(self.allocator, abstraction, env);
+        .function => |function| {
+            const closure = try Value.Closure.init(self.allocator, function, env);
             try self.objects.append(Object{ .value = closure });
             return closure;
         },
-        .application => |application| {
-            var abstraction = try self._evaluate(application.abstraction, env);
-            const argument = try self._evaluate(application.argument, env);
+        .apply => |apply| {
+            var function = try self._evaluate(apply.function, env);
+            const argument = try self._evaluate(apply.argument, env);
 
-            return switch (abstraction) {
+            return switch (function) {
                 .closure => |closure| {
                     var scope_owned: bool = false;
                     var scope = try Environment.init(self.allocator, closure.env);
@@ -82,16 +82,16 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 },
                 .builtin => |builtin| {
                     const result = try builtin.function(argument, env, builtin.capture_env);
-                    defer abstraction.deinit(self.allocator);
+                    defer function.deinit(self.allocator);
                     return result;
                 },
                 else => {
                     print("can not apply {s}{s}{s} to {s}{s}{s}\n", .{
                         ansi.dimmed,
-                        application.abstraction,
+                        apply.function,
                         ansi.reset,
                         ansi.dimmed,
-                        application.argument,
+                        apply.argument,
                         ansi.reset,
                     });
                     return error.NotCallable;
@@ -101,13 +101,17 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
         .let_in => |let_in| {
             var scope_owned: bool = false;
             var scope = try Environment.init(self.allocator, env);
-            errdefer if (!scope_owned) scope.deinitSelf(self.allocator);
+            errdefer if (!scope_owned) {
+                scope.deinitSelf(self.allocator);
+            };
 
             const name = let_in.name.lexeme;
             try scope.define(self.allocator, name, Value.init());
 
             const value = try self._evaluate(let_in.value, scope);
-            if (value.isFree()) return error.RecursiveBinding;
+            if (value.isVoid()) {
+                return error.RecursiveBinding;
+            }
             try scope.bind(name, value);
 
             try self.objects.append(Object{ .env = scope });
@@ -118,13 +122,17 @@ pub fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
         .let_rec_in => |let_rec_in| {
             var scope_owned: bool = false;
             var scope = try Environment.init(self.allocator, env);
-            errdefer if (!scope_owned) scope.deinitSelf(self.allocator);
+            errdefer if (!scope_owned) {
+                scope.deinitSelf(self.allocator);
+            };
 
             const name = let_rec_in.name.lexeme;
             try scope.define(self.allocator, name, Value.init());
             const value = try self._evaluate(let_rec_in.value, scope);
 
-            if (value.asFunction() == null) return error.RecursiveBinding;
+            if (value.asFunction() == null) {
+                return error.RecursiveBinding;
+            }
 
             try scope.bind(name, value);
 
@@ -179,13 +187,13 @@ test "number" {
     try runTest(testing.allocator, ast, expected);
 }
 
-test "application" {
+test "apply" {
     // (λx. x) 123
     const ast = try Node.Program.init(
         testing.allocator,
-        try Node.Application.init(
+        try Node.Apply.init(
             testing.allocator,
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "x"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -203,9 +211,9 @@ test "return" {
     // (λx. 999) 123
     const ast = try Node.Program.init(
         testing.allocator,
-        try Node.Application.init(
+        try Node.Apply.init(
             testing.allocator,
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "x"),
                 try Node.Primary.init(testing.allocator, Token.init(.number, "999")),
@@ -223,14 +231,14 @@ test "shadowing" {
     // (λx. (λx. x) 2) 1
     const ast = try Node.Program.init(
         testing.allocator,
-        try Node.Application.init(
+        try Node.Apply.init(
             testing.allocator,
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "x"),
-                try Node.Application.init(
+                try Node.Apply.init(
                     testing.allocator,
-                    try Node.Abstraction.init(
+                    try Node.Function.init(
                         testing.allocator,
                         Token.init(.symbol, "x"),
                         try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -251,14 +259,14 @@ test "closure" {
     // (λx. (λy. x)) -1 -2
     const ast = try Node.Program.init(
         testing.allocator,
-        try Node.Application.init(
+        try Node.Apply.init(
             testing.allocator,
-            try Node.Application.init(
+            try Node.Apply.init(
                 testing.allocator,
-                try Node.Abstraction.init(
+                try Node.Function.init(
                     testing.allocator,
                     Token.init(.symbol, "x"),
-                    try Node.Abstraction.init(
+                    try Node.Function.init(
                         testing.allocator,
                         Token.init(.symbol, "y"),
                         try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -323,7 +331,7 @@ test "let-in recursive nested" {
                 testing.allocator,
                 Token.init(.symbol, "two"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
-                try Node.Application.init(
+                try Node.Apply.init(
                     testing.allocator,
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
@@ -363,7 +371,7 @@ test "let-rec closure allowed" {
         try Node.LetRecIn.init(
             testing.allocator,
             Token.init(.symbol, "f"),
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "x"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -408,7 +416,7 @@ test "let-rec nested" {
         try Node.LetRecIn.init(
             testing.allocator,
             Token.init(.symbol, "one"),
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "z"),
                 try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
@@ -416,16 +424,16 @@ test "let-rec nested" {
             try Node.LetRecIn.init(
                 testing.allocator,
                 Token.init(.symbol, "two"),
-                try Node.Abstraction.init(
+                try Node.Function.init(
                     testing.allocator,
                     Token.init(.symbol, "w"),
-                    try Node.Application.init(
+                    try Node.Apply.init(
                         testing.allocator,
                         try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
                         try Node.Primary.init(testing.allocator, Token.init(.symbol, "w")),
                     ),
                 ),
-                try Node.Application.init(
+                try Node.Apply.init(
                     testing.allocator,
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
@@ -454,13 +462,13 @@ test "recursive call" {
         try Node.LetRecIn.init(
             testing.allocator,
             Token.init(.symbol, "fn"),
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "var"),
                 try Node.IfThenElse.init(
                     testing.allocator,
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "var")),
-                    try Node.Application.init(
+                    try Node.Apply.init(
                         testing.allocator,
                         try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
                         try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
@@ -468,7 +476,7 @@ test "recursive call" {
                     try Node.Primary.init(testing.allocator, Token.init(.number, "1234")),
                 ),
             ),
-            try Node.Application.init(
+            try Node.Apply.init(
                 testing.allocator,
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
                 try Node.Primary.init(testing.allocator, Token.init(.false, "false")),

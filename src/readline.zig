@@ -11,10 +11,14 @@ const C = @cImport({
 
 pub fn readline(allocator: Allocator, prompt: []const u8) ![]u8 {
     const line = C.readline(prompt.ptr);
-    if (line == null) return allocator.dupe(u8, "");
+    if (line == null) {
+        return allocator.dupe(u8, "");
+    }
 
     defer C.free(line);
-    if (line[0] != 0) _ = C.add_history(line);
+    if (line[0] != 0) {
+        _ = C.add_history(line);
+    }
 
     return allocator.dupe(u8, span(line));
 }

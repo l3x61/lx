@@ -13,8 +13,8 @@ const String = std.ArrayList(u8);
 pub const Tag = enum {
     program,
     primary,
-    abstraction,
-    application,
+    function,
+    apply,
     let_in,
     let_rec_in,
     if_then_else,
@@ -32,8 +32,8 @@ pub const Tag = enum {
 pub const Node = union(Tag) {
     program: Program,
     primary: Primary,
-    abstraction: Abstraction,
-    application: Application,
+    function: Function,
+    apply: Apply,
     let_in: LetIn,
     let_rec_in: LetRecIn,
     if_then_else: IfThenElse,
@@ -171,58 +171,58 @@ pub const Node = union(Tag) {
         }
     };
 
-    pub const Abstraction = struct {
+    pub const Function = struct {
         parameter: Token,
         body: *Node,
 
         pub fn init(allocator: Allocator, parameter: Token, body: *Node) !*Node {
             const node = try allocator.create(Node);
             node.* = Node{
-                .abstraction = .{ .parameter = parameter, .body = body },
+                .function = .{ .parameter = parameter, .body = body },
             };
             return node;
         }
 
-        fn deinit(self: *Abstraction, allocator: Allocator) void {
+        fn deinit(self: *Function, allocator: Allocator) void {
             self.body.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("abstraction", self)));
+            allocator.destroy(@as(*Node, @fieldParentPtr("function", self)));
         }
 
-        pub fn clone(self: *Abstraction, allocator: Allocator) !*Node {
+        pub fn clone(self: *Function, allocator: Allocator) !*Node {
             const body = try self.body.clone(allocator);
-            return try Abstraction.init(allocator, self.parameter, body);
+            return try Function.init(allocator, self.parameter, body);
         }
     };
 
-    pub const Application = struct {
-        abstraction: *Node,
+    pub const Apply = struct {
+        function: *Node,
         argument: *Node,
 
         pub fn init(
             allocator: Allocator,
-            abstraction: *Node,
+            function: *Node,
             argument: *Node,
         ) !*Node {
             const node = try allocator.create(Node);
             node.* = Node{
-                .application = .{
-                    .abstraction = abstraction,
+                .apply = .{
+                    .function = function,
                     .argument = argument,
                 },
             };
             return node;
         }
 
-        pub fn deinit(self: *Application, allocator: Allocator) void {
-            self.abstraction.deinit(allocator);
+        pub fn deinit(self: *Apply, allocator: Allocator) void {
+            self.function.deinit(allocator);
             self.argument.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("application", self)));
+            allocator.destroy(@as(*Node, @fieldParentPtr("apply", self)));
         }
 
-        pub fn clone(self: *Application, allocator: Allocator) !*Node {
-            const abstraction = try self.abstraction.clone(allocator);
+        pub fn clone(self: *Apply, allocator: Allocator) !*Node {
+            const function = try self.function.clone(allocator);
             const argument = try self.argument.clone(allocator);
-            return try Application.init(allocator, abstraction, argument);
+            return try Apply.init(allocator, function, argument);
         }
     };
 
@@ -230,8 +230,8 @@ pub const Node = union(Tag) {
         switch (self.*) {
             .program => |*program| program.deinit(allocator),
             .primary => |*primary| primary.deinit(allocator),
-            .abstraction => |*abstraction| abstraction.deinit(allocator),
-            .application => |*application| application.deinit(allocator),
+            .function => |*function| function.deinit(allocator),
+            .apply => |*apply| apply.deinit(allocator),
             .let_in => |*let_in| let_in.deinit(allocator),
             .let_rec_in => |*let_rec_in| let_rec_in.deinit(allocator),
             .if_then_else => |*if_then_else| if_then_else.deinit(allocator),
@@ -242,8 +242,8 @@ pub const Node = union(Tag) {
         return switch (self.*) {
             .program => |*program| try program.clone(allocator),
             .primary => |*primary| try primary.clone(allocator),
-            .abstraction => |*abstraction| try abstraction.clone(allocator),
-            .application => |*application| try application.clone(allocator),
+            .function => |*function| try function.clone(allocator),
+            .apply => |*apply| try apply.clone(allocator),
             .let_in => |*let_in| try let_in.clone(allocator),
             .let_rec_in => |*let_rec_in| try let_rec_in.clone(allocator),
             .if_then_else => |*if_then_else| try if_then_else.clone(allocator),
@@ -263,15 +263,15 @@ pub const Node = union(Tag) {
                 const operand = primary.operand;
                 try writer.print("{s}", .{operand.lexeme});
             },
-            .abstraction => |abstraction| {
-                try writer.print("(λ{s}. ", .{abstraction.parameter.lexeme});
-                try abstraction.body.format(fmt, options, writer);
+            .function => |function| {
+                try writer.print("(λ{s}. ", .{function.parameter.lexeme});
+                try function.body.format(fmt, options, writer);
                 try writer.print(")", .{});
             },
-            .application => |application| {
-                try application.abstraction.format(fmt, options, writer);
+            .apply => |apply| {
+                try apply.function.format(fmt, options, writer);
                 try writer.print(" ", .{});
-                try application.argument.format(fmt, options, writer);
+                try apply.argument.format(fmt, options, writer);
             },
             .let_in => |let_in| {
                 try writer.print("\nlet ", .{});
@@ -279,7 +279,9 @@ pub const Node = union(Tag) {
                 try writer.print(" = ", .{});
                 try let_in.value.format(fmt, options, writer);
                 try writer.print(" in ", .{});
-                if (let_in.body.tag() != .let_in) try writer.print("\n  ", .{});
+                if (let_in.body.tag() != .let_in) {
+                    try writer.print("\n  ", .{});
+                }
                 try let_in.body.format(fmt, options, writer);
             },
             .let_rec_in => |let_rec_in| {
@@ -288,7 +290,9 @@ pub const Node = union(Tag) {
                 try writer.print(" = ", .{});
                 try let_rec_in.value.format(fmt, options, writer);
                 try writer.print(" in ", .{});
-                if (let_rec_in.body.tag() != .let_in) try writer.print("\n  ", .{});
+                if (let_rec_in.body.tag() != .let_in) {
+                    try writer.print("\n  ", .{});
+                }
                 try let_rec_in.body.format(fmt, options, writer);
             },
             .if_then_else => |if_then_else| {
@@ -303,7 +307,9 @@ pub const Node = union(Tag) {
     }
 
     pub fn equal(node_a: *Node, node_b: *Node) bool {
-        if (node_a.tag() != node_b.tag()) return false;
+        if (node_a.tag() != node_b.tag()) {
+            return false;
+        }
         return switch (node_a.*) {
             .program => |a| {
                 const b = node_b.program;
@@ -315,13 +321,13 @@ pub const Node = union(Tag) {
                 const b = node_b.primary;
                 return a.operand.equal(b.operand);
             },
-            .abstraction => |a| {
-                const b = node_b.abstraction;
+            .function => |a| {
+                const b = node_b.function;
                 return a.parameter.equal(b.parameter) and a.body.equal(b.body);
             },
-            .application => |a| {
-                const b = node_b.application;
-                return a.abstraction.equal(b.abstraction) and a.argument.equal(b.argument);
+            .apply => |a| {
+                const b = node_b.apply;
+                return a.function.equal(b.function) and a.argument.equal(b.argument);
             },
             .let_in => |a| {
                 const b = node_b.let_in;

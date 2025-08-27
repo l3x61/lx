@@ -81,7 +81,7 @@ pub const Value = union(Tag) {
 
         pub fn init(
             allocator: Allocator,
-            function: Node.Abstraction,
+            function: Node.Function,
             env: *Environment,
         ) !Value {
             const closure = try allocator.create(Closure);
@@ -106,7 +106,7 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn isFree(self: *const Value) bool {
+    pub fn isVoid(self: *const Value) bool {
         return self.tag() == .void;
     }
 
@@ -152,7 +152,9 @@ pub const Value = union(Tag) {
     }
 
     pub fn equal(self: Value, other: Value) bool {
-        if (self.tag() != other.tag()) return false;
+        if (self.tag() != other.tag()) {
+            return false;
+        }
 
         return switch (self) {
             .void => true,

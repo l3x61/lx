@@ -50,7 +50,9 @@ fn program(self: *Parser) !*Node {
     const node = try Node.Program.init(self.allocator, null);
     errdefer node.deinit(self.allocator);
 
-    if (self.token.tag != .eof) node.program.expression = try self.expression();
+    if (self.token.tag != .eof) {
+        node.program.expression = try self.expression();
+    }
     _ = try self.eatToken(&[_]Token.Tag{.eof});
     return node;
 }
@@ -59,25 +61,25 @@ fn program(self: *Parser) !*Node {
 /// expression
 ///     = let_rec_in
 ///     | if_then_else
-///     | abstraction
-///     | application
+///     | function
+///     | apply
 ///     .
 /// ```
 fn expression(self: *Parser) anyerror!*Node {
     return switch (self.token.tag) {
         .let => self.letRecIn(),
         .@"if" => self.ifThenElse(),
-        .lambda => self.abstraction(),
-        .null, .true, .false, .number, .symbol, .lparen => self.application(),
+        .lambda => self.function(),
+        .null, .true, .false, .number, .symbol, .lparen => self.apply(),
         else => {
-            print("expected an expression but got {s}\n", .{self.token});
+            _ = try self.eatToken(&[_]Token.Tag{ .let, .@"if", .lambda, .null, .true, .false, .number, .symbol, .lparen });
             return error.SyntaxError;
         },
     };
 }
 
 /// ```
-/// let_in
+/// let_rec_in
 ///     = "let" ["rec"] IDENTIFIER "=" expression "in" expression
 ///     .
 /// ```
@@ -100,7 +102,9 @@ fn letRecIn(self: *Parser) !*Node {
     const body = try self.expression();
     errdefer body.deinit(self.allocator);
 
-    if (is_rec) return Node.LetRecIn.init(self.allocator, name, value, body);
+    if (is_rec) {
+        return Node.LetRecIn.init(self.allocator, name, value, body);
+    }
     return Node.LetIn.init(self.allocator, name, value, body);
 }
 
@@ -126,26 +130,26 @@ fn ifThenElse(self: *Parser) !*Node {
 }
 
 /// ```
-/// abstraction
+/// function
 ///     = ("\\" | "λ") IDENTIFIER "." expression
 ///     .
 /// ```
-fn abstraction(self: *Parser) !*Node {
+fn function(self: *Parser) !*Node {
     _ = try self.eatToken(&[_]Token.Tag{.lambda});
     const parameter = try self.eatToken(&[_]Token.Tag{.symbol});
     _ = try self.eatToken(&[_]Token.Tag{.dot});
     const body = try self.expression();
     errdefer body.deinit(self.allocator);
 
-    return Node.Abstraction.init(self.allocator, parameter, body);
+    return Node.Function.init(self.allocator, parameter, body);
 }
 
 /// ```
-/// application
+/// apply
 ///     = primary primary*
 ///     .
 /// ```
-fn application(self: *Parser) !*Node {
+fn apply(self: *Parser) !*Node {
     var left = try self.primary();
     errdefer left.deinit(self.allocator);
 
@@ -154,7 +158,7 @@ fn application(self: *Parser) !*Node {
             .null, .true, .false, .lambda, .number, .symbol, .lparen => {
                 const right = try self.primary();
                 errdefer right.deinit(self.allocator);
-                left = try Node.Application.init(self.allocator, left, right);
+                left = try Node.Apply.init(self.allocator, left, right);
             },
             else => break,
         }
@@ -169,7 +173,7 @@ fn application(self: *Parser) !*Node {
 ///     | "false"
 ///     | NUMBER
 ///     | IDENTIFIER
-///     | abstraction
+///     | function
 ///     | "(" expression ")"
 ///     .
 /// ```
@@ -179,7 +183,9 @@ fn primary(self: *Parser) !*Node {
             const token = try self.eatToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol });
             return Node.Primary.init(self.allocator, token);
         },
-        .lambda => self.abstraction(),
+        .lambda => {
+            return self.function();
+        },
         .lparen => {
             _ = try self.eatToken(&[_]Token.Tag{.lparen});
             const node = try self.expression();
@@ -242,11 +248,11 @@ test "number" {
     try runTest(input, expected);
 }
 
-test "lambda" {
+test "function" {
     const input = "λx. x";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Abstraction.init(
+        try Node.Function.init(
             testing.allocator,
             Token.init(.symbol, "x"),
             try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -259,10 +265,10 @@ test "nested lambdas" {
     const input = "λx. λy. x";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Abstraction.init(
+        try Node.Function.init(
             testing.allocator,
             Token.init(.symbol, "x"),
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "y"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -272,31 +278,31 @@ test "nested lambdas" {
     try runTest(input, expected);
 }
 
-test "incomplete lambda 1" {
+test "incomplete function 1" {
     const input = "λ";
     var parser = try Parser.init(testing.allocator, input);
     try expectError(error.SyntaxError, parser.parse());
 }
 
-test "incomplete lambda 2" {
+test "incomplete function 2" {
     const input = "λx";
     var parser = try Parser.init(testing.allocator, input);
     try expectError(error.SyntaxError, parser.parse());
 }
 
-test "incomplete lambda 3" {
+test "incomplete function 3" {
     const input = "λx.";
     var parser = try Parser.init(testing.allocator, input);
     try expectError(error.SyntaxError, parser.parse());
 }
 
-test "application" {
+test "apply" {
     const input = "(λx. x) 123";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Application.init(
+        try Node.Apply.init(
             testing.allocator,
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "x"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -311,13 +317,13 @@ test "applications" {
     const input = "(λx. x) 1 2 3";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Application.init(
+        try Node.Apply.init(
             testing.allocator,
-            try Node.Application.init(
+            try Node.Apply.init(
                 testing.allocator,
-                try Node.Application.init(
+                try Node.Apply.init(
                     testing.allocator,
-                    try Node.Abstraction.init(
+                    try Node.Function.init(
                         testing.allocator,
                         Token.init(.symbol, "x"),
                         try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -362,7 +368,7 @@ test "nested let-in" {
                 testing.allocator,
                 Token.init(.symbol, "two"),
                 try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
-                try Node.Application.init(
+                try Node.Apply.init(
                     testing.allocator,
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
@@ -409,7 +415,7 @@ test "nested let-rec in" {
                 testing.allocator,
                 Token.init(.symbol, "two"),
                 try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
-                try Node.Application.init(
+                try Node.Apply.init(
                     testing.allocator,
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
@@ -435,8 +441,8 @@ test "if then else" {
 }
 
 test "fail to apply if-then-else" {
-    // if-then-else has a lower precedence than application
-    // hence EOF will be expected after parsing the abstraction
+    // if-then-else has a lower precedence than apply
+    // hence EOF will be expected after parsing the function
     const input = "(\\x. x) if 1 then 2 else 3";
     var parser = try Parser.init(testing.allocator, input);
     try expectError(error.SyntaxError, parser.parse());
@@ -446,9 +452,9 @@ test "apply to if-then-else" {
     const input = "(\\x. x) (if 1 then 2 else 3)";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Application.init(
+        try Node.Apply.init(
             testing.allocator,
-            try Node.Abstraction.init(
+            try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, "x"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
@@ -482,9 +488,9 @@ test "apply to literals" {
     const input = "fn true false";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Application.init(
+        try Node.Apply.init(
             testing.allocator,
-            try Node.Application.init(
+            try Node.Apply.init(
                 testing.allocator,
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
                 try Node.Primary.init(testing.allocator, Token.init(.true, "true")),

@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const StringHashMap = std.StringArrayHashMap;
+const HashMap = std.StringArrayHashMap;
 const testing = std.testing;
 const print = std.debug.print;
 const expect = testing.expect;
@@ -13,27 +13,31 @@ const Environment = @This();
 
 allocator: Allocator,
 parent: ?*Environment,
-record: StringHashMap(Value),
+record: HashMap(Value),
 
 pub fn init(allocator: Allocator, parent: ?*Environment) !*Environment {
     const self = try allocator.create(Environment);
     self.* = Environment{
         .allocator = allocator,
         .parent = parent,
-        .record = StringHashMap(Value).init(allocator),
+        .record = HashMap(Value).init(allocator),
     };
     return self;
 }
 
 pub fn deinitSelf(self: *Environment, allocator: Allocator) void {
     var it = self.record.iterator();
-    while (it.next()) |entry| allocator.free(entry.key_ptr.*);
+    while (it.next()) |entry| {
+        allocator.free(entry.key_ptr.*);
+    }
     self.record.deinit();
     allocator.destroy(self);
 }
 
 pub fn deinitAll(self: *Environment, allocator: Allocator) void {
-    if (self.parent) |parent| parent.deinitAll(allocator);
+    if (self.parent) |parent| {
+        parent.deinitAll(allocator);
+    }
     self.deinitSelf(allocator);
 }
 
@@ -42,13 +46,15 @@ pub fn define(self: *Environment, allocator: Allocator, key: []const u8, value: 
     errdefer allocator.free(new_key);
 
     const entry = try self.record.getOrPut(new_key);
-    if (entry.found_existing) return error.AlreadyDefined;
+    if (entry.found_existing) {
+        return error.AlreadyDefined;
+    }
     entry.value_ptr.* = value;
 }
 
 pub fn bind(self: *Environment, key: []const u8, value: Value) !void {
     if (self.record.getPtr(key)) |key_ptr| {
-        if (key_ptr.*.isFree()) {
+        if (key_ptr.*.isVoid()) {
             key_ptr.* = value;
             return;
         } else {
@@ -56,14 +62,20 @@ pub fn bind(self: *Environment, key: []const u8, value: Value) !void {
         }
     }
 
-    if (self.parent) |parent| return try parent.bind(key, value);
+    if (self.parent) |parent| {
+        return try parent.bind(key, value);
+    }
 
     return error.NotDefined;
 }
 
 pub fn lookup(self: *Environment, key: []const u8) !Value {
-    if (self.record.get(key)) |value| return value;
-    if (self.parent) |parent| return parent.lookup(key);
+    if (self.record.get(key)) |value| {
+        return value;
+    }
+    if (self.parent) |parent| {
+        return parent.lookup(key);
+    }
     return error.NotDefined;
 }
 
@@ -76,9 +88,12 @@ pub fn debug(self: *Environment) void {
 
 fn _debug(self: *Environment, depth: usize) void {
     var it = self.record.iterator();
-    while (it.next()) |entry|
+    while (it.next()) |entry| {
         print("[{d}] {s} = {s}\n", .{ depth, entry.key_ptr.*, entry.value_ptr.* });
-    if (self.parent) |parent| parent._debug(depth + 1);
+    }
+    if (self.parent) |parent| {
+        parent._debug(depth + 1);
+    }
 }
 
 test "define and lookup variable" {

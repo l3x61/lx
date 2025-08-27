@@ -36,15 +36,14 @@ pub fn init(input: []const u8) error{InvalidUtf8}!Lexer {
 pub fn nextToken(self: *Lexer) Token {
     const iterator = &self.iterator;
 
-    // ...
     consumeWhile(iterator, isSpace);
 
     const start = iterator.i;
 
-    const codepoint = iterator.nextCodepoint() orelse
+    const codepoint = iterator.nextCodepoint() orelse {
         return Token.init(.eof, "");
+    };
 
-    // ...
     switch (codepoint) {
         '\\', 'λ' => return Token.init(.lambda, iterator.bytes[start..iterator.i]),
         '.' => return Token.init(.dot, iterator.bytes[start..iterator.i]),
@@ -54,17 +53,16 @@ pub fn nextToken(self: *Lexer) Token {
         else => {},
     }
 
-    // ...
     consumeWhile(iterator, isSymbol);
     const lexeme = iterator.bytes[start..iterator.i];
 
-    // if lexeme matches a keyword then token=keyword else ...
     if (keywords_map.get(lexeme)) |keyword_tag| {
         return Token.init(keyword_tag, lexeme);
     }
 
-    // if lexeme matches a number then token=number else token=symbol
-    _ = parseFloat(f64, lexeme) catch return Token.init(.symbol, lexeme);
+    _ = parseFloat(f64, lexeme) catch {
+        return Token.init(.symbol, lexeme);
+    };
     return Token.init(.number, lexeme);
 }
 
