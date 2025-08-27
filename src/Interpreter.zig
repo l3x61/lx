@@ -438,3 +438,45 @@ test "let-rec nested" {
     const expected = Value.Number.init(1);
     try runTest(testing.allocator, ast, expected);
 }
+
+test "recursive call" {
+    // fn called with true -> returns false
+    // fn called with false -> returns 1234
+
+    // let rec fn = \var. if var then
+    //     fn false
+    // else
+    //     1234
+    // in
+    //     fn false
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.LetRecIn.init(
+            testing.allocator,
+            Token.init(.symbol, "fn"),
+            try Node.Abstraction.init(
+                testing.allocator,
+                Token.init(.symbol, "var"),
+                try Node.IfThenElse.init(
+                    testing.allocator,
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "var")),
+                    try Node.Application.init(
+                        testing.allocator,
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
+                        try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+                    ),
+                    try Node.Primary.init(testing.allocator, Token.init(.number, "1234")),
+                ),
+            ),
+            try Node.Application.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
+                try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+            ),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Number.init(1234);
+    try runTest(testing.allocator, ast, expected);
+}
