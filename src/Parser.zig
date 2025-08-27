@@ -171,7 +171,7 @@ fn application(self: *Parser) !*Node {
 ///     | IDENTIFIER
 ///     | abstraction
 ///     | "(" expression ")"
-/// .
+///     .
 /// ```
 fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
