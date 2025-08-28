@@ -1,11 +1,11 @@
 [
   {
     "label": "Run",
-    "command": "zig build run"
+    "command": "zig build -freference-trace run"
   },
   {
     "label": "Test",
-    "command": "zig build test"
+    "command": "zig build -freference-trace test"
   },
   {
     "label": "Clean",

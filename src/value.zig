@@ -24,7 +24,7 @@ pub const Value = union(Tag) {
         builtin,
         closure,
 
-        pub fn format(self: Tag, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        pub fn format(self: Tag, writer: anytype) !void {
             try writer.print("{s}", .{@tagName(self)});
         }
     };
@@ -140,14 +140,14 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn format(self: Value, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: Value, writer: anytype) !void {
         switch (self) {
             .void => try writer.print("<void>", .{}),
             .null => try writer.print("null", .{}),
-            .boolean => |boolean| try writer.print("{}", .{boolean}),
+            .boolean => |boolean| try writer.print("{any}", .{boolean}),
             .number => |number| try writer.print("{d}", .{number}),
             .builtin => |builtin| try writer.print("<{s}>", .{builtin.name}),
-            .closure => |closure| try writer.print("<λ{s}. {s}>", .{ closure.parameter, closure.body }),
+            .closure => |closure| try writer.print("<λ{s}. {f}>", .{ closure.parameter, closure.body }),
         }
     }
 

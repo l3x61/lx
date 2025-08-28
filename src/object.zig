@@ -11,7 +11,7 @@ pub const Tag = enum {
     node,
     env,
 
-    pub fn format(self: Tag, comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: Tag, writer: anytype) !void {
         try writer.print("{s}", .{@tagName(self)});
     }
 };

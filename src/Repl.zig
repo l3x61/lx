@@ -4,25 +4,25 @@ const Timer = std.time.Timer;
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
+const formatElapsedTime = @import("util.zig").formatElapsedTime;
 const Interpreter = @import("Interpreter.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const readLine = @import("readline.zig").readline;
 const Value = @import("value.zig").Value;
-const formatElapsedTime = @import("util.zig").formatElapsedTime;
 
 const log = std.log.scoped(.repl);
-const Line = std.ArrayList([]u8);
+const Lines = std.array_list.AlignedManaged([]u8, null);
 const Repl = @This();
 
 allocator: Allocator,
-lines: Line,
+lines: Lines,
 env: *Environment,
 
 pub fn init(allocator: Allocator) !Repl {
     return Repl{
         .allocator = allocator,
-        .lines = Line.init(allocator),
+        .lines = Lines.init(allocator),
         .env = try initEnvironment(allocator),
     };
 }
@@ -30,19 +30,10 @@ pub fn init(allocator: Allocator) !Repl {
 fn initEnvironment(allocator: Allocator) !*Environment {
     const builtin_exit = @import("builtin/exit.zig");
     const builtin_env = @import("builtin/env.zig");
-    const builtin_add = @import("builtin/add.zig");
-    const builtin_sub = @import("builtin/sub.zig");
-    const builtin_mul = @import("builtin/mul.zig");
-    const builtin_div = @import("builtin/div.zig");
 
     var env = try Environment.init(allocator, null);
-
     try env.define(allocator, builtin_exit.name, Value.Builtin.init(builtin_exit.name, builtin_exit.function, null));
     try env.define(allocator, builtin_env.name, Value.Builtin.init(builtin_env.name, builtin_env.function, null));
-    try env.define(allocator, builtin_add.name, Value.Builtin.init(builtin_add.name, builtin_add.function, null));
-    try env.define(allocator, builtin_sub.name, Value.Builtin.init(builtin_sub.name, builtin_sub.function, null));
-    try env.define(allocator, builtin_mul.name, Value.Builtin.init(builtin_mul.name, builtin_mul.function, null));
-    try env.define(allocator, builtin_div.name, Value.Builtin.init(builtin_div.name, builtin_div.function, null));
 
     return env;
 }
@@ -55,7 +46,11 @@ pub fn deinit(self: *Repl) void {
 }
 
 pub fn run(self: *Repl) !void {
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
+
+    try stdout.flush();
     const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
     var interp = try Interpreter.init(self.allocator, self.env);
@@ -72,7 +67,7 @@ pub fn run(self: *Repl) !void {
 
         const parse_done = timer.lap();
 
-        log.info("{s}\n", .{ast});
+        log.info("{f}\n", .{ast});
 
         _ = timer.lap();
 
@@ -86,11 +81,10 @@ pub fn run(self: *Repl) !void {
 
         const eval_done = timer.read();
 
-        var buffer: [64]u8 = undefined;
-
         log.info("parsing    {s}\n", .{try formatElapsedTime(&buffer, parse_done)});
         log.info("evaluating {s}\n", .{try formatElapsedTime(&buffer, eval_done)});
 
-        try stdout.print("{s}{s}{s}\n", .{ ansi.bold, result, ansi.reset });
+        try stdout.print("{f}\n", .{result});
+        try stdout.flush();
     }
 }

@@ -1,11 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.ArrayListAligned;
 const testing = std.testing;
 const expect = testing.expect;
 const expectError = testing.expectError;
 const print = std.debug.print;
-const log = std.log.scoped(.eval);
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
@@ -14,16 +13,19 @@ const Object = @import("object.zig").Object;
 const Token = @import("Token.zig");
 const Value = @import("value.zig").Value;
 
+const log = std.log.scoped(.eval);
+
 const Interpreter = @This();
+const Objects = std.array_list.AlignedManaged(Object, null);
 
 allocator: Allocator,
 env: *Environment,
-objects: ArrayList(Object),
+objects: Objects,
 
 pub fn init(allocator: Allocator, env: ?*Environment) !Interpreter {
     return Interpreter{
         .allocator = allocator,
-        .objects = ArrayList(Object).init(allocator),
+        .objects = Objects.init(allocator),
         .env = try Environment.init(allocator, env),
     };
 }
@@ -79,7 +81,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                     .slash => "by",
                     else => unreachable,
                 };
-                log.err("can not {s} {s} {s} {s}\n", .{ operation, left.tag(), preposition, right.tag() });
+                log.err("can not {s} {f} {s} {f}\n", .{ operation, left.tag(), preposition, right.tag() });
                 return error.TypeError;
             }
 
@@ -92,7 +94,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 .star => lnum * rnum,
                 .slash => {
                     if (rnum == 0) {
-                        log.err("division by 0 in expression {s}\n", .{node});
+                        log.err("division by 0 in expression {f}\n", .{node});
                         return error.DivisionByZero;
                     }
                     return Value.Number.init(lnum / rnum);
@@ -131,7 +133,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                     return result;
                 },
                 else => {
-                    log.err("can not apply {s} to {s}\n", .{ apply.function, apply.argument });
+                    log.err("can not apply {f} to {f}\n", .{ apply.function, apply.argument });
                     return error.NotCallable;
                 },
             };
@@ -189,7 +191,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 else
                     self._evaluate(if_then_else.alternate, env);
             } else {
-                log.err("{s} is not a boolean\n", .{condition});
+                log.err("{f} is not a boolean\n", .{condition});
                 return error.NotABoolean;
             }
         },
@@ -203,7 +205,7 @@ fn runTest(allocator: Allocator, node: *Node, expected: Value) !void {
     const actual = try interpreter.evaluate(node);
 
     expect(expected.equal(actual)) catch |err| {
-        print("expected {s} but got {s}\n", .{ expected, actual });
+        print("expected {f} but got {f}\n", .{ expected, actual });
         return err;
     };
 }

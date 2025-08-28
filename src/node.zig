@@ -22,8 +22,6 @@ pub const Tag = enum {
 
     pub fn format(
         self: Tag,
-        comptime _: []const u8,
-        _: FormatOptions,
         writer: anytype,
     ) !void {
         try writer.print("{s}", .{@tagName(self)});
@@ -284,63 +282,61 @@ pub const Node = union(Tag) {
 
     pub fn format(
         self: *Node,
-        comptime fmt: []const u8,
-        options: FormatOptions,
         writer: anytype,
     ) !void {
         switch (self.*) {
             .program => |program| if (program.expression) |expression|
-                try expression.format(fmt, options, writer),
+                try expression.format(writer),
             .primary => |primary| {
                 const operand = primary.operand;
                 try writer.print("{s}", .{operand.lexeme});
             },
             .binary => |binary| {
                 //try writer.print("(", .{});
-                try binary.left.format(fmt, options, writer);
+                try binary.left.format(writer);
                 try writer.print(" {s} ", .{binary.operator.lexeme});
-                try binary.right.format(fmt, options, writer);
+                try binary.right.format(writer);
                 //try writer.print(")", .{});
             },
             .function => |function| {
                 try writer.print("(λ{s}. ", .{function.parameter.lexeme});
-                try function.body.format(fmt, options, writer);
+                try function.body.format(writer);
                 try writer.print(")", .{});
             },
             .apply => |apply| {
-                try apply.function.format(fmt, options, writer);
+                try apply.function.format(writer);
                 try writer.print(" ", .{});
-                try apply.argument.format(fmt, options, writer);
+                try apply.argument.format(writer);
             },
             .let_in => |let_in| {
                 try writer.print("\nlet ", .{});
-                try let_in.name.format(fmt, options, writer);
+                try let_in.name.format(writer);
                 try writer.print(" = ", .{});
-                try let_in.value.format(fmt, options, writer);
+                try let_in.value.format(writer);
                 try writer.print(" in ", .{});
                 if (let_in.body.tag() != .let_in) {
                     try writer.print("\n  ", .{});
                 }
-                try let_in.body.format(fmt, options, writer);
+                try let_in.body.format(writer);
             },
             .let_rec_in => |let_rec_in| {
                 try writer.print("\nlet rec ", .{});
-                try let_rec_in.name.format(fmt, options, writer);
+                try let_rec_in.name.format(writer);
                 try writer.print(" = ", .{});
-                try let_rec_in.value.format(fmt, options, writer);
+                try let_rec_in.value.format(writer);
                 try writer.print(" in ", .{});
                 if (let_rec_in.body.tag() != .let_in) {
                     try writer.print("\n  ", .{});
                 }
-                try let_rec_in.body.format(fmt, options, writer);
+                try let_rec_in.body.format(writer);
             },
             .if_then_else => |if_then_else| {
                 try writer.print("if ", .{});
-                try if_then_else.condition.format(fmt, options, writer);
+                try if_then_else.condition.format(writer);
                 try writer.print(" then ", .{});
-                try if_then_else.consequent.format(fmt, options, writer);
+                try if_then_else.consequent.format(writer);
                 try writer.print(" else ", .{});
-                try if_then_else.alternate.format(fmt, options, writer);
+                try if_then_else.alternate.format(writer);
             },
         }
     }
