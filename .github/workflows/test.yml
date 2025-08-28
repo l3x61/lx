@@ -26,4 +26,4 @@ jobs:
         run: zig build -freference-trace test
 
       - name: Compile Lx
-        run: zig build -freference-trace run
+        run: zig build -freference-trace check
