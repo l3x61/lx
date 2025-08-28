@@ -30,9 +30,9 @@ pub fn LoggingAllocator() type {
             const result = self.child_allocator.rawAlloc(len, ptr_align, ret_addr);
 
             if (result) |ptr| {
-                log.debug("allocate {} bytes at 0x{x}", .{ len, @intFromPtr(ptr) });
+                log.debug("allocate {} bytes at 0x{x}\n", .{ len, @intFromPtr(ptr) });
             } else {
-                log.err("failed to allocate {} bytes", .{len});
+                log.err("failed to allocate {} bytes\n", .{len});
             }
 
             return result;
@@ -40,7 +40,7 @@ pub fn LoggingAllocator() type {
 
         fn free(ctx: *anyopaque, buf: []u8, buf_align: Alignment, ret_addr: usize) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            log.debug("free {} bytes at 0x{x}", .{ buf.len, @intFromPtr(buf.ptr) });
+            log.debug("free {} bytes at 0x{x}\n", .{ buf.len, @intFromPtr(buf.ptr) });
             self.child_allocator.rawFree(buf, buf_align, ret_addr);
         }
 

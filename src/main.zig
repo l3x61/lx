@@ -5,7 +5,7 @@ const Repl = @import("Repl.zig");
 const LoggingAllocator = @import("LoggingAllocator.zig");
 
 pub const std_options = std.Options{
-    .log_level = .debug,
+    .log_level = .info,
     .logFn = @import("logFn.zig").logFn,
 };
 

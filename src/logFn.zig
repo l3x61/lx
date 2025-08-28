@@ -14,10 +14,6 @@ pub fn logFn(
         .warn => ansi.yellow,
         .info => ansi.cyan,
         .debug => ansi.dimmed,
-        // .err => ansi.red ++ "error" ++ ansi.reset,
-        // .warn => ansi.yellow ++ "warning" ++ ansi.reset,
-        // .info => ansi.cyan ++ "info" ++ ansi.reset,
-        // .debug => ansi.dimmed ++ "debug" ++ ansi.reset,
     };
     const scope_name = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
 
@@ -28,7 +24,7 @@ pub fn logFn(
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
     nosuspend {
-        writer.print(level ++ scope_name ++ format ++ ansi.reset ++ "\n", args) catch return;
+        writer.print(level ++ scope_name ++ ansi.dimmed ++ format ++ ansi.reset, args) catch return;
         buffered_writer.flush() catch return;
     }
 }

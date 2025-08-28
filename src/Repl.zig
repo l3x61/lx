@@ -1,7 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const print = std.debug.print;
-const eql = std.mem.eql;
+const Timer = std.time.Timer;
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
@@ -10,7 +9,9 @@ const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const readLine = @import("readline.zig").readline;
 const Value = @import("value.zig").Value;
+const formatElapsedTime = @import("util.zig").formatElapsedTime;
 
+const log = std.log.scoped(.repl);
 const Line = std.ArrayList([]u8);
 const Repl = @This();
 
@@ -55,29 +56,41 @@ pub fn deinit(self: *Repl) void {
 
 pub fn run(self: *Repl) !void {
     const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
     const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
-    var int = try Interpreter.init(self.allocator, self.env);
-    defer int.deinit();
+    var interp = try Interpreter.init(self.allocator, self.env);
+    defer interp.deinit();
 
     while (true) {
         const line = try readLine(self.allocator, prompt);
         try self.lines.append(line);
 
+        var timer = try Timer.start();
+
         var parser = try Parser.init(self.allocator, line);
         const ast = parser.parse() catch continue;
 
-        //try stdout.print("{s}{s}{s}\n", .{ ansi.dimmed, ast, ansi.reset });
+        const parse_done = timer.lap();
 
-        const result = int.evaluate(ast) catch |err| {
+        log.info("{s}\n", .{ast});
+
+        _ = timer.lap();
+
+        const result = interp.evaluate(ast) catch |err| {
             switch (err) {
                 error.NormalExit => return,
-                else => try stderr.print("{s}{s}{s}\n", .{ ansi.red, @errorName(err), ansi.reset }),
+                else => log.err("{s}\n", .{@errorName(err)}),
             }
             continue;
         };
 
-        try stdout.print("{s}{s}{s}\n", .{ ansi.green, result, ansi.reset });
+        const eval_done = timer.read();
+
+        var buffer: [64]u8 = undefined;
+
+        log.info("parsing    {s}\n", .{try formatElapsedTime(&buffer, parse_done)});
+        log.info("evaluating {s}\n", .{try formatElapsedTime(&buffer, eval_done)});
+
+        try stdout.print("{s}{s}{s}\n", .{ ansi.bold, result, ansi.reset });
     }
 }
