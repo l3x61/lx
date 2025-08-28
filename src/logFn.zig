@@ -15,7 +15,7 @@ pub fn logFn(
         .info => ansi.cyan,
         .debug => ansi.dimmed,
     };
-    const scope_name = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+    const scope_name = if (scope == .default) "" else @tagName(scope) ++ ": ";
 
     const stderr = std.io.getStdErr().writer();
     var buffered_writer = std.io.bufferedWriter(stderr);
@@ -24,7 +24,7 @@ pub fn logFn(
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
     nosuspend {
-        writer.print(level ++ scope_name ++ ansi.dimmed ++ format ++ ansi.reset, args) catch return;
-        buffered_writer.flush() catch return;
+        writer.print(level ++ scope_name ++ ansi.dimmed ++ format ++ ansi.reset, args) catch unreachable;
+        buffered_writer.flush() catch unreachable;
     }
 }

@@ -5,6 +5,7 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectError = testing.expectError;
 const print = std.debug.print;
+const log = std.log.scoped(.eval);
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
@@ -85,14 +86,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                     return result;
                 },
                 else => {
-                    print("can not apply {s}{s}{s} to {s}{s}{s}\n", .{
-                        ansi.dimmed,
-                        apply.function,
-                        ansi.reset,
-                        ansi.dimmed,
-                        apply.argument,
-                        ansi.reset,
-                    });
+                    log.err("can not apply {s} to {s}\n", .{ apply.function, apply.argument });
                     return error.NotCallable;
                 },
             };
@@ -109,6 +103,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
 
             const value = try self._evaluate(let_in.value, scope);
             if (value.isVoid()) {
+                log.err("let does not allow recursive bindings\n", .{}); // TODO: report line number
                 return error.RecursiveBinding;
             }
             try scope.bind(name, value);
@@ -130,6 +125,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             const value = try self._evaluate(let_rec_in.value, scope);
 
             if (value.asFunction() == null) {
+                log.err("let rec only allows recursive bindings for functions\n", .{}); // TODO: report line number
                 return error.RecursiveBinding;
             }
 
@@ -148,6 +144,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 else
                     self._evaluate(if_then_else.alternate, env);
             } else {
+                log.err("{s} is not a boolean\n", .{condition});
                 return error.NotABoolean;
             }
         },

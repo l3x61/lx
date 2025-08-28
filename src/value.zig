@@ -113,8 +113,8 @@ pub const Value = union(Tag) {
     pub fn asBoolean(self: *const Value) ?bool {
         return switch (self.*) {
             .null => false,
-            .number => |number| number != 0,
             .boolean => |boolean| boolean,
+            .number => |number| number != 0,
             else => null,
         };
     }
