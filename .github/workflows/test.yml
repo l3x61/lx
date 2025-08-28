@@ -1,24 +1,24 @@
 name: CI
 on:
-    push:
-        branches: [ "main" ]
-    pull_request:
-        branches: [ "main" ]
-    workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            
-            - name: Install Zig
-              uses: mlugg/setup-zig@v2.0.5
-              with:
-                  version: 0.15.1
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Test
-              run: zig build -freference-trace test
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.1
 
-            - name: Compile
-             run: zig build -freference-trace run  
+      - name: Test Lx
+        run: zig build -freference-trace test
+
+      - name: Compile Lx
+        run: zig build -freference-trace run
