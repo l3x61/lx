@@ -2,11 +2,17 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const Repl = @import("Repl.zig");
+const LoggingAllocator = @import("LoggingAllocator.zig");
 
-var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+pub const std_options = std.Options{
+    .log_level = .debug,
+    .logFn = @import("logFn.zig").logFn,
+};
 
 pub fn main() !void {
-    const allocator = debug_allocator.allocator();
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    var logging_allocator = LoggingAllocator.init(debug_allocator.allocator());
+    const allocator = logging_allocator.allocator();
     defer _ = debug_allocator.deinit();
 
     var repl = try Repl.init(allocator);

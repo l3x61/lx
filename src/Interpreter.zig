@@ -42,8 +42,7 @@ pub fn evaluate(self: *Interpreter, node: *Node) !Value {
 fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
     return switch (node.*) {
         .program => |program| {
-            const expression = program.expression orelse
-                return Value.Null.init();
+            const expression = program.expression orelse return Value.init();
             return try self._evaluate(expression, env);
         },
         .primary => |primary| {
@@ -171,7 +170,7 @@ test "empty" {
     const ast = try Node.Program.init(testing.allocator, null);
     defer ast.deinit(testing.allocator);
 
-    const expected = Value.Null.init();
+    const expected = Value.init();
     try runTest(testing.allocator, ast, expected);
 }
 
