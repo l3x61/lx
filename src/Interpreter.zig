@@ -5,7 +5,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectError = testing.expectError;
 const print = std.debug.print;
-const log = std.log.scoped(.eval);
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
@@ -13,6 +12,8 @@ const Node = @import("node.zig").Node;
 const Object = @import("object.zig").Object;
 const Token = @import("Token.zig");
 const Value = @import("value.zig").Value;
+
+const log = std.log.scoped(.eval);
 
 const Interpreter = @This();
 

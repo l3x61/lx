@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
+
 const log = std.log.scoped(.allocator);
 
 pub fn LoggingAllocator() type {

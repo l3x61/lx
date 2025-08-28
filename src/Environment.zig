@@ -5,10 +5,11 @@ const testing = std.testing;
 const print = std.debug.print;
 const expect = testing.expect;
 const expectError = testing.expectError;
-const log = std.log.scoped(.env);
+
 const ansi = @import("ansi.zig");
 const Value = @import("value.zig").Value;
 
+const log = std.log.scoped(.env);
 const Environment = @This();
 
 allocator: Allocator,

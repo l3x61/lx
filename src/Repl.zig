@@ -4,12 +4,12 @@ const Timer = std.time.Timer;
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
+const formatElapsedTime = @import("util.zig").formatElapsedTime;
 const Interpreter = @import("Interpreter.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const readLine = @import("readline.zig").readline;
 const Value = @import("value.zig").Value;
-const formatElapsedTime = @import("util.zig").formatElapsedTime;
 
 const log = std.log.scoped(.repl);
 const Line = std.ArrayList([]u8);
