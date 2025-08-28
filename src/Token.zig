@@ -16,6 +16,11 @@ pub const Tag = enum {
     lparen,
     rparen,
 
+    plus,
+    minus,
+    star,
+    slash,
+
     let,
     rec,
     in,

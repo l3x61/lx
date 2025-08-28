@@ -57,6 +57,51 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 else => unreachable,
             };
         },
+        .binary => |binary| {
+            const left = try self._evaluate(binary.left, env);
+            const right = try self._evaluate(binary.right, env);
+
+            const left_number = left.asNumber();
+            const right_number = right.asNumber();
+
+            if (left_number == null or right_number == null) {
+                const operation = switch (binary.operator.tag) {
+                    .plus => "add",
+                    .minus => "subtract",
+                    .star => "multiply",
+                    .slash => "divide",
+                    else => unreachable,
+                };
+                const preposition = switch (binary.operator.tag) {
+                    .plus => "to",
+                    .minus => "from",
+                    .star => "with",
+                    .slash => "by",
+                    else => unreachable,
+                };
+                log.err("can not {s} {s} {s} {s}\n", .{ operation, left.tag(), preposition, right.tag() });
+                return error.TypeError;
+            }
+
+            const lnum = left_number.?;
+            const rnum = right_number.?;
+
+            const result = switch (binary.operator.tag) {
+                .plus => lnum + rnum,
+                .minus => lnum - rnum,
+                .star => lnum * rnum,
+                .slash => {
+                    if (rnum == 0) {
+                        log.err("division by 0 in expression {s}\n", .{node});
+                        return error.DivisionByZero;
+                    }
+                    return Value.Number.init(lnum / rnum);
+                },
+                else => unreachable,
+            };
+
+            return Value.Number.init(result);
+        },
         .function => |function| {
             const closure = try Value.Closure.init(self.allocator, function, env);
             try self.objects.append(Object{ .value = closure });
@@ -443,9 +488,56 @@ test "let-rec nested" {
     try runTest(testing.allocator, ast, expected);
 }
 
+test "multiplication precedence over addition" {
+    // 1 + 2 * 3 = 7
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            Token.init(.plus, "+"),
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                Token.init(.star, "*"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+            ),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Number.init(7);
+    try runTest(testing.allocator, ast, expected);
+}
+
+test "arithmetic expression" {
+    // (1 + 2) * 3 = 9
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+                Token.init(.plus, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+            ),
+            Token.init(.star, "*"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Number.init(9);
+    try runTest(testing.allocator, ast, expected);
+}
+
 test "recursive call" {
     // fn called with true -> returns false
     // fn called with false -> returns 1234
+
+    // (one liner)
+    // let rec fn = \var. if var then fn false else 1234 in fn false
 
     // let rec fn = \var. if var then
     //     fn false

@@ -1,12 +1,13 @@
 const std = @import("std");
+const Level = std.log.Level;
 const builtin = @import("builtin");
 
-const Repl = @import("Repl.zig");
 const LoggingAllocator = @import("LoggingAllocator.zig");
+const Repl = @import("Repl.zig");
 
 pub const std_options = std.Options{
-    .log_level = .info,
-    .logFn = @import("logFn.zig").logFn,
+    .log_level = Level.debug,
+    .logFn = @import("util.zig").logFn,
 };
 
 pub fn main() !void {

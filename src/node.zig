@@ -13,6 +13,7 @@ const String = std.ArrayList(u8);
 pub const Tag = enum {
     program,
     primary,
+    binary,
     function,
     apply,
     let_in,
@@ -32,6 +33,7 @@ pub const Tag = enum {
 pub const Node = union(Tag) {
     program: Program,
     primary: Primary,
+    binary: Binary,
     function: Function,
     apply: Apply,
     let_in: LetIn,
@@ -226,10 +228,39 @@ pub const Node = union(Tag) {
         }
     };
 
+    pub const Binary = struct {
+        left: *Node,
+        operator: Token,
+        right: *Node,
+
+        pub fn init(allocator: Allocator, left: *Node, operator: Token, right: *Node) !*Node {
+            const node = try allocator.create(Node);
+            node.* = Node{ .binary = .{
+                .left = left,
+                .operator = operator,
+                .right = right,
+            } };
+            return node;
+        }
+
+        pub fn deinit(self: *Binary, allocator: Allocator) void {
+            self.left.deinit(allocator);
+            self.right.deinit(allocator);
+            allocator.destroy(@as(*Node, @fieldParentPtr("binary", self)));
+        }
+
+        pub fn clone(self: *Binary, allocator: Allocator) !*Node {
+            const left = try self.left.clone(allocator);
+            const right = try self.right.clone(allocator);
+            return try Binary.init(allocator, left, self.operator, right);
+        }
+    };
+
     pub fn deinit(self: *Node, allocator: Allocator) void {
         switch (self.*) {
             .program => |*program| program.deinit(allocator),
             .primary => |*primary| primary.deinit(allocator),
+            .binary => |*binary| binary.deinit(allocator),
             .function => |*function| function.deinit(allocator),
             .apply => |*apply| apply.deinit(allocator),
             .let_in => |*let_in| let_in.deinit(allocator),
@@ -242,6 +273,7 @@ pub const Node = union(Tag) {
         return switch (self.*) {
             .program => |*program| try program.clone(allocator),
             .primary => |*primary| try primary.clone(allocator),
+            .binary => |*binary| try binary.clone(allocator),
             .function => |*function| try function.clone(allocator),
             .apply => |*apply| try apply.clone(allocator),
             .let_in => |*let_in| try let_in.clone(allocator),
@@ -262,6 +294,13 @@ pub const Node = union(Tag) {
             .primary => |primary| {
                 const operand = primary.operand;
                 try writer.print("{s}", .{operand.lexeme});
+            },
+            .binary => |binary| {
+                //try writer.print("(", .{});
+                try binary.left.format(fmt, options, writer);
+                try writer.print(" {s} ", .{binary.operator.lexeme});
+                try binary.right.format(fmt, options, writer);
+                //try writer.print(")", .{});
             },
             .function => |function| {
                 try writer.print("(λ{s}. ", .{function.parameter.lexeme});
@@ -320,6 +359,12 @@ pub const Node = union(Tag) {
             .primary => |a| {
                 const b = node_b.primary;
                 return a.operand.equal(b.operand);
+            },
+            .binary => |a| {
+                const b = node_b.binary;
+                return a.left.equal(b.left) and
+                    a.operator.equal(b.operator) and
+                    a.right.equal(b.right);
             },
             .function => |a| {
                 const b = node_b.function;

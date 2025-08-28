@@ -29,7 +29,7 @@ pub const Value = union(Tag) {
         }
     };
 
-    fn tag(self: Value) Tag {
+    pub fn tag(self: Value) Tag {
         return @as(Tag, self);
     }
 

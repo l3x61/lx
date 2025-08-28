@@ -62,7 +62,7 @@ fn program(self: *Parser) !*Node {
 ///     = let_rec_in
 ///     | if_then_else
 ///     | function
-///     | apply
+///     | additive
 ///     .
 /// ```
 fn expression(self: *Parser) anyerror!*Node {
@@ -70,7 +70,7 @@ fn expression(self: *Parser) anyerror!*Node {
         .let => self.letRecIn(),
         .@"if" => self.ifThenElse(),
         .lambda => self.function(),
-        .null, .true, .false, .number, .symbol, .lparen => self.apply(),
+        .null, .true, .false, .number, .symbol, .lparen => self.additive(),
         else => {
             _ = try self.eatToken(&[_]Token.Tag{ .let, .@"if", .lambda, .null, .true, .false, .number, .symbol, .lparen });
             return error.SyntaxError;
@@ -142,6 +142,52 @@ fn function(self: *Parser) !*Node {
     errdefer body.deinit(self.allocator);
 
     return Node.Function.init(self.allocator, parameter, body);
+}
+
+/// ```
+/// additive
+///     = multiplicative (("+" | "-") multiplicative)*
+///     .
+/// ```
+fn additive(self: *Parser) !*Node {
+    var left = try self.multiplicative();
+    errdefer left.deinit(self.allocator);
+
+    while (true) {
+        switch (self.token.tag) {
+            .plus, .minus => {
+                const operator = try self.eatToken(&[_]Token.Tag{ .plus, .minus });
+                const right = try self.multiplicative();
+                errdefer right.deinit(self.allocator);
+                left = try Node.Binary.init(self.allocator, left, operator, right);
+            },
+            else => break,
+        }
+    }
+    return left;
+}
+
+/// ```
+/// multiplicative
+///     = apply (("*" | "/") apply)*
+///     .
+/// ```
+fn multiplicative(self: *Parser) !*Node {
+    var left = try self.apply();
+    errdefer left.deinit(self.allocator);
+
+    while (true) {
+        switch (self.token.tag) {
+            .star, .slash => {
+                const operator = try self.eatToken(&[_]Token.Tag{ .star, .slash });
+                const right = try self.apply();
+                errdefer right.deinit(self.allocator);
+                left = try Node.Binary.init(self.allocator, left, operator, right);
+            },
+            else => break,
+        }
+    }
+    return left;
 }
 
 /// ```
@@ -496,6 +542,130 @@ test "apply to literals" {
                 try Node.Primary.init(testing.allocator, Token.init(.true, "true")),
             ),
             try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "multiplication precedence over addition" {
+    const input = "1 + 2 * 3";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            Token.init(.plus, "+"),
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                Token.init(.star, "*"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+            ),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "division precedence over subtraction" {
+    const input = "10 - 6 / 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, "10")),
+            Token.init(.minus, "-"),
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "6")),
+                Token.init(.slash, "/"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+            ),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "left associativity of addition" {
+    const input = "1 + 2 + 3";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+                Token.init(.plus, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+            ),
+            Token.init(.plus, "+"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "left associativity of multiplication" {
+    const input = "2 * 3 * 4";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                Token.init(.star, "*"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+            ),
+            Token.init(.star, "*"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "4")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "arithmetic expression" {
+    const input = "1 + x * 3 - y / 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+                Token.init(.plus, "+"),
+                try Node.Binary.init(
+                    testing.allocator,
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                    Token.init(.star, "*"),
+                    try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+                ),
+            ),
+            Token.init(.minus, "-"),
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, "y")),
+                Token.init(.slash, "/"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+            ),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "parentheses override precedence" {
+    const input = "(1 + 2) * 3";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+                Token.init(.plus, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+            ),
+            Token.init(.star, "*"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
         ),
     );
     try runTest(input, expected);

@@ -50,6 +50,10 @@ pub fn nextToken(self: *Lexer) Token {
         '=' => return Token.init(.equal, iterator.bytes[start..iterator.i]),
         '(' => return Token.init(.lparen, iterator.bytes[start..iterator.i]),
         ')' => return Token.init(.rparen, iterator.bytes[start..iterator.i]),
+        '+' => return Token.init(.plus, iterator.bytes[start..iterator.i]),
+        '-' => return Token.init(.minus, iterator.bytes[start..iterator.i]),
+        '*' => return Token.init(.star, iterator.bytes[start..iterator.i]),
+        '/' => return Token.init(.slash, iterator.bytes[start..iterator.i]),
         else => {},
     }
 
@@ -97,7 +101,11 @@ fn isSymbol(codepoint: u21) bool {
         codepoint != '(' and
         codepoint != ')' and
         codepoint != '\\' and
-        codepoint != 'λ';
+        codepoint != 'λ' and
+        codepoint != '+' and
+        codepoint != '-' and
+        codepoint != '*' and
+        codepoint != '/';
 }
 
 fn runTest(input: []const u8, tokens: []const Token) !void {
@@ -220,7 +228,9 @@ test "not let-in" {
         Token.init(.symbol, "letlet"),
         Token.init(.symbol, "inin"),
         Token.init(.symbol, "letin"),
-        Token.init(.symbol, "let-in"),
+        Token.init(.let, "let"),
+        Token.init(.minus, "-"),
+        Token.init(.in, "in"),
         Token.init(.eof, ""),
     };
     try runTest(input, &tokens);
@@ -246,6 +256,23 @@ test "null true false" {
         Token.init(.null, "null"),
         Token.init(.true, "true"),
         Token.init(.false, "false"),
+        Token.init(.eof, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "operators" {
+    const input = "x + y * z - w / 2";
+    const tokens = [_]Token{
+        Token.init(.symbol, "x"),
+        Token.init(.plus, "+"),
+        Token.init(.symbol, "y"),
+        Token.init(.star, "*"),
+        Token.init(.symbol, "z"),
+        Token.init(.minus, "-"),
+        Token.init(.symbol, "w"),
+        Token.init(.slash, "/"),
+        Token.init(.number, "2"),
         Token.init(.eof, ""),
     };
     try runTest(input, &tokens);
