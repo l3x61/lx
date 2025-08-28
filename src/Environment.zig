@@ -48,7 +48,7 @@ pub fn define(self: *Environment, allocator: Allocator, key: []const u8, value: 
 
     const entry = try self.record.getOrPut(new_key);
     if (entry.found_existing) {
-        log.err("{s} already defined\n", .{key});
+        log.warn("{s} already defined\n", .{key});
         return error.AlreadyDefined;
     }
     entry.value_ptr.* = value;
@@ -60,7 +60,7 @@ pub fn bind(self: *Environment, key: []const u8, value: Value) !void {
             val_ptr.* = value;
             return;
         } else {
-            log.err("{s} already bound to {f}\n", .{ key, val_ptr.* });
+            log.warn("{s} already bound to {f}\n", .{ key, val_ptr.* });
             return error.AlreadyDefined;
         }
     }
@@ -69,7 +69,7 @@ pub fn bind(self: *Environment, key: []const u8, value: Value) !void {
         return try parent.bind(key, value);
     }
 
-    log.err("{s} is not defined\n", .{key});
+    log.warn("{s} is not defined\n", .{key});
     return error.NotDefined;
 }
 
@@ -80,7 +80,7 @@ pub fn lookup(self: *Environment, key: []const u8) !Value {
     if (self.parent) |parent| {
         return parent.lookup(key);
     }
-    log.err("{s} is not defined\n", .{key});
+    log.warn("{s} is not defined\n", .{key});
     return error.NotDefined;
 }
 

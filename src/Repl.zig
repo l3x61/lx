@@ -74,7 +74,7 @@ pub fn run(self: *Repl) !void {
         const result = interp.evaluate(ast) catch |err| {
             switch (err) {
                 error.NormalExit => return,
-                else => log.err("{s}\n", .{@errorName(err)}),
+                else => log.warn("{s}\n", .{@errorName(err)}),
             }
             continue;
         };

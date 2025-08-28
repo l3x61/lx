@@ -81,7 +81,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                     .slash => "by",
                     else => unreachable,
                 };
-                log.err("can not {s} {f} {s} {f}\n", .{ operation, left.tag(), preposition, right.tag() });
+                log.warn("can not {s} {f} {s} {f}\n", .{ operation, left.tag(), preposition, right.tag() });
                 return error.TypeError;
             }
 
@@ -94,7 +94,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 .star => lnum * rnum,
                 .slash => {
                     if (rnum == 0) {
-                        log.err("division by 0 in expression {f}\n", .{node});
+                        log.warn("division by 0 in expression {f}\n", .{node});
                         return error.DivisionByZero;
                     }
                     return Value.Number.init(lnum / rnum);
@@ -133,7 +133,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                     return result;
                 },
                 else => {
-                    log.err("can not apply {f} to {f}\n", .{ apply.function, apply.argument });
+                    log.warn("can not apply {f} to {f}\n", .{ apply.function, apply.argument });
                     return error.NotCallable;
                 },
             };
@@ -150,7 +150,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
 
             const value = try self._evaluate(let_in.value, scope);
             if (value.isVoid()) {
-                log.err("let does not allow recursive bindings\n", .{}); // TODO: report line number
+                log.warn("let does not allow recursive bindings\n", .{}); // TODO: report line number
                 return error.RecursiveBinding;
             }
             try scope.bind(name, value);
@@ -172,7 +172,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             const value = try self._evaluate(let_rec_in.value, scope);
 
             if (value.asFunction() == null) {
-                log.err("let rec only allows recursive bindings for functions\n", .{}); // TODO: report line number
+                log.warn("let rec only allows recursive bindings for functions\n", .{}); // TODO: report line number
                 return error.RecursiveBinding;
             }
 
@@ -191,7 +191,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
                 else
                     self._evaluate(if_then_else.alternate, env);
             } else {
-                log.err("{f} is not a boolean\n", .{condition});
+                log.warn("{f} is not a boolean\n", .{condition});
                 return error.NotABoolean;
             }
         },
