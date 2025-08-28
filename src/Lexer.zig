@@ -5,7 +5,7 @@ const parseFloat = std.fmt.parseFloat;
 const print = std.debug.print;
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
-const fmtSliceEscapeUpper = std.fmt.fmtSliceEscapeUpper;
+const hexEscape = std.ascii.hexEscape;
 
 const ansi = @import("ansi.zig");
 const Token = @import("Token.zig");
@@ -111,13 +111,15 @@ fn isSymbol(codepoint: u21) bool {
 fn runTest(input: []const u8, tokens: []const Token) !void {
     var lexer = try Lexer.init(input);
 
+    const escaped = hexEscape(input, .upper);
     for (0.., tokens) |i, expected| {
         const actual = lexer.nextToken();
+
         expect(expected.equal(actual)) catch |err| {
             print(ansi.red ++ "error: " ++ ansi.reset, .{});
-            print("at token {d} of {d} in `{s}`\n", .{ i, tokens.len, fmtSliceEscapeUpper(input) });
-            print("expected: {s}\n", .{expected});
-            print("     got: {s}\n\n", .{actual});
+            print("at token {d} of {d} in `{s}`\n", .{ i, tokens.len, escaped.data.bytes });
+            print("expected: {f}\n", .{expected.tag});
+            print("     got: {f}\n\n", .{actual.tag});
             return err;
         };
     }

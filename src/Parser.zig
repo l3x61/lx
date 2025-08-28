@@ -35,7 +35,7 @@ fn eatToken(self: *Parser, expected: []const Token.Tag) !Token {
     self.token = self.lexer.nextToken();
 
     if (!token.isOneOf(expected)) {
-        print("expected {s} but got {s}\n", .{ expected, token });
+        print("expected {any} but got {any}\n", .{ expected, token.tag });
         return error.SyntaxError;
     }
     return token;
@@ -256,7 +256,7 @@ fn runTest(input: []const u8, expected: *Node) !void {
     defer actual.deinit(allocator);
 
     expect(actual.equal(expected)) catch {
-        print("{s}error:{s} expected: {s} but got {s}\n", .{ ansi.red, ansi.reset, expected, actual });
+        print("{s}error:{s} expected: {f} but got {f}\n", .{ ansi.red, ansi.reset, expected, actual });
         return error.TestFailed;
     };
 }
