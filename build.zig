@@ -11,8 +11,6 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
     b.installArtifact(exe);
-    exe.linkLibC();
-    exe.linkSystemLibrary("readline");
 
     const exe_check = b.addExecutable(.{
         .name = "lx",

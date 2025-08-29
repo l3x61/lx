@@ -2,12 +2,7 @@
 
 Experimental functional language written in Zig.
 
-## Dependencies
-
-- `readline` [GNU Readline](https://tiswww.cwru.edu/php/chet/readline/rltop.html)
-
 ## ToDo
-
 
 lexer
 

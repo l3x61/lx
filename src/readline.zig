@@ -1,5 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Reader = std.io.Reader;
+const Writer = std.io.Writer;
+
 const span = std.mem.span;
 
 const C = @cImport({
@@ -9,16 +12,10 @@ const C = @cImport({
     @cInclude("readline/history.h");
 });
 
-pub fn readline(ator: Allocator, prompt: []const u8) ![]u8 {
-    const line = C.readline(prompt.ptr);
-    if (line == null) {
-        return ator.dupe(u8, "");
-    }
+pub fn readline(ator: Allocator, prompt: []const u8, in: *Reader, out: *Writer) ![]u8 {
+    try out.writeAll(prompt);
+    try out.flush();
 
-    defer C.free(line);
-    if (line[0] != 0) {
-        _ = C.add_history(line);
-    }
-
-    return ator.dupe(u8, span(line));
+    const line = try in.takeDelimiterInclusive('\n');
+    return ator.dupe(u8, line);
 }

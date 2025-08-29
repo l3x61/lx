@@ -14,10 +14,19 @@ const Value = @import("value.zig").Value;
 const log = std.log.scoped(.repl);
 const Lines = std.array_list.AlignedManaged([]u8, null);
 const Repl = @This();
+const max_path_bytes = std.fs.max_path_bytes;
 
 ator: Allocator,
 lines: Lines,
 env: *Environment,
+
+var stdout_buffer: [max_path_bytes]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+const stdout = &stdout_writer.interface;
+
+var stdin_buffer: [max_path_bytes]u8 = undefined;
+var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+const stdin = &stdin_reader.interface;
 
 pub fn init(ator: Allocator) !Repl {
     return Repl{
@@ -46,22 +55,22 @@ pub fn deinit(self: *Repl) void {
 }
 
 pub fn run(self: *Repl) !void {
-    var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
-    const stdout = &stdout_writer.interface;
+    const ator = self.ator;
+    const env = self.env;
 
-    try stdout.flush();
+    const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
-    var interp = try Interpreter.init(self.ator, self.env);
+    var interp = try Interpreter.init(ator, env);
     defer interp.deinit();
 
-    while (true) {
-        const line = try readLine(self.ator, ansi.cyan ++ "> " ++ ansi.reset);
+    loop: while (true) {
+        const line = try readLine(ator, prompt, stdin, stdout);
         try self.lines.append(line);
 
         var timer = try Timer.start();
-        var parser = try Parser.init(self.ator, line);
+        var parser = try Parser.init(ator, line);
         const ast = parser.parse() catch continue;
+        defer ast.deinit(ator);
         const parse_done = timer.lap();
 
         log.debug("{f}\n", .{ast});
@@ -69,15 +78,15 @@ pub fn run(self: *Repl) !void {
         _ = timer.lap();
         const result = interp.evaluate(ast) catch |err| {
             switch (err) {
-                error.NormalExit => return,
+                error.NormalExit => break :loop,
                 else => log.warn("{s}\n", .{@errorName(err)}),
             }
             continue;
         };
         const eval_done = timer.read();
 
-        log.info("parsing    {s}\n", .{try formatElapsedTime(&buffer, parse_done)});
-        log.info("evaluating {s}\n", .{try formatElapsedTime(&buffer, eval_done)});
+        log.info("parsing    {s}\n", .{try formatElapsedTime(&stdout_buffer, parse_done)});
+        log.info("evaluating {s}\n", .{try formatElapsedTime(&stdout_buffer, eval_done)});
 
         try stdout.print("{f}\n", .{result});
         try stdout.flush();
