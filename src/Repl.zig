@@ -51,26 +51,22 @@ pub fn run(self: *Repl) !void {
     const stdout = &stdout_writer.interface;
 
     try stdout.flush();
-    const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
     var interp = try Interpreter.init(self.allocator, self.env);
     defer interp.deinit();
 
     while (true) {
-        const line = try readLine(self.allocator, prompt);
+        const line = try readLine(self.allocator, ansi.cyan ++ "> " ++ ansi.reset);
         try self.lines.append(line);
 
         var timer = try Timer.start();
-
         var parser = try Parser.init(self.allocator, line);
         const ast = parser.parse() catch continue;
-
         const parse_done = timer.lap();
 
-        log.info("{f}\n", .{ast});
+        log.debug("{f}\n", .{ast});
 
         _ = timer.lap();
-
         const result = interp.evaluate(ast) catch |err| {
             switch (err) {
                 error.NormalExit => return,
@@ -78,7 +74,6 @@ pub fn run(self: *Repl) !void {
             }
             continue;
         };
-
         const eval_done = timer.read();
 
         log.info("parsing    {s}\n", .{try formatElapsedTime(&buffer, parse_done)});
