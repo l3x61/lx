@@ -9,40 +9,36 @@ array: ArrayList(u8),
 
 pub const empty = String{ .array = ArrayList(u8).empty };
 
-pub inline fn initSlice(gpa: Allocator, slice: []const u8) !String {
+pub inline fn initSlice(ator: Allocator, slice: []const u8) !String {
     var string = String.empty;
-    try string.appendSlice(gpa, slice);
+    try string.appendSlice(ator, slice);
     return string;
 }
 
-pub inline fn initPrint(
-    gpa: Allocator,
-    comptime fmt: []const u8,
-    args: anytype,
-) !void {
+pub inline fn initPrint(ator: Allocator, comptime fmt: []const u8, args: anytype) !void {
     var string = String.init();
-    try string.print(gpa, fmt, args);
+    try string.print(ator, fmt, args);
     return string;
 }
 
-pub inline fn deinit(self: *String, gpa: Allocator) void {
-    self.array.deinit(gpa);
+pub inline fn deinit(self: *String, ator: Allocator) void {
+    self.array.deinit(ator);
 }
 
-pub inline fn clone(self: *String, gpa: Allocator) !String {
-    return String.initSlice(gpa, self.getSlice());
+pub inline fn clone(self: *String, ator: Allocator) !String {
+    return String.initSlice(ator, self.getSlice());
 }
 
 pub inline fn getSlice(self: *String) []u8 {
     return self.array.items;
 }
 
-pub inline fn appendSlice(self: *String, gpa: Allocator, slice: []const u8) !void {
-    return self.array.appendSlice(gpa, slice);
+pub inline fn appendSlice(self: *String, ator: Allocator, slice: []const u8) !void {
+    return self.array.appendSlice(ator, slice);
 }
 
-pub inline fn print(self: *String, gpa: Allocator, comptime fmt: []const u8, args: anytype) !void {
-    return self.array.print(gpa, fmt, args);
+pub inline fn print(self: *String, ator: Allocator, comptime fmt: []const u8, args: anytype) !void {
+    return self.array.print(ator, fmt, args);
 }
 
 test "init" {

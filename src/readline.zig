@@ -9,10 +9,10 @@ const C = @cImport({
     @cInclude("readline/history.h");
 });
 
-pub fn readline(allocator: Allocator, prompt: []const u8) ![]u8 {
+pub fn readline(ator: Allocator, prompt: []const u8) ![]u8 {
     const line = C.readline(prompt.ptr);
     if (line == null) {
-        return allocator.dupe(u8, "");
+        return ator.dupe(u8, "");
     }
 
     defer C.free(line);
@@ -20,5 +20,5 @@ pub fn readline(allocator: Allocator, prompt: []const u8) ![]u8 {
         _ = C.add_history(line);
     }
 
-    return allocator.dupe(u8, span(line));
+    return ator.dupe(u8, span(line));
 }

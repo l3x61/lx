@@ -12,39 +12,39 @@ const Value = @import("value.zig").Value;
 const log = std.log.scoped(.env);
 const Environment = @This();
 
-allocator: Allocator,
+ator: Allocator,
 parent: ?*Environment,
 record: HashMap(Value),
 
-pub fn init(allocator: Allocator, parent: ?*Environment) !*Environment {
-    const self = try allocator.create(Environment);
+pub fn init(ator: Allocator, parent: ?*Environment) !*Environment {
+    const self = try ator.create(Environment);
     self.* = Environment{
-        .allocator = allocator,
+        .ator = ator,
         .parent = parent,
-        .record = HashMap(Value).init(allocator),
+        .record = HashMap(Value).init(ator),
     };
     return self;
 }
 
-pub fn deinitSelf(self: *Environment, allocator: Allocator) void {
+pub fn deinitSelf(self: *Environment, ator: Allocator) void {
     var it = self.record.iterator();
     while (it.next()) |entry| {
-        allocator.free(entry.key_ptr.*);
+        ator.free(entry.key_ptr.*);
     }
     self.record.deinit();
-    allocator.destroy(self);
+    ator.destroy(self);
 }
 
-pub fn deinitAll(self: *Environment, allocator: Allocator) void {
+pub fn deinitAll(self: *Environment, ator: Allocator) void {
     if (self.parent) |parent| {
-        parent.deinitAll(allocator);
+        parent.deinitAll(ator);
     }
-    self.deinitSelf(allocator);
+    self.deinitSelf(ator);
 }
 
-pub fn define(self: *Environment, allocator: Allocator, key: []const u8, value: Value) !void {
-    const new_key = try allocator.dupe(u8, key);
-    errdefer allocator.free(new_key);
+pub fn define(self: *Environment, ator: Allocator, key: []const u8, value: Value) !void {
+    const new_key = try ator.dupe(u8, key);
+    errdefer ator.free(new_key);
 
     const entry = try self.record.getOrPut(new_key);
     if (entry.found_existing) {

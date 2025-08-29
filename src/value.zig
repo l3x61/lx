@@ -80,11 +80,11 @@ pub const Value = union(Tag) {
         env: *Environment,
 
         pub fn init(
-            allocator: Allocator,
+            ator: Allocator,
             function: Node.Function,
             env: *Environment,
         ) !Value {
-            const closure = try allocator.create(Closure);
+            const closure = try ator.create(Closure);
             closure.* = Closure{
                 .parameter = function.parameter.lexeme,
                 .body = function.body,
@@ -93,15 +93,15 @@ pub const Value = union(Tag) {
             return Value{ .closure = closure };
         }
 
-        pub fn deinit(self: *Closure, allocator: Allocator) void {
-            allocator.destroy(self);
+        pub fn deinit(self: *Closure, ator: Allocator) void {
+            ator.destroy(self);
         }
     };
 
-    pub fn deinit(self: *Value, allocator: Allocator) void {
+    pub fn deinit(self: *Value, ator: Allocator) void {
         return switch (self.*) {
-            .closure => |closure| closure.deinit(allocator),
-            .builtin => |builtin| if (builtin.capture_env) |ce| ce.deinitSelf(allocator),
+            .closure => |closure| closure.deinit(ator),
+            .builtin => |builtin| if (builtin.capture_env) |ce| ce.deinitSelf(ator),
             else => {},
         };
     }

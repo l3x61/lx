@@ -15,32 +15,32 @@ const log = std.log.scoped(.repl);
 const Lines = std.array_list.AlignedManaged([]u8, null);
 const Repl = @This();
 
-allocator: Allocator,
+ator: Allocator,
 lines: Lines,
 env: *Environment,
 
-pub fn init(allocator: Allocator) !Repl {
+pub fn init(ator: Allocator) !Repl {
     return Repl{
-        .allocator = allocator,
-        .lines = Lines.init(allocator),
-        .env = try initEnvironment(allocator),
+        .ator = ator,
+        .lines = Lines.init(ator),
+        .env = try initEnvironment(ator),
     };
 }
 
-fn initEnvironment(allocator: Allocator) !*Environment {
+fn initEnvironment(ator: Allocator) !*Environment {
     const builtin_exit = @import("builtin/exit.zig");
     const builtin_env = @import("builtin/env.zig");
 
-    var env = try Environment.init(allocator, null);
-    try env.define(allocator, builtin_exit.name, Value.Builtin.init(builtin_exit.name, builtin_exit.function, null));
-    try env.define(allocator, builtin_env.name, Value.Builtin.init(builtin_env.name, builtin_env.function, null));
+    var env = try Environment.init(ator, null);
+    try env.define(ator, builtin_exit.name, Value.Builtin.init(builtin_exit.name, builtin_exit.function, null));
+    try env.define(ator, builtin_env.name, Value.Builtin.init(builtin_env.name, builtin_env.function, null));
 
     return env;
 }
 
 pub fn deinit(self: *Repl) void {
     for (self.lines.items) |line| {
-        self.allocator.free(line);
+        self.ator.free(line);
     }
     self.lines.deinit();
 }
@@ -52,15 +52,15 @@ pub fn run(self: *Repl) !void {
 
     try stdout.flush();
 
-    var interp = try Interpreter.init(self.allocator, self.env);
+    var interp = try Interpreter.init(self.ator, self.env);
     defer interp.deinit();
 
     while (true) {
-        const line = try readLine(self.allocator, ansi.cyan ++ "> " ++ ansi.reset);
+        const line = try readLine(self.ator, ansi.cyan ++ "> " ++ ansi.reset);
         try self.lines.append(line);
 
         var timer = try Timer.start();
-        var parser = try Parser.init(self.allocator, line);
+        var parser = try Parser.init(self.ator, line);
         const ast = parser.parse() catch continue;
         const parse_done = timer.lap();
 

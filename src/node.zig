@@ -45,46 +45,46 @@ pub const Node = union(Tag) {
     pub const Program = struct {
         expression: ?*Node,
 
-        pub fn init(allocator: Allocator, expression: ?*Node) !*Node {
-            const node = try allocator.create(Node);
+        pub fn init(ator: Allocator, expression: ?*Node) !*Node {
+            const node = try ator.create(Node);
             node.* = Node{ .program = .{ .expression = expression } };
             return node;
         }
 
-        fn deinit(self: *Program, allocator: Allocator) void {
+        fn deinit(self: *Program, ator: Allocator) void {
             if (self.expression) |expression| {
-                expression.deinit(allocator);
+                expression.deinit(ator);
             }
-            allocator.destroy(@as(*Node, @fieldParentPtr("program", self)));
+            ator.destroy(@as(*Node, @fieldParentPtr("program", self)));
         }
 
-        fn clone(self: *Program, allocator: Allocator) !*Node {
+        fn clone(self: *Program, ator: Allocator) !*Node {
             const expression = if (self.expression) |expression|
-                try expression.clone(allocator)
+                try expression.clone(ator)
             else
                 null;
 
-            return try Program.init(allocator, expression);
+            return try Program.init(ator, expression);
         }
     };
 
     pub const Primary = struct {
         operand: Token,
 
-        pub fn init(allocator: Allocator, operand: Token) !*Node {
-            const node = try allocator.create(Node);
+        pub fn init(ator: Allocator, operand: Token) !*Node {
+            const node = try ator.create(Node);
             node.* = Node{
                 .primary = .{ .operand = operand },
             };
             return node;
         }
 
-        fn deinit(self: *Primary, allocator: Allocator) void {
-            allocator.destroy(@as(*Node, @fieldParentPtr("primary", self)));
+        fn deinit(self: *Primary, ator: Allocator) void {
+            ator.destroy(@as(*Node, @fieldParentPtr("primary", self)));
         }
 
-        fn clone(self: *Primary, allocator: Allocator) !*Node {
-            return try Primary.init(allocator, self.operand);
+        fn clone(self: *Primary, ator: Allocator) !*Node {
+            return try Primary.init(ator, self.operand);
         }
     };
 
@@ -93,22 +93,22 @@ pub const Node = union(Tag) {
         value: *Node,
         body: *Node,
 
-        pub fn init(allocator: Allocator, name: Token, value: *Node, body: *Node) !*Node {
-            const node = try allocator.create(Node);
+        pub fn init(ator: Allocator, name: Token, value: *Node, body: *Node) !*Node {
+            const node = try ator.create(Node);
             node.* = Node{ .let_in = .{ .name = name, .value = value, .body = body } };
             return node;
         }
 
-        pub fn deinit(self: *LetIn, allocator: Allocator) void {
-            self.value.deinit(allocator);
-            self.body.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("let_in", self)));
+        pub fn deinit(self: *LetIn, ator: Allocator) void {
+            self.value.deinit(ator);
+            self.body.deinit(ator);
+            ator.destroy(@as(*Node, @fieldParentPtr("let_in", self)));
         }
 
-        pub fn clone(self: *LetIn, allocator: Allocator) !*Node {
-            const value = try self.value.clone(allocator);
-            const body = try self.body.clone(allocator);
-            return try LetIn.init(allocator, self.name, value, body);
+        pub fn clone(self: *LetIn, ator: Allocator) !*Node {
+            const value = try self.value.clone(ator);
+            const body = try self.body.clone(ator);
+            return try LetIn.init(ator, self.name, value, body);
         }
     };
 
@@ -117,22 +117,22 @@ pub const Node = union(Tag) {
         value: *Node,
         body: *Node,
 
-        pub fn init(allocator: Allocator, name: Token, value: *Node, body: *Node) !*Node {
-            const node = try allocator.create(Node);
+        pub fn init(ator: Allocator, name: Token, value: *Node, body: *Node) !*Node {
+            const node = try ator.create(Node);
             node.* = Node{ .let_rec_in = .{ .name = name, .value = value, .body = body } };
             return node;
         }
 
-        pub fn deinit(self: *LetRecIn, allocator: Allocator) void {
-            self.value.deinit(allocator);
-            self.body.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("let_rec_in", self)));
+        pub fn deinit(self: *LetRecIn, ator: Allocator) void {
+            self.value.deinit(ator);
+            self.body.deinit(ator);
+            ator.destroy(@as(*Node, @fieldParentPtr("let_rec_in", self)));
         }
 
-        pub fn clone(self: *LetRecIn, allocator: Allocator) !*Node {
-            const value = try self.value.clone(allocator);
-            const body = try self.body.clone(allocator);
-            return try LetRecIn.init(allocator, self.name, value, body);
+        pub fn clone(self: *LetRecIn, ator: Allocator) !*Node {
+            const value = try self.value.clone(ator);
+            const body = try self.body.clone(ator);
+            return try LetRecIn.init(ator, self.name, value, body);
         }
     };
 
@@ -142,12 +142,12 @@ pub const Node = union(Tag) {
         alternate: *Node,
 
         pub fn init(
-            allocator: Allocator,
+            ator: Allocator,
             condition: *Node,
             consequent: *Node,
             alternate: *Node,
         ) !*Node {
-            const node = try allocator.create(Node);
+            const node = try ator.create(Node);
             node.* = Node{ .if_then_else = .{
                 .condition = condition,
                 .consequent = consequent,
@@ -156,18 +156,18 @@ pub const Node = union(Tag) {
             return node;
         }
 
-        pub fn deinit(self: *IfThenElse, allocator: Allocator) void {
-            self.condition.deinit(allocator);
-            self.consequent.deinit(allocator);
-            self.alternate.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("if_then_else", self)));
+        pub fn deinit(self: *IfThenElse, ator: Allocator) void {
+            self.condition.deinit(ator);
+            self.consequent.deinit(ator);
+            self.alternate.deinit(ator);
+            ator.destroy(@as(*Node, @fieldParentPtr("if_then_else", self)));
         }
 
-        pub fn clone(self: *IfThenElse, allocator: Allocator) !*Node {
-            const condition = try self.condition.clone(allocator);
-            const consequent = try self.consequent.clone(allocator);
-            const alternate = try self.alternate.clone(allocator);
-            return try IfThenElse.init(allocator, condition, consequent, alternate);
+        pub fn clone(self: *IfThenElse, ator: Allocator) !*Node {
+            const condition = try self.condition.clone(ator);
+            const consequent = try self.consequent.clone(ator);
+            const alternate = try self.alternate.clone(ator);
+            return try IfThenElse.init(ator, condition, consequent, alternate);
         }
     };
 
@@ -175,22 +175,22 @@ pub const Node = union(Tag) {
         parameter: Token,
         body: *Node,
 
-        pub fn init(allocator: Allocator, parameter: Token, body: *Node) !*Node {
-            const node = try allocator.create(Node);
+        pub fn init(ator: Allocator, parameter: Token, body: *Node) !*Node {
+            const node = try ator.create(Node);
             node.* = Node{
                 .function = .{ .parameter = parameter, .body = body },
             };
             return node;
         }
 
-        fn deinit(self: *Function, allocator: Allocator) void {
-            self.body.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("function", self)));
+        fn deinit(self: *Function, ator: Allocator) void {
+            self.body.deinit(ator);
+            ator.destroy(@as(*Node, @fieldParentPtr("function", self)));
         }
 
-        pub fn clone(self: *Function, allocator: Allocator) !*Node {
-            const body = try self.body.clone(allocator);
-            return try Function.init(allocator, self.parameter, body);
+        pub fn clone(self: *Function, ator: Allocator) !*Node {
+            const body = try self.body.clone(ator);
+            return try Function.init(ator, self.parameter, body);
         }
     };
 
@@ -199,11 +199,11 @@ pub const Node = union(Tag) {
         argument: *Node,
 
         pub fn init(
-            allocator: Allocator,
+            ator: Allocator,
             function: *Node,
             argument: *Node,
         ) !*Node {
-            const node = try allocator.create(Node);
+            const node = try ator.create(Node);
             node.* = Node{
                 .apply = .{
                     .function = function,
@@ -213,16 +213,16 @@ pub const Node = union(Tag) {
             return node;
         }
 
-        pub fn deinit(self: *Apply, allocator: Allocator) void {
-            self.function.deinit(allocator);
-            self.argument.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("apply", self)));
+        pub fn deinit(self: *Apply, ator: Allocator) void {
+            self.function.deinit(ator);
+            self.argument.deinit(ator);
+            ator.destroy(@as(*Node, @fieldParentPtr("apply", self)));
         }
 
-        pub fn clone(self: *Apply, allocator: Allocator) !*Node {
-            const function = try self.function.clone(allocator);
-            const argument = try self.argument.clone(allocator);
-            return try Apply.init(allocator, function, argument);
+        pub fn clone(self: *Apply, ator: Allocator) !*Node {
+            const function = try self.function.clone(ator);
+            const argument = try self.argument.clone(ator);
+            return try Apply.init(ator, function, argument);
         }
     };
 
@@ -231,8 +231,8 @@ pub const Node = union(Tag) {
         operator: Token,
         right: *Node,
 
-        pub fn init(allocator: Allocator, left: *Node, operator: Token, right: *Node) !*Node {
-            const node = try allocator.create(Node);
+        pub fn init(ator: Allocator, left: *Node, operator: Token, right: *Node) !*Node {
+            const node = try ator.create(Node);
             node.* = Node{ .binary = .{
                 .left = left,
                 .operator = operator,
@@ -241,42 +241,42 @@ pub const Node = union(Tag) {
             return node;
         }
 
-        pub fn deinit(self: *Binary, allocator: Allocator) void {
-            self.left.deinit(allocator);
-            self.right.deinit(allocator);
-            allocator.destroy(@as(*Node, @fieldParentPtr("binary", self)));
+        pub fn deinit(self: *Binary, ator: Allocator) void {
+            self.left.deinit(ator);
+            self.right.deinit(ator);
+            ator.destroy(@as(*Node, @fieldParentPtr("binary", self)));
         }
 
-        pub fn clone(self: *Binary, allocator: Allocator) !*Node {
-            const left = try self.left.clone(allocator);
-            const right = try self.right.clone(allocator);
-            return try Binary.init(allocator, left, self.operator, right);
+        pub fn clone(self: *Binary, ator: Allocator) !*Node {
+            const left = try self.left.clone(ator);
+            const right = try self.right.clone(ator);
+            return try Binary.init(ator, left, self.operator, right);
         }
     };
 
-    pub fn deinit(self: *Node, allocator: Allocator) void {
+    pub fn deinit(self: *Node, ator: Allocator) void {
         switch (self.*) {
-            .program => |*program| program.deinit(allocator),
-            .primary => |*primary| primary.deinit(allocator),
-            .binary => |*binary| binary.deinit(allocator),
-            .function => |*function| function.deinit(allocator),
-            .apply => |*apply| apply.deinit(allocator),
-            .let_in => |*let_in| let_in.deinit(allocator),
-            .let_rec_in => |*let_rec_in| let_rec_in.deinit(allocator),
-            .if_then_else => |*if_then_else| if_then_else.deinit(allocator),
+            .program => |*program| program.deinit(ator),
+            .primary => |*primary| primary.deinit(ator),
+            .binary => |*binary| binary.deinit(ator),
+            .function => |*function| function.deinit(ator),
+            .apply => |*apply| apply.deinit(ator),
+            .let_in => |*let_in| let_in.deinit(ator),
+            .let_rec_in => |*let_rec_in| let_rec_in.deinit(ator),
+            .if_then_else => |*if_then_else| if_then_else.deinit(ator),
         }
     }
 
-    pub fn clone(self: *Node, allocator: Allocator) anyerror!*Node {
+    pub fn clone(self: *Node, ator: Allocator) anyerror!*Node {
         return switch (self.*) {
-            .program => |*program| try program.clone(allocator),
-            .primary => |*primary| try primary.clone(allocator),
-            .binary => |*binary| try binary.clone(allocator),
-            .function => |*function| try function.clone(allocator),
-            .apply => |*apply| try apply.clone(allocator),
-            .let_in => |*let_in| try let_in.clone(allocator),
-            .let_rec_in => |*let_rec_in| try let_rec_in.clone(allocator),
-            .if_then_else => |*if_then_else| try if_then_else.clone(allocator),
+            .program => |*program| try program.clone(ator),
+            .primary => |*primary| try primary.clone(ator),
+            .binary => |*binary| try binary.clone(ator),
+            .function => |*function| try function.clone(ator),
+            .apply => |*apply| try apply.clone(ator),
+            .let_in => |*let_in| try let_in.clone(ator),
+            .let_rec_in => |*let_rec_in| try let_rec_in.clone(ator),
+            .if_then_else => |*if_then_else| try if_then_else.clone(ator),
         };
     }
 

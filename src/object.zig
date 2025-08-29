@@ -21,11 +21,11 @@ pub const Object = union(Tag) {
     node: *Node,
     env: *Environment,
 
-    pub fn deinit(self: *Object, allocator: Allocator) void {
+    pub fn deinit(self: *Object, ator: Allocator) void {
         switch (self.*) {
-            .value => |*value| value.deinit(allocator),
-            .node => |node| node.deinit(allocator),
-            .env => |env| env.deinitSelf(allocator),
+            .value => |*value| value.deinit(ator),
+            .node => |node| node.deinit(ator),
+            .env => |env| env.deinitSelf(ator),
         }
     }
 };

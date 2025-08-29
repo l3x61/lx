@@ -1,5 +1,6 @@
 const std = @import("std");
 const Level = std.log.Level;
+const DebugAllocator = std.heap.DebugAllocator;
 const builtin = @import("builtin");
 
 const LoggingAllocator = @import("LoggingAllocator.zig");
@@ -11,12 +12,13 @@ pub const std_options = std.Options{
 };
 
 pub fn main() !void {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    var logging_allocator = LoggingAllocator.init(debug_allocator.allocator());
-    const allocator = logging_allocator.allocator();
-    defer _ = debug_allocator.deinit();
+    var da: DebugAllocator(.{}) = .init;
+    defer _ = da.deinit();
 
-    var repl = try Repl.init(allocator);
+    var la = LoggingAllocator.init(da.allocator());
+    const ator = la.allocator();
+
+    var repl = try Repl.init(ator);
     defer repl.deinit();
 
     try repl.run();
@@ -27,4 +29,5 @@ test "all" {
     _ = @import("Parser.zig");
     _ = @import("Environment.zig");
     _ = @import("Interpreter.zig");
+    _ = @import("String.zig");
 }

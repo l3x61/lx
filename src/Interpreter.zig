@@ -18,24 +18,24 @@ const log = std.log.scoped(.eval);
 const Interpreter = @This();
 const Objects = std.array_list.AlignedManaged(Object, null);
 
-allocator: Allocator,
+ator: Allocator,
 env: *Environment,
 objects: Objects,
 
-pub fn init(allocator: Allocator, env: ?*Environment) !Interpreter {
+pub fn init(ator: Allocator, env: ?*Environment) !Interpreter {
     return Interpreter{
-        .allocator = allocator,
-        .objects = Objects.init(allocator),
-        .env = try Environment.init(allocator, env),
+        .ator = ator,
+        .objects = Objects.init(ator),
+        .env = try Environment.init(ator, env),
     };
 }
 
 pub fn deinit(self: *Interpreter) void {
     for (self.objects.items) |*object| {
-        object.deinit(self.allocator);
+        object.deinit(self.ator);
     }
     self.objects.deinit();
-    self.env.deinitAll(self.allocator);
+    self.env.deinitAll(self.ator);
 }
 
 pub fn evaluate(self: *Interpreter, node: *Node) !Value {
@@ -105,7 +105,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             return Value.Number.init(result);
         },
         .function => |function| {
-            const closure = try Value.Closure.init(self.allocator, function, env);
+            const closure = try Value.Closure.init(self.ator, function, env);
             try self.objects.append(Object{ .value = closure });
             return closure;
         },
@@ -116,20 +116,20 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             return switch (function) {
                 .closure => |closure| {
                     var scope_owned: bool = false;
-                    var scope = try Environment.init(self.allocator, closure.env);
-                    errdefer if (!scope_owned) scope.deinitSelf(self.allocator);
+                    var scope = try Environment.init(self.ator, closure.env);
+                    errdefer if (!scope_owned) scope.deinitSelf(self.ator);
 
-                    try scope.define(self.allocator, closure.parameter, argument);
+                    try scope.define(self.ator, closure.parameter, argument);
                     try self.objects.append(Object{ .env = scope });
                     scope_owned = true;
 
-                    const body = try closure.body.clone(self.allocator);
+                    const body = try closure.body.clone(self.ator);
                     try self.objects.append(Object{ .node = body });
                     return try self._evaluate(body, scope);
                 },
                 .builtin => |builtin| {
                     const result = try builtin.function(argument, env, builtin.capture_env);
-                    defer function.deinit(self.allocator);
+                    defer function.deinit(self.ator);
                     return result;
                 },
                 else => {
@@ -140,13 +140,13 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
         },
         .let_in => |let_in| {
             var scope_owned: bool = false;
-            var scope = try Environment.init(self.allocator, env);
+            var scope = try Environment.init(self.ator, env);
             errdefer if (!scope_owned) {
-                scope.deinitSelf(self.allocator);
+                scope.deinitSelf(self.ator);
             };
 
             const name = let_in.name.lexeme;
-            try scope.define(self.allocator, name, Value.init());
+            try scope.define(self.ator, name, Value.init());
 
             const value = try self._evaluate(let_in.value, scope);
             if (value.isVoid()) {
@@ -162,13 +162,13 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
         },
         .let_rec_in => |let_rec_in| {
             var scope_owned: bool = false;
-            var scope = try Environment.init(self.allocator, env);
+            var scope = try Environment.init(self.ator, env);
             errdefer if (!scope_owned) {
-                scope.deinitSelf(self.allocator);
+                scope.deinitSelf(self.ator);
             };
 
             const name = let_rec_in.name.lexeme;
-            try scope.define(self.allocator, name, Value.init());
+            try scope.define(self.ator, name, Value.init());
             const value = try self._evaluate(let_rec_in.value, scope);
 
             if (value.asClosure() == null) {
@@ -198,8 +198,8 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
     };
 }
 
-fn runTest(allocator: Allocator, node: *Node, expected: Value) !void {
-    var interpreter = try Interpreter.init(allocator, null);
+fn runTest(ator: Allocator, node: *Node, expected: Value) !void {
+    var interpreter = try Interpreter.init(ator, null);
     defer interpreter.deinit();
 
     const actual = try interpreter.evaluate(node);
