@@ -133,7 +133,7 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn asFunction(self: Value) ?*Closure {
+    pub fn asClosure(self: Value) ?*Closure {
         return switch (self) {
             .closure => |closure| closure,
             else => null,
@@ -162,7 +162,7 @@ pub const Value = union(Tag) {
             .boolean => |boolean| boolean == other.asBoolean().?,
             .number => |number| number == other.asNumber().?,
             .builtin => |builtin| builtin.function == other.asBuiltin().?.function,
-            .closure => |closure| closure == other.asFunction().?,
+            .closure => |closure| closure == other.asClosure().?,
         };
     }
 };

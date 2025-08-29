@@ -171,7 +171,7 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             try scope.define(self.allocator, name, Value.init());
             const value = try self._evaluate(let_rec_in.value, scope);
 
-            if (value.asFunction() == null) {
+            if (value.asClosure() == null) {
                 log.warn("let rec only allows recursive bindings for functions\n", .{}); // TODO: report line number
                 return error.RecursiveBinding;
             }
@@ -428,7 +428,7 @@ test "let-rec closure allowed" {
     defer interpreter.deinit();
 
     const actual = try interpreter.evaluate(ast);
-    try expect(actual.asFunction() != null);
+    try expect(actual.asClosure() != null);
 }
 
 test "let-rec non-function" {
