@@ -3,6 +3,6 @@ const Value = @import("../value.zig").Value;
 
 pub const name = "exit";
 
-pub fn function(_: Value, _: *Environment, _: ?*Environment) anyerror!Value {
-    return error.NormalExit;
+pub fn function(arg: Value, _: *Environment, _: ?*Environment) anyerror!Value {
+    @import("std").process.exit(@intFromFloat(arg.asNumber().?));
 }

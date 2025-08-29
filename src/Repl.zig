@@ -63,7 +63,7 @@ pub fn run(self: *Repl) !void {
     var interp = try Interpreter.init(ator, env);
     defer interp.deinit();
 
-    loop: while (true) {
+    while (true) {
         const line = try readLine(ator, prompt, stdin, stdout);
         try self.lines.append(line);
 
@@ -77,10 +77,7 @@ pub fn run(self: *Repl) !void {
 
         _ = timer.lap();
         const result = interp.evaluate(ast) catch |err| {
-            switch (err) {
-                error.NormalExit => break :loop,
-                else => log.warn("{s}\n", .{@errorName(err)}),
-            }
+            log.warn("{s}\n", .{@errorName(err)});
             continue;
         };
         const eval_done = timer.read();
