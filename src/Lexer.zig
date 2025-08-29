@@ -44,17 +44,8 @@ pub fn nextToken(self: *Lexer) Token {
         return Token.init(.eof, "");
     };
 
-    switch (codepoint) {
-        '\\', 'λ' => return Token.init(.lambda, iterator.bytes[start..iterator.i]),
-        '.' => return Token.init(.dot, iterator.bytes[start..iterator.i]),
-        '=' => return Token.init(.equal, iterator.bytes[start..iterator.i]),
-        '(' => return Token.init(.lparen, iterator.bytes[start..iterator.i]),
-        ')' => return Token.init(.rparen, iterator.bytes[start..iterator.i]),
-        '+' => return Token.init(.plus, iterator.bytes[start..iterator.i]),
-        '-' => return Token.init(.minus, iterator.bytes[start..iterator.i]),
-        '*' => return Token.init(.star, iterator.bytes[start..iterator.i]),
-        '/' => return Token.init(.slash, iterator.bytes[start..iterator.i]),
-        else => {},
+    if (getSpecialToken(codepoint)) |tag| {
+        return Token.init(tag, iterator.bytes[start..iterator.i]);
     }
 
     consumeWhile(iterator, isSymbol);
@@ -95,17 +86,23 @@ fn isSpace(codepoint: u21) bool {
     };
 }
 
+fn getSpecialToken(codepoint: u21) ?Token.Tag {
+    return switch (codepoint) {
+        '\\', 'λ' => .lambda,
+        '.' => .dot,
+        '=' => .equal,
+        '(' => .lparen,
+        ')' => .rparen,
+        '+' => .plus,
+        '-' => .minus,
+        '*' => .star,
+        '/' => .slash,
+        else => null,
+    };
+}
+
 fn isSymbol(codepoint: u21) bool {
-    return !isSpace(codepoint) and
-        codepoint != '.' and
-        codepoint != '(' and
-        codepoint != ')' and
-        codepoint != '\\' and
-        codepoint != 'λ' and
-        codepoint != '+' and
-        codepoint != '-' and
-        codepoint != '*' and
-        codepoint != '/';
+    return !isSpace(codepoint) and getSpecialToken(codepoint) == null;
 }
 
 fn runTest(input: []const u8, tokens: []const Token) !void {
