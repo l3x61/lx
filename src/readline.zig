@@ -24,23 +24,24 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
 
     var line: String = .empty;
     errdefer line.deinit(ator);
+    var line_pos: usize = 0;
 
     const start_row, const start_col = try getCursorPosition(out);
+    var cursor_col: usize = start_col;
 
-    var cursor_col = start_col;
-
-    const Buffer = [@sizeOf(u64)]u8;
-    var buffer: Buffer = undefined;
     while (true) {
-        buffer = zeroes(Buffer);
+        const Buffer = [@sizeOf(u64)]u8;
+        var buf: Buffer = undefined;
+        buf = zeroes(Buffer);
+        const bytes = try readBytes(&buf);
 
-        const bytes = try readBytes(&buffer);
-        const value = bytesToValue(u64, bytes);
-
-        switch (value) {
+        switch (bytesToValue(u64, bytes)) {
             0x00...0x02 => continue,
+
             key.ctrl_c => return error.Interrupted,
+
             0x04...0x0C => continue,
+
             key.enter => {
                 const output = "\n\r";
                 try line.appendSlice(ator, output);
@@ -48,44 +49,60 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
                 try out.flush();
                 break;
             },
+
             0x0E...0x1F => continue,
+
+            // move cursor 1 left
             key.arrow_left => {
-                if (cursor_col > start_col) {
+                if (line_pos > 0) {
+                    const prev = previousCodepoint(line.getSlice(), line_pos);
+                    line_pos = prev;
                     cursor_col -= 1;
                     try out.writeAll("\x1b[1D");
                     try out.flush();
                 }
             },
+
+            // move cursor 1 right
             key.arrow_right => {
-                if (cursor_col < start_col + line.getSlice().len) {
+                const slice = line.getSlice();
+                if (line_pos < slice.len) {
+                    const next = nextCodepoint(slice, line_pos);
+                    line_pos = next;
                     cursor_col += 1;
                     try out.writeAll("\x1b[1C");
                     try out.flush();
                 }
             },
+
+            // insert (`\` is replaced with `λ`)
             key.backslash => {
                 const output = "λ";
-                try line.insertSlice(ator, cursor_col - start_col, output);
+                try line.insertSlice(ator, line_pos, output);
+                line_pos += output.len;
                 cursor_col += 1;
             },
+
+            // erase rune at cursor
             key.backspace => {
-                if (cursor_col > start_col) {
-                    const end = cursor_col - start_col;
-                    const start = previousCodepoint(line.getSlice(), end);
-                    const del_len = end - start;
-
+                if (line_pos > 0) {
+                    const start = previousCodepoint(line.getSlice(), line_pos);
+                    const del_len = line_pos - start;
                     try line.replaceRange(ator, start, del_len, &[_]u8{});
-
-                    cursor_col -= del_len;
+                    line_pos = start;
+                    cursor_col -= 1;
                 }
             },
+
+            // insert rune at cursor
             else => {
-                // std.debug.print("{x}", .{value});
-                try line.insertSlice(ator, cursor_col - start_col, bytes);
+                try line.insertSlice(ator, line_pos, bytes);
+                line_pos += bytes.len;
                 cursor_col += 1;
             },
         }
 
+        // render
         try setCursorPos(out, start_row, start_col);
         try out.writeAll(ansi.erase_to_end);
         try out.writeAll(line.getSlice());
@@ -94,8 +111,13 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
     }
 
     try cook(raw);
-
     return line;
+}
+
+fn nextCodepoint(s: []const u8, index: usize) usize {
+    var i = index + 1;
+    while (i < s.len and (s[i] & 0xC0) == 0x80) : (i += 1) {}
+    return i;
 }
 
 fn previousCodepoint(s: []const u8, index: usize) usize {
