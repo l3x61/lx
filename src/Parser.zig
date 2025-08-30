@@ -289,7 +289,7 @@ test "number" {
     const input = "123";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Primary.init(testing.allocator, Token.init(.number, "123")),
+        try Node.Primary.init(testing.allocator, Token.init(.number, input, "123")),
     );
     try runTest(input, expected);
 }
@@ -300,8 +300,8 @@ test "function" {
         testing.allocator,
         try Node.Function.init(
             testing.allocator,
-            Token.init(.symbol, "x"),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+            Token.init(.symbol, input, "x"),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
         ),
     );
     try runTest(input, expected);
@@ -313,11 +313,11 @@ test "nested lambdas" {
         testing.allocator,
         try Node.Function.init(
             testing.allocator,
-            Token.init(.symbol, "x"),
+            Token.init(.symbol, input, "x"),
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "y"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                Token.init(.symbol, input, "y"),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
             ),
         ),
     );
@@ -350,10 +350,10 @@ test "apply" {
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                Token.init(.symbol, input, "x"),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
             ),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "123")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "123")),
         ),
     );
     try runTest(input, expected);
@@ -371,14 +371,14 @@ test "applications" {
                     testing.allocator,
                     try Node.Function.init(
                         testing.allocator,
-                        Token.init(.symbol, "x"),
-                        try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                        Token.init(.symbol, input, "x"),
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
                     ),
-                    try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+                    try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
                 ),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
             ),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
         ),
     );
     try runTest(input, expected);
@@ -390,9 +390,9 @@ test "let-in" {
         testing.allocator,
         try Node.LetIn.init(
             testing.allocator,
-            Token.init(.symbol, "one"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
+            Token.init(.symbol, input, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
         ),
     );
     try runTest(input, expected);
@@ -408,16 +408,16 @@ test "nested let-in" {
         testing.allocator,
         try Node.LetIn.init(
             testing.allocator,
-            Token.init(.symbol, "one"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            Token.init(.symbol, input, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             try Node.LetIn.init(
                 testing.allocator,
-                Token.init(.symbol, "two"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                Token.init(.symbol, input, "two"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
                 try Node.Apply.init(
                     testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "two")),
                 ),
             ),
         ),
@@ -431,9 +431,9 @@ test "let-rec-in" {
         testing.allocator,
         try Node.LetRecIn.init(
             testing.allocator,
-            Token.init(.symbol, "x"),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+            Token.init(.symbol, input, "x"),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
         ),
     );
     try runTest(input, expected);
@@ -455,16 +455,16 @@ test "nested let-rec in" {
         testing.allocator,
         try Node.LetRecIn.init(
             testing.allocator,
-            Token.init(.symbol, "one"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            Token.init(.symbol, input, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             try Node.LetRecIn.init(
                 testing.allocator,
-                Token.init(.symbol, "two"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                Token.init(.symbol, input, "two"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
                 try Node.Apply.init(
                     testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "two")),
                 ),
             ),
         ),
@@ -478,9 +478,9 @@ test "if then else" {
         testing.allocator,
         try Node.IfThenElse.init(
             testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
         ),
     );
     try runTest(input, expected);
@@ -502,14 +502,14 @@ test "apply to if-then-else" {
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                Token.init(.symbol, input, "x"),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
             ),
             try Node.IfThenElse.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
             ),
         ),
     );
@@ -522,9 +522,9 @@ test "literals" {
         testing.allocator,
         try Node.IfThenElse.init(
             testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.null, "null")),
-            try Node.Primary.init(testing.allocator, Token.init(.true, "true")),
-            try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+            try Node.Primary.init(testing.allocator, Token.init(.null, input, "null")),
+            try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
+            try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
         ),
     );
     try runTest(input, expected);
@@ -538,10 +538,10 @@ test "apply to literals" {
             testing.allocator,
             try Node.Apply.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
-                try Node.Primary.init(testing.allocator, Token.init(.true, "true")),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "fn")),
+                try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
             ),
-            try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+            try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
         ),
     );
     try runTest(input, expected);
@@ -553,13 +553,13 @@ test "multiplication precedence over addition" {
         testing.allocator,
         try Node.Binary.init(
             testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-            Token.init(.plus, "+"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.plus, input, "+"),
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
-                Token.init(.star, "*"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+                Token.init(.star, input, "*"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
             ),
         ),
     );
@@ -572,13 +572,13 @@ test "division precedence over subtraction" {
         testing.allocator,
         try Node.Binary.init(
             testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, "10")),
-            Token.init(.minus, "-"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "10")),
+            Token.init(.minus, input, "-"),
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "6")),
-                Token.init(.slash, "/"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "6")),
+                Token.init(.slash, input, "/"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
             ),
         ),
     );
@@ -593,12 +593,12 @@ test "left associativity of addition" {
             testing.allocator,
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-                Token.init(.plus, "+"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                Token.init(.plus, input, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
             ),
-            Token.init(.plus, "+"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+            Token.init(.plus, input, "+"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
         ),
     );
     try runTest(input, expected);
@@ -612,12 +612,12 @@ test "left associativity of multiplication" {
             testing.allocator,
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
-                Token.init(.star, "*"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+                Token.init(.star, input, "*"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
             ),
-            Token.init(.star, "*"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "4")),
+            Token.init(.star, input, "*"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "4")),
         ),
     );
     try runTest(input, expected);
@@ -631,21 +631,21 @@ test "arithmetic expression" {
             testing.allocator,
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-                Token.init(.plus, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                Token.init(.plus, input, "+"),
                 try Node.Binary.init(
                     testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
-                    Token.init(.star, "*"),
-                    try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+                    Token.init(.star, input, "*"),
+                    try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
                 ),
             ),
-            Token.init(.minus, "-"),
+            Token.init(.minus, input, "-"),
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "y")),
-                Token.init(.slash, "/"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "y")),
+                Token.init(.slash, input, "/"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
             ),
         ),
     );
@@ -660,12 +660,12 @@ test "parentheses override precedence" {
             testing.allocator,
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-                Token.init(.plus, "+"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                Token.init(.plus, input, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
             ),
-            Token.init(.star, "*"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+            Token.init(.star, input, "*"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
         ),
     );
     try runTest(input, expected);

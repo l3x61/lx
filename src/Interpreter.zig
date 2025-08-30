@@ -220,9 +220,10 @@ test "empty" {
 
 test "number" {
     // 123
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
-        try Node.Primary.init(testing.allocator, Token.init(.number, "123")),
+        try Node.Primary.init(testing.allocator, Token.init(.number, input, "123")),
     );
     defer ast.deinit(testing.allocator);
     const expected = Value.Number.init(123);
@@ -232,16 +233,17 @@ test "number" {
 
 test "apply" {
     // (λx. x) 123
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.Apply.init(
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                Token.init(.symbol, input, "x"),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
             ),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "123")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "123")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -252,16 +254,17 @@ test "apply" {
 
 test "return" {
     // (λx. 999) 123
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.Apply.init(
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "999")),
+                Token.init(.symbol, input, "x"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "999")),
             ),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "123")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "123")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -272,24 +275,25 @@ test "return" {
 
 test "shadowing" {
     // (λx. (λx. x) 2) 1
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.Apply.init(
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "x"),
+                Token.init(.symbol, input, "x"),
                 try Node.Apply.init(
                     testing.allocator,
                     try Node.Function.init(
                         testing.allocator,
-                        Token.init(.symbol, "x"),
-                        try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                        Token.init(.symbol, input, "x"),
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
                     ),
-                    try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                    try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
                 ),
             ),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -300,6 +304,7 @@ test "shadowing" {
 
 test "closure" {
     // (λx. (λy. x)) -1 -2
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.Apply.init(
@@ -308,16 +313,16 @@ test "closure" {
                 testing.allocator,
                 try Node.Function.init(
                     testing.allocator,
-                    Token.init(.symbol, "x"),
+                    Token.init(.symbol, input, "x"),
                     try Node.Function.init(
                         testing.allocator,
-                        Token.init(.symbol, "y"),
-                        try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                        Token.init(.symbol, input, "y"),
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
                     ),
                 ),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "-1")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "-1")),
             ),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "-2")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "-2")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -328,13 +333,14 @@ test "closure" {
 
 test "let-in" {
     // let one = 1 in one
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.LetIn.init(
             testing.allocator,
-            Token.init(.symbol, "one"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
+            Token.init(.symbol, input, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -345,13 +351,14 @@ test "let-in" {
 
 test "let-in recursive" {
     // let x = x in x
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.LetIn.init(
             testing.allocator,
-            Token.init(.symbol, "x"),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+            Token.init(.symbol, input, "x"),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -364,20 +371,21 @@ test "let-in recursive" {
 
 test "let-in recursive nested" {
     // let one = 1 in let two = two in one two
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.LetIn.init(
             testing.allocator,
-            Token.init(.symbol, "one"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+            Token.init(.symbol, input, "one"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             try Node.LetIn.init(
                 testing.allocator,
-                Token.init(.symbol, "two"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
+                Token.init(.symbol, input, "two"),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "two")),
                 try Node.Apply.init(
                     testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "two")),
                 ),
             ),
         ),
@@ -392,13 +400,14 @@ test "let-in recursive nested" {
 
 test "literals" {
     // if null then true else false
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.IfThenElse.init(
             testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.null, "null")),
-            try Node.Primary.init(testing.allocator, Token.init(.true, "true")),
-            try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+            try Node.Primary.init(testing.allocator, Token.init(.null, input, "null")),
+            try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
+            try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -409,17 +418,18 @@ test "literals" {
 
 test "let-rec closure allowed" {
     // let rec f = (\x. x) in f
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.LetRecIn.init(
             testing.allocator,
-            Token.init(.symbol, "f"),
+            Token.init(.symbol, input, "f"),
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+                Token.init(.symbol, input, "x"),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
             ),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "f")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "f")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -433,13 +443,14 @@ test "let-rec closure allowed" {
 
 test "let-rec non-function" {
     // let rec x = 1 in x
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.LetRecIn.init(
             testing.allocator,
-            Token.init(.symbol, "x"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, "x")),
+            Token.init(.symbol, input, "x"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -454,32 +465,33 @@ test "let-rec nested" {
     // let rec one = (\z. 1) in
     //   let rec two = (\w. one w) in
     //     one two
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.LetRecIn.init(
             testing.allocator,
-            Token.init(.symbol, "one"),
+            Token.init(.symbol, input, "one"),
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "z"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
+                Token.init(.symbol, input, "z"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             ),
             try Node.LetRecIn.init(
                 testing.allocator,
-                Token.init(.symbol, "two"),
+                Token.init(.symbol, input, "two"),
                 try Node.Function.init(
                     testing.allocator,
-                    Token.init(.symbol, "w"),
+                    Token.init(.symbol, input, "w"),
                     try Node.Apply.init(
                         testing.allocator,
-                        try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
-                        try Node.Primary.init(testing.allocator, Token.init(.symbol, "w")),
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "w")),
                     ),
                 ),
                 try Node.Apply.init(
                     testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "one")),
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "two")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "two")),
                 ),
             ),
         ),
@@ -492,17 +504,18 @@ test "let-rec nested" {
 
 test "multiplication precedence over addition" {
     // 1 + 2 * 3 = 7
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.Binary.init(
             testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-            Token.init(.plus, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.plus, input, "+"),
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
-                Token.init(.star, "*"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+                Token.init(.star, input, "*"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
             ),
         ),
     );
@@ -514,18 +527,19 @@ test "multiplication precedence over addition" {
 
 test "arithmetic expression" {
     // (1 + 2) * 3 = 9
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.Binary.init(
             testing.allocator,
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, "1")),
-                Token.init(.plus, "+"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, "2")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                Token.init(.plus, input, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
             ),
-            Token.init(.star, "*"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, "3")),
+            Token.init(.star, input, "*"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
         ),
     );
     defer ast.deinit(testing.allocator);
@@ -547,29 +561,30 @@ test "recursive call" {
     //     1234
     // in
     //     fn false
+    const input = "";
     const ast = try Node.Program.init(
         testing.allocator,
         try Node.LetRecIn.init(
             testing.allocator,
-            Token.init(.symbol, "fn"),
+            Token.init(.symbol, input, "fn"),
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, "var"),
+                Token.init(.symbol, input, "var"),
                 try Node.IfThenElse.init(
                     testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, "var")),
+                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "var")),
                     try Node.Apply.init(
                         testing.allocator,
-                        try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
-                        try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "fn")),
+                        try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
                     ),
-                    try Node.Primary.init(testing.allocator, Token.init(.number, "1234")),
+                    try Node.Primary.init(testing.allocator, Token.init(.number, input, "1234")),
                 ),
             ),
             try Node.Apply.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, "fn")),
-                try Node.Primary.init(testing.allocator, Token.init(.false, "false")),
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "fn")),
+                try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
             ),
         ),
     );

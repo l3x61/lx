@@ -5,6 +5,7 @@ const FormatOptions = std.fmt.FormatOptions;
 const Token = @This();
 
 tag: Tag,
+source: []const u8,
 lexeme: []const u8,
 
 pub const Tag = enum {
@@ -45,12 +46,12 @@ pub const Tag = enum {
     }
 };
 
-pub fn init(tag: Tag, lexeme: []const u8) Token {
-    return .{ .tag = tag, .lexeme = lexeme };
+pub fn init(tag: Tag, source: []const u8, lexeme: []const u8) Token {
+    return .{ .tag = tag, .source = source, .lexeme = lexeme };
 }
 
 pub fn equal(a: Token, b: Token) bool {
-    return a.tag == b.tag and eql(u8, a.lexeme, b.lexeme);
+    return a.tag == b.tag and a.source.ptr == b.source.ptr and eql(u8, a.lexeme, b.lexeme);
 }
 
 pub fn format(self: Token, writer: anytype) !void {
@@ -59,6 +60,8 @@ pub fn format(self: Token, writer: anytype) !void {
         else => try writer.print("{s}", .{self.lexeme}),
     }
 }
+
+// TODO: pretty print token shown in line
 
 pub fn isOneOf(self: Token, expected: []const Tag) bool {
     for (expected) |tag| {

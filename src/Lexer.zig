@@ -26,14 +26,16 @@ const keywords_map = std.StaticStringMap(Token.Tag).initComptime(.{
     .{ "false", .false },
 });
 
+source: []const u8,
 iterator: Utf8Iterator,
 
-pub fn init(input: []const u8) error{InvalidUtf8}!Lexer {
-    var utf8_view = try Utf8View.init(input);
-    return Lexer{ .iterator = utf8_view.iterator() };
+pub fn init(source: []const u8) error{InvalidUtf8}!Lexer {
+    var utf8_view = try Utf8View.init(source);
+    return Lexer{ .source = source, .iterator = utf8_view.iterator() };
 }
 
 pub fn nextToken(self: *Lexer) Token {
+    const source = self.source;
     const iterator = &self.iterator;
 
     consumeWhile(iterator, isSpace);
@@ -41,24 +43,24 @@ pub fn nextToken(self: *Lexer) Token {
     const start = iterator.i;
 
     const codepoint = iterator.nextCodepoint() orelse {
-        return Token.init(.eof, "");
+        return Token.init(.eof, source, "");
     };
 
     if (getSpecialToken(codepoint)) |tag| {
-        return Token.init(tag, iterator.bytes[start..iterator.i]);
+        return Token.init(tag, source, iterator.bytes[start..iterator.i]);
     }
 
     consumeWhile(iterator, isSymbol);
     const lexeme = iterator.bytes[start..iterator.i];
 
     if (keywords_map.get(lexeme)) |keyword_tag| {
-        return Token.init(keyword_tag, lexeme);
+        return Token.init(keyword_tag, source, lexeme);
     }
 
     _ = parseFloat(f64, lexeme) catch {
-        return Token.init(.symbol, lexeme);
+        return Token.init(.symbol, source, lexeme);
     };
-    return Token.init(.number, lexeme);
+    return Token.init(.number, source, lexeme);
 }
 
 fn consumeWhile(iterator: *Utf8Iterator, predicate: fn (u21) bool) void {
@@ -125,7 +127,7 @@ fn runTest(input: []const u8, tokens: []const Token) !void {
 test "empty" {
     const input = "";
     const tokens = [_]Token{
-        Token.init(.eof, ""),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -143,8 +145,8 @@ test "truncated 2-byte sequence" {
 test "symbol" {
     const input = "abc";
     const tokens = [_]Token{
-        Token.init(.symbol, "abc"),
-        Token.init(.eof, ""),
+        Token.init(.symbol, input, "abc"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -152,10 +154,10 @@ test "symbol" {
 test "symbols" {
     const input = "a b c";
     const tokens = [_]Token{
-        Token.init(.symbol, "a"),
-        Token.init(.symbol, "b"),
-        Token.init(.symbol, "c"),
-        Token.init(.eof, ""),
+        Token.init(.symbol, input, "a"),
+        Token.init(.symbol, input, "b"),
+        Token.init(.symbol, input, "c"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -163,11 +165,11 @@ test "symbols" {
 test "lambda with dot" {
     const input = "\\x.x";
     const tokens = [_]Token{
-        Token.init(.lambda, "\\"),
-        Token.init(.symbol, "x"),
-        Token.init(.dot, "."),
-        Token.init(.symbol, "x"),
-        Token.init(.eof, ""),
+        Token.init(.lambda, input, "\\"),
+        Token.init(.symbol, input, "x"),
+        Token.init(.dot, input, "."),
+        Token.init(.symbol, input, "x"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -175,11 +177,11 @@ test "lambda with dot" {
 test "lambda with unicode λ" {
     const input = "λx.x";
     const tokens = [_]Token{
-        Token.init(.lambda, "λ"),
-        Token.init(.symbol, "x"),
-        Token.init(.dot, "."),
-        Token.init(.symbol, "x"),
-        Token.init(.eof, ""),
+        Token.init(.lambda, input, "λ"),
+        Token.init(.symbol, input, "x"),
+        Token.init(.dot, input, "."),
+        Token.init(.symbol, input, "x"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -187,17 +189,17 @@ test "lambda with unicode λ" {
 test "let in" {
     const input = "let id = λx.x in id 5";
     const tokens = [_]Token{
-        Token.init(.let, "let"),
-        Token.init(.symbol, "id"),
-        Token.init(.equal, "="),
-        Token.init(.lambda, "λ"),
-        Token.init(.symbol, "x"),
-        Token.init(.dot, "."),
-        Token.init(.symbol, "x"),
-        Token.init(.in, "in"),
-        Token.init(.symbol, "id"),
-        Token.init(.number, "5"),
-        Token.init(.eof, ""),
+        Token.init(.let, input, "let"),
+        Token.init(.symbol, input, "id"),
+        Token.init(.equal, input, "="),
+        Token.init(.lambda, input, "λ"),
+        Token.init(.symbol, input, "x"),
+        Token.init(.dot, input, "."),
+        Token.init(.symbol, input, "x"),
+        Token.init(.in, input, "in"),
+        Token.init(.symbol, input, "id"),
+        Token.init(.number, input, "5"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -205,18 +207,18 @@ test "let in" {
 test "let rec in" {
     const input = "let rec id = λx.x in id 5";
     const tokens = [_]Token{
-        Token.init(.let, "let"),
-        Token.init(.rec, "rec"),
-        Token.init(.symbol, "id"),
-        Token.init(.equal, "="),
-        Token.init(.lambda, "λ"),
-        Token.init(.symbol, "x"),
-        Token.init(.dot, "."),
-        Token.init(.symbol, "x"),
-        Token.init(.in, "in"),
-        Token.init(.symbol, "id"),
-        Token.init(.number, "5"),
-        Token.init(.eof, ""),
+        Token.init(.let, input, "let"),
+        Token.init(.rec, input, "rec"),
+        Token.init(.symbol, input, "id"),
+        Token.init(.equal, input, "="),
+        Token.init(.lambda, input, "λ"),
+        Token.init(.symbol, input, "x"),
+        Token.init(.dot, input, "."),
+        Token.init(.symbol, input, "x"),
+        Token.init(.in, input, "in"),
+        Token.init(.symbol, input, "id"),
+        Token.init(.number, input, "5"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -224,13 +226,13 @@ test "let rec in" {
 test "not let-in" {
     const input = "letlet inin letin let-in";
     const tokens = [_]Token{
-        Token.init(.symbol, "letlet"),
-        Token.init(.symbol, "inin"),
-        Token.init(.symbol, "letin"),
-        Token.init(.let, "let"),
-        Token.init(.minus, "-"),
-        Token.init(.in, "in"),
-        Token.init(.eof, ""),
+        Token.init(.symbol, input, "letlet"),
+        Token.init(.symbol, input, "inin"),
+        Token.init(.symbol, input, "letin"),
+        Token.init(.let, input, "let"),
+        Token.init(.minus, input, "-"),
+        Token.init(.in, input, "in"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -238,13 +240,13 @@ test "not let-in" {
 test "if then else" {
     const input = "if 1 then 2 else 3";
     const tokens = [_]Token{
-        Token.init(.@"if", "if"),
-        Token.init(.number, "1"),
-        Token.init(.then, "then"),
-        Token.init(.number, "2"),
-        Token.init(.@"else", "else"),
-        Token.init(.number, "3"),
-        Token.init(.eof, ""),
+        Token.init(.@"if", input, "if"),
+        Token.init(.number, input, "1"),
+        Token.init(.then, input, "then"),
+        Token.init(.number, input, "2"),
+        Token.init(.@"else", input, "else"),
+        Token.init(.number, input, "3"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -252,10 +254,10 @@ test "if then else" {
 test "null true false" {
     const input = "null true false";
     const tokens = [_]Token{
-        Token.init(.null, "null"),
-        Token.init(.true, "true"),
-        Token.init(.false, "false"),
-        Token.init(.eof, ""),
+        Token.init(.null, input, "null"),
+        Token.init(.true, input, "true"),
+        Token.init(.false, input, "false"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
@@ -263,16 +265,16 @@ test "null true false" {
 test "operators" {
     const input = "x + y * z - w / 2";
     const tokens = [_]Token{
-        Token.init(.symbol, "x"),
-        Token.init(.plus, "+"),
-        Token.init(.symbol, "y"),
-        Token.init(.star, "*"),
-        Token.init(.symbol, "z"),
-        Token.init(.minus, "-"),
-        Token.init(.symbol, "w"),
-        Token.init(.slash, "/"),
-        Token.init(.number, "2"),
-        Token.init(.eof, ""),
+        Token.init(.symbol, input, "x"),
+        Token.init(.plus, input, "+"),
+        Token.init(.symbol, input, "y"),
+        Token.init(.star, input, "*"),
+        Token.init(.symbol, input, "z"),
+        Token.init(.minus, input, "-"),
+        Token.init(.symbol, input, "w"),
+        Token.init(.slash, input, "/"),
+        Token.init(.number, input, "2"),
+        Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
