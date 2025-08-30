@@ -1,38 +1,65 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-const Reader = std.io.Reader;
+const ArrayList = std.ArrayList;
 const Writer = std.io.Writer;
+
+const fmt = std.fmt;
 
 const posix = std.posix;
 const termios = posix.termios;
 const STDIN_FILENO = posix.STDIN_FILENO;
 
 const mem = std.mem;
+const Allocator = mem.Allocator;
 const zeroes = mem.zeroes;
 const bytesToValue = mem.bytesToValue;
 
 const ansi = @import("ansi.zig");
 const key = @import("key.zig");
-const String = std.ArrayList(u8);
+const String = ArrayList(u8);
 
-pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
-    try out.writeAll(prompt);
-    try out.flush();
+const ReadLine = @This();
+
+gpa: Allocator,
+out: *Writer,
+history: ArrayList(String),
+
+pub fn init(gpa: Allocator, out: *Writer) ReadLine {
+    return ReadLine{
+        .gpa = gpa,
+        .out = out,
+        .history = ArrayList(String).empty,
+    };
+}
+
+pub fn deinit(self: *ReadLine) void {
+    for (self.history.items) |*item| item.deinit(self.gpa);
+    self.history.deinit(self.gpa);
+}
+
+/// caller does not own the returned String
+pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
+    try self.out.writeAll(prompt);
+    try self.out.flush();
 
     const raw = try uncook();
     errdefer cook(raw) catch unreachable;
 
     var line: String = .empty;
-    errdefer line.deinit(ator);
+    errdefer line.deinit(self.gpa);
     var line_pos: usize = 0;
 
-    const start_row, const start_col = try getCursorPosition(out);
+    const start_row, const start_col = try getCursorPosition(self.out);
     var cursor_col: usize = start_col;
+
+    // -1:       scratch
+    // 0..len-1: history where 0 is the most recent entry
+    var history_index: isize = -1;
+    var scratch: String = .empty;
+    errdefer scratch.deinit(self.gpa);
 
     while (true) {
         const Buffer = [@sizeOf(u64)]u8;
-        var buf: Buffer = undefined;
-        buf = zeroes(Buffer);
+        var buf: Buffer = zeroes(Buffer);
         const bytes = try readBytes(&buf);
 
         switch (bytesToValue(u64, bytes)) {
@@ -43,88 +70,137 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
             0x04...0x0C => continue,
 
             key.enter => {
+                var saved: String = .empty;
+                errdefer saved.deinit(self.gpa);
+                try saved.appendSlice(self.gpa, line.items);
+                try self.history.append(self.gpa, saved);
+
+                history_index = -1;
+                scratch.clearRetainingCapacity();
+
                 const output = "\n\r";
-                try line.appendSlice(ator, output);
-                try out.writeAll(output);
-                try out.flush();
+                try line.appendSlice(self.gpa, output);
+                try self.out.writeAll(output);
+                try self.out.flush();
+
                 break;
             },
 
             0x0E...0x1F => continue,
 
-            key.arrow_up, key.arrow_down => continue,
+            key.arrow_up => {
+                if (self.history.items.len == 0) continue;
 
-            // move cursor 1 left
+                if (history_index == -1) {
+                    // backup live edit
+                    scratch.clearRetainingCapacity();
+                    try scratch.appendSlice(self.gpa, line.items);
+                }
+
+                if (history_index < @as(isize, @intCast(self.history.items.len - 1))) {
+                    history_index += 1;
+                    const index = self.history.items.len - 1 - @as(usize, @intCast(history_index));
+                    const entry = self.history.items[index];
+                    line.clearRetainingCapacity();
+                    try line.appendSlice(self.gpa, entry.items);
+                    line_pos = line.items.len;
+                    cursor_col = start_col + utf8CountCodepoints(line.items);
+                }
+            },
+
+            key.arrow_down => {
+                if (self.history.items.len == 0) continue;
+
+                if (history_index > 0) {
+                    history_index -= 1;
+                    const index = self.history.items.len - 1 - @as(usize, @intCast(history_index));
+                    const entry = self.history.items[index];
+                    line.clearRetainingCapacity();
+                    try line.appendSlice(self.gpa, entry.items);
+                    line_pos = line.items.len;
+                    cursor_col = start_col + utf8CountCodepoints(line.items);
+                } else if (history_index == 0) {
+                    // restore live edit
+                    history_index = -1;
+                    line.clearRetainingCapacity();
+                    try line.appendSlice(self.gpa, scratch.items);
+                    line_pos = line.items.len;
+                    cursor_col = start_col + utf8CountCodepoints(line.items);
+                }
+            },
+
             key.arrow_left => {
                 if (line_pos > 0) {
-                    const prev = previousCodepoint(line.items, line_pos);
+                    const prev = utf8PreviousCodepoint(line.items, line_pos);
                     line_pos = prev;
                     cursor_col -= 1;
-                    try out.writeAll("\x1b[1D");
-                    try out.flush();
+                    try self.out.writeAll("\x1b[1D");
+                    try self.out.flush();
                 }
             },
 
-            // move cursor 1 right
             key.arrow_right => {
                 if (line_pos < line.items.len) {
-                    const next = nextCodepoint(line.items, line_pos);
+                    const next = utf8NextCodepoint(line.items, line_pos);
                     line_pos = next;
                     cursor_col += 1;
-                    try out.writeAll("\x1b[1C");
-                    try out.flush();
+                    try self.out.writeAll("\x1b[1C");
+                    try self.out.flush();
                 }
             },
 
-            // insert (`\` is replaced with `λ`)
             key.backslash => {
                 const output = "λ";
-                try line.insertSlice(ator, line_pos, output);
+                try line.insertSlice(self.gpa, line_pos, output);
                 line_pos += output.len;
                 cursor_col += 1;
             },
 
-            // erase rune at cursor
             key.backspace => {
                 if (line_pos > 0) {
-                    const start = previousCodepoint(line.items, line_pos);
+                    const start = utf8PreviousCodepoint(line.items, line_pos);
                     const del_len = line_pos - start;
-                    try line.replaceRange(ator, start, del_len, &[_]u8{});
+                    try line.replaceRange(self.gpa, start, del_len, &[_]u8{});
                     line_pos = start;
                     cursor_col -= 1;
                 }
             },
 
-            // insert rune at cursor
             else => {
-                try line.insertSlice(ator, line_pos, bytes);
+                try line.insertSlice(self.gpa, line_pos, bytes);
                 line_pos += bytes.len;
-                cursor_col += 1;
+                cursor_col += utf8CountCodepoints(bytes);
             },
         }
 
-        // render
-        try setCursorPos(out, start_row, start_col);
-        try out.writeAll(ansi.erase_to_end);
-        try out.writeAll(line.items);
-        try out.flush();
-        try setCursorPos(out, start_row, cursor_col);
+        try setCursorPos(self.out, start_row, start_col);
+        try self.out.writeAll(ansi.erase_to_end);
+        try self.out.writeAll(line.items);
+        try self.out.flush();
+        try setCursorPos(self.out, start_row, cursor_col);
     }
 
     try cook(raw);
     return line;
 }
 
-fn nextCodepoint(s: []const u8, index: usize) usize {
+fn utf8CountCodepoints(bytes: []const u8) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < bytes.len) : (i += 1) {
+        if ((bytes[i] & 0xC0) != 0x80) n += 1;
+    }
+    return n;
+}
+
+fn utf8NextCodepoint(s: []const u8, index: usize) usize {
     var i = index + 1;
     while (i < s.len and (s[i] & 0xC0) == 0x80) : (i += 1) {}
     return i;
 }
 
-fn previousCodepoint(s: []const u8, index: usize) usize {
-    if (index == 0) {
-        return 0;
-    }
+fn utf8PreviousCodepoint(s: []const u8, index: usize) usize {
+    if (index == 0) return 0;
     var i = index - 1;
     while (i > 0 and (s[i] & 0xC0) == 0x80) : (i -= 1) {}
     return i;
@@ -140,12 +216,12 @@ fn getCursorPosition(out: *Writer) ![2]usize {
     const bytes = try readBytes(&buffer);
 
     const response = bytes[2 .. bytes.len - 1];
-    var it = std.mem.splitScalar(u8, response, ';');
+    var it = mem.splitScalar(u8, response, ';');
     const row_str = it.next() orelse return error.BadResponse;
     const col_str = it.next() orelse return error.BadResponse;
 
-    const row = try std.fmt.parseInt(usize, row_str, 10);
-    const col = try std.fmt.parseInt(usize, col_str, 10);
+    const row = try fmt.parseInt(usize, row_str, 10);
+    const col = try fmt.parseInt(usize, col_str, 10);
     return .{ row, col };
 }
 

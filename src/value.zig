@@ -8,6 +8,10 @@ const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
 
+// TODO: rename void to undefined/uninitialized or maybe free
+// TODO: string type
+// TODO: array type
+// TODO: table type
 pub const Value = union(Tag) {
     void: void,
     null: void,

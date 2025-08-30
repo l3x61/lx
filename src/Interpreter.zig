@@ -509,7 +509,7 @@ test "multiplication precedence over addition" {
         testing.allocator,
         try Node.Binary.init(
             testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             Token.init(.plus, input, "+"),
             try Node.Binary.init(
                 testing.allocator,

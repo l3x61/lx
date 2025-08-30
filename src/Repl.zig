@@ -9,7 +9,7 @@ const formatElapsedTime = @import("util.zig").formatElapsedTime;
 const Interpreter = @import("Interpreter.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
-const readLine = @import("readline.zig").readLine;
+const ReadLine = @import("ReadLine.zig");
 const Value = @import("value.zig").Value;
 
 const log = std.log.scoped(.repl);
@@ -17,9 +17,9 @@ const String = std.ArrayList(u8);
 const Lines = std.ArrayList(String);
 const Repl = @This();
 
-ator: Allocator,
-lines: Lines,
+gpa: Allocator,
 env: *Environment,
+rl: ReadLine,
 
 var stdout_buffer: [max_path_bytes]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -29,52 +29,49 @@ var stdin_buffer: [max_path_bytes]u8 = undefined;
 var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
 const stdin = &stdin_reader.interface;
 
-pub fn init(ator: Allocator) !Repl {
-    return Repl{
-        .ator = ator,
-        .lines = .empty,
-        .env = try initEnvironment(ator),
-    };
-}
-
-fn initEnvironment(ator: Allocator) !*Environment {
+fn initEnv(gpa: Allocator) !*Environment {
     const builtin_exit = @import("builtin/exit.zig");
     const builtin_env = @import("builtin/env.zig");
 
-    var env = try Environment.init(ator, null);
-    try env.define(ator, builtin_exit.name, Value.Builtin.init(builtin_exit.name, builtin_exit.function, null));
-    try env.define(ator, builtin_env.name, Value.Builtin.init(builtin_env.name, builtin_env.function, null));
+    var env = try Environment.init(gpa, null);
+    try env.define(gpa, builtin_exit.name, Value.Builtin.init(builtin_exit.name, builtin_exit.function, null));
+    try env.define(gpa, builtin_env.name, Value.Builtin.init(builtin_env.name, builtin_env.function, null));
 
     return env;
 }
 
+pub fn init(gpa: Allocator) !Repl {
+    return Repl{
+        .gpa = gpa,
+        .env = try initEnv(gpa),
+        .rl = ReadLine.init(gpa, stdout),
+    };
+}
+
 pub fn deinit(self: *Repl) void {
-    for (self.lines.items) |*line| {
-        line.deinit(self.ator);
-    }
-    self.lines.deinit(self.ator);
+    self.rl.deinit();
 }
 
 pub fn run(self: *Repl) !void {
-    const ator = self.ator;
+    const gpa = self.gpa;
     const env = self.env;
+    var rl = self.rl;
 
     const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
-    var interp = try Interpreter.init(ator, env);
+    var interp = try Interpreter.init(gpa, env);
     defer interp.deinit();
 
     while (true) {
-        const line = readLine(ator, prompt, stdout) catch |err| switch (err) {
+        const line = rl.readLine(prompt) catch |err| switch (err) {
             error.Interrupted => break,
             else => return err,
         };
-        try self.lines.append(ator, line);
 
         var timer = try Timer.start();
-        var parser = try Parser.init(ator, line.items);
+        var parser = try Parser.init(gpa, line.items);
         const ast = parser.parse() catch continue;
-        defer ast.deinit(ator);
+        defer ast.deinit(gpa);
         const parse_done = timer.lap();
 
         log.debug("{f}\n", .{ast});
