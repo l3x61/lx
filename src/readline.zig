@@ -52,6 +52,8 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
 
             0x0E...0x1F => continue,
 
+            key.arrow_up, key.arrow_down => continue,
+
             // move cursor 1 left
             key.arrow_left => {
                 if (line_pos > 0) {
