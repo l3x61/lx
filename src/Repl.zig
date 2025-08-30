@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Timer = std.time.Timer;
+const max_path_bytes = std.fs.max_path_bytes;
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
@@ -8,13 +9,13 @@ const formatElapsedTime = @import("util.zig").formatElapsedTime;
 const Interpreter = @import("Interpreter.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
-const readLine = @import("readline.zig").readline;
+const readLine = @import("readline.zig").readLine;
 const Value = @import("value.zig").Value;
+const String = @import("String.zig");
 
 const log = std.log.scoped(.repl);
-const Lines = std.array_list.AlignedManaged([]u8, null);
+const Lines = std.ArrayList(String);
 const Repl = @This();
-const max_path_bytes = std.fs.max_path_bytes;
 
 ator: Allocator,
 lines: Lines,
@@ -31,7 +32,7 @@ const stdin = &stdin_reader.interface;
 pub fn init(ator: Allocator) !Repl {
     return Repl{
         .ator = ator,
-        .lines = Lines.init(ator),
+        .lines = .empty,
         .env = try initEnvironment(ator),
     };
 }
@@ -48,10 +49,10 @@ fn initEnvironment(ator: Allocator) !*Environment {
 }
 
 pub fn deinit(self: *Repl) void {
-    for (self.lines.items) |line| {
-        self.ator.free(line);
+    for (self.lines.items) |*line| {
+        line.deinit(self.ator);
     }
-    self.lines.deinit();
+    self.lines.deinit(self.ator);
 }
 
 pub fn run(self: *Repl) !void {
@@ -64,11 +65,14 @@ pub fn run(self: *Repl) !void {
     defer interp.deinit();
 
     while (true) {
-        const line = try readLine(ator, prompt, stdin, stdout);
-        try self.lines.append(line);
+        const line = readLine(ator, prompt, stdout) catch |err| switch (err) {
+            error.Interrupted => break,
+            else => return err,
+        };
+        try self.lines.append(ator, line);
 
         var timer = try Timer.start();
-        var parser = try Parser.init(ator, line);
+        var parser = try Parser.init(ator, line.getSlice());
         const ast = parser.parse() catch continue;
         defer ast.deinit(ator);
         const parse_done = timer.lap();

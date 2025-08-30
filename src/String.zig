@@ -29,7 +29,7 @@ pub inline fn clone(self: *String, ator: Allocator) !String {
     return String.initSlice(ator, self.getSlice());
 }
 
-pub inline fn getSlice(self: *String) []u8 {
+pub inline fn getSlice(self: *const String) []const u8 {
     return self.array.items;
 }
 
@@ -39,6 +39,20 @@ pub inline fn appendSlice(self: *String, ator: Allocator, slice: []const u8) !vo
 
 pub inline fn print(self: *String, ator: Allocator, comptime fmt: []const u8, args: anytype) !void {
     return self.array.print(ator, fmt, args);
+}
+
+pub inline fn insertSlice(self: *String, gpa: Allocator, index: usize, slice: []const u8) !void {
+    return self.array.insertSlice(gpa, index, slice);
+}
+
+pub inline fn replaceRange(
+    self: *String,
+    gpa: Allocator,
+    start: usize,
+    len: usize,
+    new_items: []const u8,
+) Allocator.Error!void {
+    return self.array.replaceRange(gpa, start, len, new_items);
 }
 
 test "init" {

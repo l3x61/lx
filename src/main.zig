@@ -7,7 +7,7 @@ const LoggingAllocator = @import("LoggingAllocator.zig");
 const Repl = @import("Repl.zig");
 
 pub const std_options = std.Options{
-    .log_level = Level.info,
+    .log_level = Level.debug,
     .logFn = @import("util.zig").logFn,
 };
 
@@ -15,8 +15,8 @@ pub fn main() !void {
     var da: DebugAllocator(.{}) = .init;
     defer _ = da.deinit();
 
-    var la = LoggingAllocator.init(da.allocator());
-    const ator = la.allocator();
+    //var la = LoggingAllocator.init(da.allocator());
+    const ator = da.allocator();
 
     var repl = try Repl.init(ator);
     defer repl.deinit();
