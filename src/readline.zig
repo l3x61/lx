@@ -13,7 +13,7 @@ const bytesToValue = mem.bytesToValue;
 
 const ansi = @import("ansi.zig");
 const key = @import("key.zig");
-const String = @import("String.zig");
+const String = std.ArrayList(u8);
 
 pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
     try out.writeAll(prompt);
@@ -57,7 +57,7 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
             // move cursor 1 left
             key.arrow_left => {
                 if (line_pos > 0) {
-                    const prev = previousCodepoint(line.getSlice(), line_pos);
+                    const prev = previousCodepoint(line.items, line_pos);
                     line_pos = prev;
                     cursor_col -= 1;
                     try out.writeAll("\x1b[1D");
@@ -67,9 +67,8 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
 
             // move cursor 1 right
             key.arrow_right => {
-                const slice = line.getSlice();
-                if (line_pos < slice.len) {
-                    const next = nextCodepoint(slice, line_pos);
+                if (line_pos < line.items.len) {
+                    const next = nextCodepoint(line.items, line_pos);
                     line_pos = next;
                     cursor_col += 1;
                     try out.writeAll("\x1b[1C");
@@ -88,7 +87,7 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
             // erase rune at cursor
             key.backspace => {
                 if (line_pos > 0) {
-                    const start = previousCodepoint(line.getSlice(), line_pos);
+                    const start = previousCodepoint(line.items, line_pos);
                     const del_len = line_pos - start;
                     try line.replaceRange(ator, start, del_len, &[_]u8{});
                     line_pos = start;
@@ -107,7 +106,7 @@ pub fn readLine(ator: Allocator, prompt: []const u8, out: *Writer) !String {
         // render
         try setCursorPos(out, start_row, start_col);
         try out.writeAll(ansi.erase_to_end);
-        try out.writeAll(line.getSlice());
+        try out.writeAll(line.items);
         try out.flush();
         try setCursorPos(out, start_row, cursor_col);
     }

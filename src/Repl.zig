@@ -11,9 +11,9 @@ const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const readLine = @import("readline.zig").readLine;
 const Value = @import("value.zig").Value;
-const String = @import("String.zig");
 
 const log = std.log.scoped(.repl);
+const String = std.ArrayList(u8);
 const Lines = std.ArrayList(String);
 const Repl = @This();
 
@@ -72,7 +72,7 @@ pub fn run(self: *Repl) !void {
         try self.lines.append(ator, line);
 
         var timer = try Timer.start();
-        var parser = try Parser.init(ator, line.getSlice());
+        var parser = try Parser.init(ator, line.items);
         const ast = parser.parse() catch continue;
         defer ast.deinit(ator);
         const parse_done = timer.lap();

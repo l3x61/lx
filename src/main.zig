@@ -29,5 +29,4 @@ test "all" {
     _ = @import("Parser.zig");
     _ = @import("Environment.zig");
     _ = @import("Interpreter.zig");
-    _ = @import("String.zig");
 }
