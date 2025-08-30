@@ -15,6 +15,8 @@ const bytesToValue = mem.bytesToValue;
 
 const ansi = @import("ansi.zig");
 const key = @import("key.zig");
+const Token = @import("Token.zig");
+const Lexer = @import("Lexer.zig");
 const String = ArrayList(u8);
 
 const ReadLine = @This();
@@ -175,7 +177,7 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
 
         try setCursorPos(self.out, start_row, start_col);
         try self.out.writeAll(ansi.erase_to_end);
-        try self.out.writeAll(line.items);
+        try writeColored(self.out, line.items);
         try self.out.flush();
         try setCursorPos(self.out, start_row, cursor_col);
     }
@@ -241,6 +243,64 @@ fn readBytes(buffer: []u8) ![]const u8 {
         if (bytes_read >= 1) {
             return buffer[0..bytes_read];
         }
+    }
+}
+
+fn colorMap(tag: Token.Tag) []const u8 {
+    return switch (tag) {
+        .lambda,
+        .dot,
+        .equal,
+        .plus,
+        .minus,
+        .star,
+        .slash,
+        .lparen,
+        .rparen,
+        .let,
+        .rec,
+        .in,
+        .@"if",
+        .then,
+        .@"else",
+        .null,
+        .true,
+        .false,
+        => ansi.red,
+
+        .number,
+        .string,
+        => ansi.cyan,
+
+        .symbol => ansi.white,
+
+        else => ansi.reset,
+    };
+}
+
+fn writeColored(out: *Writer, source: []const u8) !void {
+    var lexer = try Lexer.init(source);
+    var prev_token_index: usize = 0;
+
+    while (true) {
+        const token = lexer.nextToken();
+        if (token.tag == Token.Tag.eof) break;
+
+        const token_index = @intFromPtr(token.lexeme.ptr) - @intFromPtr(token.source.ptr);
+        if (token_index > prev_token_index) {
+            try out.writeAll(source[prev_token_index..token_index]);
+        }
+
+        const color = colorMap(token.tag);
+        try out.writeAll(color);
+        try out.writeAll(token.lexeme);
+        try out.writeAll(ansi.reset);
+
+        prev_token_index = token_index + token.lexeme.len;
+    }
+
+    if (prev_token_index < source.len) {
+        try out.writeAll(source[prev_token_index..source.len]);
     }
 }
 
