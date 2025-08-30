@@ -37,7 +37,7 @@ pub fn logFn(
     const color = comptime switch (message_level) {
         .err => ansi.red,
         .warn => ansi.yellow,
-        .info => ansi.cyan,
+        .info => ansi.green,
         .debug => ansi.dimmed,
     };
     const scope_name = if (scope == .default) "" else @tagName(scope) ++ ": ";
