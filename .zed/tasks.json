@@ -5,7 +5,7 @@
   },
   {
     "label": "Test",
-    "command": "zig build -freference-trace test"
+    "command": "zig test -freference-trace src/main.zig"
   },
   {
     "label": "Clean",

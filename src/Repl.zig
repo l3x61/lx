@@ -81,7 +81,7 @@ pub fn run(self: *Repl) !void {
 
         _ = timer.lap();
         const result = interp.evaluate(ast) catch |err| {
-            log.warn("{s}\n", .{@errorName(err)});
+            log.err("{s}\n", .{@errorName(err)});
             continue;
         };
         const eval_done = timer.read();

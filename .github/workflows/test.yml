@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -16,14 +16,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libreadline-dev
-          
+
       - name: Install Zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.15.1
 
       - name: Test Lx
-        run: zig build -freference-trace test
+        run: zig test -freference-trace src/main.zig
 
       - name: Compile Lx
         run: zig build -freference-trace check

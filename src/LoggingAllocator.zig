@@ -33,7 +33,7 @@ pub fn LoggingAllocator() type {
             if (result) |ptr| {
                 log.debug("allocate {} bytes at 0x{x}\n", .{ len, @intFromPtr(ptr) });
             } else {
-                log.warn("failed to allocate {} bytes\n", .{len});
+                log.err("failed to allocate {} bytes\n", .{len});
             }
 
             return result;
