@@ -1,21 +1,28 @@
+// TODO: this probably does not have to be a structure
+
 const std = @import("std");
+const build_options = @import("build_options");
+
 const Allocator = std.mem.Allocator;
 const Timer = std.time.Timer;
+const log = std.log.scoped(.repl);
 const max_path_bytes = std.fs.max_path_bytes;
+
+const time = std.time;
+const ns_per_us = time.ns_per_us;
+const ns_per_ms = time.ns_per_ms;
+const ns_per_s = time.ns_per_s;
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
-const formatElapsedTime = @import("util.zig").formatElapsedTime;
 const Interpreter = @import("Interpreter.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const ReadLine = @import("ReadLine.zig");
 const Value = @import("value.zig").Value;
 
-const log = std.log.scoped(.repl);
-const String = std.ArrayList(u8);
-const Lines = std.ArrayList(String);
 const Repl = @This();
+const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
 gpa: Allocator,
 env: *Environment,
@@ -25,17 +32,15 @@ var stdout_buffer: [max_path_bytes]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
 const stdout = &stdout_writer.interface;
 
-var stdin_buffer: [max_path_bytes]u8 = undefined;
-var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
-const stdin = &stdin_reader.interface;
+var stderr_buffer: [max_path_bytes]u8 = undefined;
+var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+const stderr = &stderr_writer.interface;
 
 fn initEnv(gpa: Allocator) !*Environment {
     const builtin_exit = @import("builtin/exit.zig");
-    const builtin_env = @import("builtin/env.zig");
 
     var env = try Environment.init(gpa, null);
     try env.define(gpa, builtin_exit.name, Value.Builtin.init(builtin_exit.name, builtin_exit.function, null));
-    try env.define(gpa, builtin_env.name, Value.Builtin.init(builtin_env.name, builtin_env.function, null));
 
     return env;
 }
@@ -57,36 +62,65 @@ pub fn run(self: *Repl) !void {
     const env = self.env;
     var rl = self.rl;
 
-    const prompt = ansi.cyan ++ "> " ++ ansi.reset;
-
     var interp = try Interpreter.init(gpa, env);
     defer interp.deinit();
 
+    try welcomeMessage();
+
+    var timer = try Timer.start();
     while (true) {
         const line = rl.readLine(prompt) catch |err| switch (err) {
             error.Interrupted => break,
             else => return err,
         };
 
-        var timer = try Timer.start();
+        _ = timer.lap();
+
         var parser = try Parser.init(gpa, line.items);
         const ast = parser.parse() catch continue;
         defer ast.deinit(gpa);
-        const parse_done = timer.lap();
 
-        //log.debug("{f}\n", .{ast});
+        const parse_duration = timer.lap();
 
-        _ = timer.lap();
         const result = interp.evaluate(ast) catch |err| {
             log.err("{s}\n", .{@errorName(err)});
             continue;
         };
-        const eval_done = timer.read();
 
-        log.info("parsing    {s}\n", .{try formatElapsedTime(&stdout_buffer, parse_done)});
-        log.info("evaluating {s}\n", .{try formatElapsedTime(&stdout_buffer, eval_done)});
+        const exec_duration = timer.read();
+
+        log.info("parsing   {s}\n", .{try formatElapsedTime(&stdout_buffer, parse_duration)});
+        log.info("executing {s}\n", .{try formatElapsedTime(&stdout_buffer, exec_duration)});
+        log.info("total     {s}\n", .{try formatElapsedTime(&stdout_buffer, parse_duration + exec_duration)});
 
         try stdout.print(ansi.bold ++ "{f}\n" ++ ansi.reset, .{result});
         try stdout.flush();
     }
+}
+
+fn welcomeMessage() !void {
+    try stderr.print("λx. version {s}\n", .{build_options.version});
+    // TODO: provide a `help` command
+    try stderr.flush();
+}
+
+pub fn formatElapsedTime(buffer: []u8, ns: u64) ![]const u8 {
+    return switch (ns) {
+        0...ns_per_us - 1 => try std.fmt.bufPrint(buffer, "{}ns", .{ns}),
+
+        ns_per_us...ns_per_ms - 1 => block: {
+            const us = @as(f64, @floatFromInt(ns)) / std.time.ns_per_us;
+            break :block std.fmt.bufPrint(buffer, "{d:.2}μs", .{us});
+        },
+
+        ns_per_ms...ns_per_s - 1 => block: {
+            const ms = @as(f64, @floatFromInt(ns)) / std.time.ns_per_ms;
+            break :block try std.fmt.bufPrint(buffer, "{d:.3}ms", .{ms});
+        },
+
+        else => block: {
+            const s = @as(f64, @floatFromInt(ns)) / std.time.ns_per_s;
+            break :block std.fmt.bufPrint(buffer, "{d:.6}s", .{s});
+        },
+    };
 }

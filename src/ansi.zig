@@ -2,6 +2,9 @@
 //
 // https://ecma-international.org/publications-and-standards/standards/ecma-48/
 // https://ecma-international.org/wp-content/uploads/ECMA-48_2nd_edition_august_1979.pdf
+
+// TODO: disable color setting
+
 pub const esc = "\x1B";
 pub const csi = "[";
 
