@@ -1,4 +1,8 @@
 const std = @import("std");
+const zon = @import("build.zig.zon");
+
+const name = @tagName(zon.name);
+const version = zon.version;
 
 pub fn build(b: *std.Build) void {
     const exe_mod = b.createModule(.{
@@ -6,31 +10,26 @@ pub fn build(b: *std.Build) void {
         .target = b.standardTargetOptions(.{}),
         .optimize = b.standardOptimizeOption(.{}),
     });
+
+    const options = b.addOptions();
+    options.addOption([]const u8, "name", name);
+    options.addOption([]const u8, "version", version);
+    exe_mod.addOptions("build_options", options);
+
     const exe = b.addExecutable(.{
-        .name = "lx",
+        .name = name,
         .root_module = exe_mod,
     });
+
     b.installArtifact(exe);
-
-    const exe_check = b.addExecutable(.{
-        .name = "lx",
-        .root_module = exe_mod,
-    });
-    const check = b.step("check", "Check if lx compiles");
-    check.dependOn(&exe_check.step);
     const run_cmd = b.addRunArtifact(exe);
-
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-    const run_step = b.step("run", "Run the lx");
+    if (b.args) |args| run_cmd.addArgs(args);
+    const run_step = b.step("run", "Run executable");
     run_step.dependOn(&run_cmd.step);
 
-    const exe_unit_tests = b.addTest(.{
-        .root_module = exe_mod,
-    });
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-    const test_step = b.step("test", "Run lx unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
+    const test_step = b.step("test", "Run tests");
+    const tests = b.addTest(.{ .root_module = exe_mod });
+    const run_tests = b.addRunArtifact(tests);
+    test_step.dependOn(&run_tests.step);
 }
