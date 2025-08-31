@@ -76,22 +76,22 @@ primary
 Note: literals like `if` or `λ` are also tokens but are not listed here.
 
 #### NUMBER
-```re
+```regex
 [0-9]+
 ```
 
 #### SYMBOL
 Anything that isn't a keyword, literal, operator, or punctuation is tokenized as a SYMBOL.
-```re
+```regex
 [^\s()#\+\-\*/\.=\\λ][^\s()#\+\-\*/\.=\\λ]*
 ```
 
 #### WHITESPACE (not shown in the grammar)
-```re
+```regex
 [\t\n\r \f\u0085\u00A0]+
 ```
 
 #### COMMENT (not shown in the grammar)
-```re
+```regex
 #[^\n]*
 ```
