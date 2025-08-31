@@ -3,23 +3,25 @@
 const std = @import("std");
 const build_options = @import("build_options");
 
+const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const Timer = std.time.Timer;
 const log = std.log.scoped(.repl);
 const max_path_bytes = std.fs.max_path_bytes;
 
 const time = std.time;
+const Timer = time.Timer;
 const ns_per_us = time.ns_per_us;
 const ns_per_ms = time.ns_per_ms;
 const ns_per_s = time.ns_per_s;
 
 const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
-const Interpreter = @import("Interpreter.zig");
+const evaluate = @import("evaluate.zig").evaluate;
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const ReadLine = @import("ReadLine.zig");
 const Value = @import("value.zig").Value;
+const Object = @import("object.zig").Object;
 
 const Repl = @This();
 const prompt = ansi.cyan ++ "> " ++ ansi.reset;
@@ -27,6 +29,7 @@ const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 gpa: Allocator,
 env: *Environment,
 rl: ReadLine,
+objects: ArrayList(Object),
 
 var stdout_buffer: [max_path_bytes]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -50,6 +53,7 @@ pub fn init(gpa: Allocator) !Repl {
         .gpa = gpa,
         .env = try initEnv(gpa),
         .rl = ReadLine.init(gpa, stdout),
+        .objects = .empty,
     };
 }
 
@@ -61,10 +65,7 @@ pub fn run(self: *Repl) !void {
     const gpa = self.gpa;
     const env = self.env;
     var rl = self.rl;
-
-    var interp = try Interpreter.init(gpa, env);
-    defer interp.deinit();
-
+    var objects = self.objects;
     try welcomeMessage();
 
     var timer = try Timer.start();
@@ -82,7 +83,7 @@ pub fn run(self: *Repl) !void {
 
         const parse_duration = timer.lap();
 
-        const result = interp.evaluate(ast) catch continue;
+        const result = evaluate(gpa, ast, env, &objects) catch continue;
 
         const exec_duration = timer.read();
 

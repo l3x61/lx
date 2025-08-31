@@ -44,5 +44,5 @@ test "all" {
     _ = @import("Lexer.zig");
     _ = @import("Parser.zig");
     _ = @import("Environment.zig");
-    _ = @import("Interpreter.zig");
+    _ = @import("evaluate.zig");
 }
