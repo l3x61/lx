@@ -70,12 +70,34 @@ fn expression(self: *Parser) anyerror!*Node {
         .let => self.letRecIn(),
         .@"if" => self.ifThenElse(),
         .lambda => self.function(),
-        .null, .true, .false, .number, .symbol, .lparen => self.additive(),
+        .null, .true, .false, .number, .symbol, .lparen => self.equality(),
         else => {
             _ = try self.eatToken(&[_]Token.Tag{ .let, .@"if", .lambda, .null, .true, .false, .number, .symbol, .lparen });
             return error.SyntaxError;
         },
     };
+}
+
+/// ```
+/// equality
+///     = additive { ("==" | "!=") additive }
+/// ```
+fn equality(self: *Parser) !*Node {
+    var left = try self.additive();
+    errdefer left.deinit(self.ator);
+
+    while (true) {
+        switch (self.token.tag) {
+            .equal, .not_equal => {
+                const operator = try self.eatToken(&[_]Token.Tag{ .equal, .not_equal });
+                const right = try self.additive();
+                errdefer right.deinit(self.ator);
+                left = try Node.Binary.init(self.ator, left, operator, right);
+            },
+            else => break,
+        }
+    }
+    return left;
 }
 
 /// ```
@@ -94,7 +116,7 @@ fn letRecIn(self: *Parser) !*Node {
 
     const name = try self.eatToken(&[_]Token.Tag{.symbol});
 
-    _ = try self.eatToken(&[_]Token.Tag{.equal});
+    _ = try self.eatToken(&[_]Token.Tag{.assign});
     const value = try self.expression();
     errdefer value.deinit(self.ator);
 
@@ -393,6 +415,34 @@ test "let-in" {
             Token.init(.symbol, input, "one"),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "equal" {
+    const input = "1 == 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.eqeq, input, "=="),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "not equal" {
+    const input = "1 != 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.noteq, input, "!="),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
         ),
     );
     try runTest(input, expected);

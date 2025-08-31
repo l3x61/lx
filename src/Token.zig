@@ -13,7 +13,9 @@ pub const Tag = enum {
 
     lambda,
     dot,
+    assign,
     equal,
+    not_equal,
     lparen,
     rparen,
 

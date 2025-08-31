@@ -46,6 +46,21 @@ pub fn nextToken(self: *Lexer) Token {
         return Token.init(.eof, source, "");
     };
 
+    if (codepoint == '=') {
+        if (iterator.i < iterator.bytes.len and iterator.bytes[iterator.i] == '=') {
+            iterator.i += 1; 
+            return Token.init(.equal, source, iterator.bytes[start..iterator.i]);
+        }
+        return Token.init(.assign, source, iterator.bytes[start..iterator.i]);
+    }
+
+    if (codepoint == '!') {
+        if (iterator.i < iterator.bytes.len and iterator.bytes[iterator.i] == '=') {
+            iterator.i += 1; 
+            return Token.init(.not_equal, source, iterator.bytes[start..iterator.i]);
+        }
+    }
+
     if (getSpecialToken(codepoint)) |tag| {
         return Token.init(tag, source, iterator.bytes[start..iterator.i]);
     }
@@ -92,7 +107,7 @@ fn getSpecialToken(codepoint: u21) ?Token.Tag {
     return switch (codepoint) {
         '\\', 'λ' => .lambda,
         '.' => .dot,
-        '=' => .equal,
+        '=' => .assign,
         '(' => .lparen,
         ')' => .rparen,
         '+' => .plus,
@@ -191,7 +206,7 @@ test "let in" {
     const tokens = [_]Token{
         Token.init(.let, input, "let"),
         Token.init(.symbol, input, "id"),
-        Token.init(.equal, input, "="),
+        Token.init(.assign, input, "="),
         Token.init(.lambda, input, "λ"),
         Token.init(.symbol, input, "x"),
         Token.init(.dot, input, "."),
@@ -210,7 +225,7 @@ test "let rec in" {
         Token.init(.let, input, "let"),
         Token.init(.rec, input, "rec"),
         Token.init(.symbol, input, "id"),
-        Token.init(.equal, input, "="),
+        Token.init(.assign, input, "="),
         Token.init(.lambda, input, "λ"),
         Token.init(.symbol, input, "x"),
         Token.init(.dot, input, "."),
@@ -274,6 +289,19 @@ test "operators" {
         Token.init(.symbol, input, "w"),
         Token.init(.slash, input, "/"),
         Token.init(.number, input, "2"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "equality operators" {
+    const input = "1 == 2 != 3";
+    const tokens = [_]Token{
+        Token.init(.number, input, "1"),
+        Token.init(.equal, input, "=="),
+        Token.init(.number, input, "2"),
+        Token.init(.not_equal, input, "!="),
+        Token.init(.number, input, "3"),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);

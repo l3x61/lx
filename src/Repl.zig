@@ -74,7 +74,7 @@ pub fn run(self: *Repl) !void {
         defer ast.deinit(gpa);
         const parse_done = timer.lap();
 
-        log.debug("{f}\n", .{ast});
+        //log.debug("{f}\n", .{ast});
 
         _ = timer.lap();
         const result = interp.evaluate(ast) catch |err| {
@@ -86,7 +86,7 @@ pub fn run(self: *Repl) !void {
         log.info("parsing    {s}\n", .{try formatElapsedTime(&stdout_buffer, parse_done)});
         log.info("evaluating {s}\n", .{try formatElapsedTime(&stdout_buffer, eval_done)});
 
-        try stdout.print("{f}\n", .{result});
+        try stdout.print(ansi.bold ++ "{f}\n" ++ ansi.reset, .{result});
         try stdout.flush();
     }
 }

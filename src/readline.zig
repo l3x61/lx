@@ -250,7 +250,9 @@ fn colorMap(tag: Token.Tag) []const u8 {
     return switch (tag) {
         .lambda,
         .dot,
+        .assign,
         .equal,
+        .not_equal,
         .plus,
         .minus,
         .star,
@@ -263,14 +265,15 @@ fn colorMap(tag: Token.Tag) []const u8 {
         .@"if",
         .then,
         .@"else",
+        => ansi.red,
+
         .null,
         .true,
         .false,
-        => ansi.red,
-
+        => ansi.magenta,
         .number,
         .string,
-        => ansi.cyan,
+        => ansi.blue,
 
         .symbol => ansi.white,
 

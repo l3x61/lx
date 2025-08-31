@@ -63,6 +63,12 @@ fn _evaluate(self: *Interpreter, node: *Node, env: *Environment) !Value {
             const left = try self._evaluate(binary.left, env);
             const right = try self._evaluate(binary.right, env);
 
+            switch (binary.operator.tag) {
+                .equal => return Value.Boolean.init(left.equal(right)),
+                .not_equal => return Value.Boolean.init(!left.equal(right)),
+                else => {},
+            }
+
             const left_number = left.asNumber();
             const right_number = right.asNumber();
 
@@ -398,6 +404,40 @@ test "let-in recursive nested" {
     try expectError(error.RecursiveBinding, interpreter.evaluate(ast));
 }
 
+test "evaluate equality" {
+    const input = "";
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.eqeq, input, "=="),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Boolean.init(true);
+    try runTest(testing.allocator, ast, expected);
+}
+
+test "evaluate inequality" {
+    const input = "";
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.noteq, input, "!="),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Boolean.init(true);
+    try runTest(testing.allocator, ast, expected);
+}
+
 test "literals" {
     // if null then true else false
     const input = "";
@@ -591,5 +631,55 @@ test "recursive call" {
     defer ast.deinit(testing.allocator);
 
     const expected = Value.Number.init(1234);
+    try runTest(testing.allocator, ast, expected);
+}
+
+test "factorial" {
+    // let rec fact = \n. if n == 0 then 1 else n * fact (n - 1) in fact 5
+    const input = "";
+    const ast = try Node.Program.init(
+        testing.allocator,
+        try Node.LetRecIn.init(
+            testing.allocator,
+            Token.init(.symbol, input, "fact"),
+            try Node.Function.init(
+                testing.allocator,
+                Token.init(.symbol, input, "n"),
+                try Node.IfThenElse.init(
+                    testing.allocator,
+                    try Node.Binary.init(
+                        testing.allocator,
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "n")),
+                        Token.init(.eqeq, input, "=="),
+                        try Node.Primary.init(testing.allocator, Token.init(.number, input, "0")),
+                    ),
+                    try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                    try Node.Binary.init(
+                        testing.allocator,
+                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "n")),
+                        Token.init(.star, input, "*"),
+                        try Node.Apply.init(
+                            testing.allocator,
+                            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "fact")),
+                            try Node.Binary.init(
+                                testing.allocator,
+                                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "n")),
+                                Token.init(.minus, input, "-"),
+                                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            try Node.Apply.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "fact")),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
+            ),
+        ),
+    );
+    defer ast.deinit(testing.allocator);
+
+    const expected = Value.Number.init(120);
     try runTest(testing.allocator, ast, expected);
 }
