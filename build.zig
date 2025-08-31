@@ -5,10 +5,13 @@ const name = @tagName(zon.name);
 const version = zon.version;
 
 pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
-        .target = b.standardTargetOptions(.{}),
-        .optimize = b.standardOptimizeOption(.{}),
+        .target = target,
+        .optimize = optimize,
     });
 
     const options = b.addOptions();
@@ -16,11 +19,7 @@ pub fn build(b: *std.Build) void {
     options.addOption([]const u8, "version", version);
     exe_mod.addOptions("build_options", options);
 
-    const exe = b.addExecutable(.{
-        .name = name,
-        .root_module = exe_mod,
-    });
-
+    const exe = b.addExecutable(.{ .name = name, .root_module = exe_mod });
     b.installArtifact(exe);
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -32,4 +31,20 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = exe_mod });
     const run_tests = b.addRunArtifact(tests);
     test_step.dependOn(&run_tests.step);
+
+    const spec_mod = b.createModule(.{
+        .root_source_file = b.path("spec/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const src_mod = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    spec_mod.addImport("src", src_mod);
+    const spec_exe = b.addExecutable(.{ .name = "spec", .root_module = spec_mod });
+    const spec_cmd = b.addRunArtifact(spec_exe);
+    const spec_step = b.step("spec", "Run spec files in spec/pass and spec/fail");
+    spec_step.dependOn(&spec_cmd.step);
 }

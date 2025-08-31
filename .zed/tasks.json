@@ -4,6 +4,10 @@
     "command": "zig build -freference-trace run"
   },
   {
+    "label": "Spec",
+    "command": "zig build -freference-trace spec"
+  },
+  {
     "label": "Test",
     "command": "zig test -freference-trace src/main.zig"
   },
