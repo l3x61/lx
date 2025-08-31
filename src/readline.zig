@@ -267,15 +267,22 @@ fn colorMap(tag: Token.Tag) []const u8 {
         .@"else",
         => ansi.red,
 
-        .null,
-        .true,
-        .false,
-        => ansi.magenta,
+        // types (not implemented yet) => ansi.magenta
+
         .number,
         .string,
         => ansi.blue,
 
-        .symbol => ansi.white,
+        .null,
+        .true,
+        .false,
+        => ansi.cyan,
+
+        .comment,
+        => ansi.dim,
+
+        .symbol,
+        => ansi.white,
 
         else => ansi.reset,
     };

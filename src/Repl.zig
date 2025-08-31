@@ -82,10 +82,7 @@ pub fn run(self: *Repl) !void {
 
         const parse_duration = timer.lap();
 
-        const result = interp.evaluate(ast) catch |err| {
-            log.err("{s}\n", .{@errorName(err)});
-            continue;
-        };
+        const result = interp.evaluate(ast) catch continue;
 
         const exec_duration = timer.read();
 

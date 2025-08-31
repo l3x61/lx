@@ -31,13 +31,13 @@ pub fn logFn(
         .err => ansi.red,
         .warn => ansi.yellow,
         .info => ansi.green,
-        .debug => ansi.dimmed,
+        .debug => ansi.dim,
     };
     const name = if (scope == .default) "" else @tagName(scope) ++ ": ";
     var buffer: [256]u8 = undefined;
     const stderr = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
-    nosuspend stderr.print(color ++ name ++ ansi.dimmed ++ format ++ ansi.reset, args) catch return;
+    nosuspend stderr.print(color ++ name ++ ansi.dim ++ format ++ ansi.reset, args) catch return;
 }
 
 test "all" {

@@ -10,6 +10,7 @@ lexeme: []const u8,
 
 pub const Tag = enum {
     eof,
+    comment,
 
     lambda,
     dot,
@@ -44,7 +45,40 @@ pub const Tag = enum {
         self: Tag,
         writer: anytype,
     ) !void {
-        try writer.print("{s}", .{@tagName(self)});
+        const name = switch (self) {
+            .eof => "END OF FILE",
+            .comment => "COMMENT",
+
+            .lambda => "\\ or λ",
+            .dot => ".",
+            .assign => "=",
+            .equal => "==",
+            .not_equal => "!=",
+            .lparen => "(",
+            .rparen => ")",
+
+            .plus => "+",
+            .minus => "-",
+            .star => "*",
+            .slash => "/",
+
+            .let => "let",
+            .rec => "rec",
+            .in => "in",
+
+            .@"if" => "if",
+            .then => "then",
+            .@"else" => "else",
+
+            .null => "null",
+            .true => "true",
+            .false => "false",
+
+            .number => "NUMBER",
+            .string => "STRING",
+            .symbol => "SYMBOL",
+        };
+        try writer.print("{s}", .{name});
     }
 };
 

@@ -46,9 +46,18 @@ pub fn nextToken(self: *Lexer) Token {
         return Token.init(.eof, source, "");
     };
 
+    if (codepoint == '#') {
+        consumeWhile(iterator, struct {
+            fn notNewline(cp: u21) bool {
+                return cp != '\n';
+            }
+        }.notNewline);
+        return Token.init(.comment, source, iterator.bytes[start..iterator.i]);
+    }
+
     if (codepoint == '=') {
         if (iterator.i < iterator.bytes.len and iterator.bytes[iterator.i] == '=') {
-            iterator.i += 1; 
+            iterator.i += 1;
             return Token.init(.equal, source, iterator.bytes[start..iterator.i]);
         }
         return Token.init(.assign, source, iterator.bytes[start..iterator.i]);
@@ -56,7 +65,7 @@ pub fn nextToken(self: *Lexer) Token {
 
     if (codepoint == '!') {
         if (iterator.i < iterator.bytes.len and iterator.bytes[iterator.i] == '=') {
-            iterator.i += 1; 
+            iterator.i += 1;
             return Token.init(.not_equal, source, iterator.bytes[start..iterator.i]);
         }
     }
@@ -119,7 +128,7 @@ fn getSpecialToken(codepoint: u21) ?Token.Tag {
 }
 
 fn isSymbol(codepoint: u21) bool {
-    return !isSpace(codepoint) and getSpecialToken(codepoint) == null;
+    return codepoint != '#' and !isSpace(codepoint) and getSpecialToken(codepoint) == null;
 }
 
 fn runTest(input: []const u8, tokens: []const Token) !void {
@@ -302,6 +311,46 @@ test "equality operators" {
         Token.init(.number, input, "2"),
         Token.init(.not_equal, input, "!="),
         Token.init(.number, input, "3"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "line comment only" {
+    const input = "# hello";
+    const tokens = [_]Token{
+        Token.init(.comment, input, "# hello"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "comment then symbol" {
+    const input = "# hello\nx";
+    const tokens = [_]Token{
+        Token.init(.comment, input, "# hello"),
+        Token.init(.symbol, input, "x"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "inline comment after token" {
+    const input = "x # c\ny";
+    const tokens = [_]Token{
+        Token.init(.symbol, input, "x"),
+        Token.init(.comment, input, "# c"),
+        Token.init(.symbol, input, "y"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "comment at EOF without newline" {
+    const input = "1#end";
+    const tokens = [_]Token{
+        Token.init(.number, input, "1"),
+        Token.init(.comment, input, "#end"),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);

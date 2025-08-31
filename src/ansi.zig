@@ -10,7 +10,7 @@ pub const csi = "[";
 
 pub const reset = esc ++ csi ++ "0m";
 pub const bold = esc ++ csi ++ "1m";
-pub const dimmed = esc ++ csi ++ "2m";
+pub const dim = esc ++ csi ++ "2m";
 pub const italic = esc ++ csi ++ "3m";
 pub const underline = esc ++ csi ++ "4m";
 pub const blink = esc ++ csi ++ "5m";

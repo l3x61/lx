@@ -2,6 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 const testing = std.testing;
+
+const log = std.log.scoped(.parser);
+
 const expect = testing.expect;
 const expectError = testing.expectError;
 
@@ -12,15 +15,18 @@ const Token = @import("Token.zig");
 
 const Parser = @This();
 
-ator: Allocator,
+gpa: Allocator,
 lexer: Lexer,
 token: Token,
 
 pub fn init(ator: Allocator, input: []const u8) !Parser {
     var lexer = try Lexer.init(input);
-    const token = lexer.nextToken();
+
+    var token = lexer.nextToken();
+    while (token.tag == .comment) token = lexer.nextToken();
+
     return Parser{
-        .ator = ator,
+        .gpa = ator,
         .lexer = lexer,
         .token = token,
     };
@@ -30,12 +36,14 @@ pub fn parse(self: *Parser) !*Node {
     return self.program();
 }
 
-fn eatToken(self: *Parser, expected: []const Token.Tag) !Token {
+fn nextToken(self: *Parser, expected: []const Token.Tag) !Token {
     const token = self.token;
     self.token = self.lexer.nextToken();
 
+    while (self.token.tag == .comment) self.token = self.lexer.nextToken();
+
     if (!token.isOneOf(expected)) {
-        print("expected {any} but got {any}\n", .{ expected, token.tag });
+        log.err("expected {any} but got {f}\n", .{ expected, token.tag });
         return error.SyntaxError;
     }
     return token;
@@ -47,13 +55,13 @@ fn eatToken(self: *Parser, expected: []const Token.Tag) !Token {
 ///     .
 /// ```
 fn program(self: *Parser) !*Node {
-    const node = try Node.Program.init(self.ator, null);
-    errdefer node.deinit(self.ator);
+    const node = try Node.Program.init(self.gpa, null);
+    errdefer node.deinit(self.gpa);
 
     if (self.token.tag != .eof) {
         node.program.expression = try self.expression();
     }
-    _ = try self.eatToken(&[_]Token.Tag{.eof});
+    _ = try self.nextToken(&[_]Token.Tag{.eof});
     return node;
 }
 
@@ -72,7 +80,7 @@ fn expression(self: *Parser) anyerror!*Node {
         .lambda => self.function(),
         .null, .true, .false, .number, .symbol, .lparen => self.equality(),
         else => {
-            _ = try self.eatToken(&[_]Token.Tag{ .let, .@"if", .lambda, .null, .true, .false, .number, .symbol, .lparen });
+            _ = try self.nextToken(&[_]Token.Tag{ .let, .@"if", .lambda, .null, .true, .false, .number, .symbol, .lparen });
             return error.SyntaxError;
         },
     };
@@ -84,15 +92,15 @@ fn expression(self: *Parser) anyerror!*Node {
 /// ```
 fn equality(self: *Parser) !*Node {
     var left = try self.additive();
-    errdefer left.deinit(self.ator);
+    errdefer left.deinit(self.gpa);
 
     while (true) {
         switch (self.token.tag) {
             .equal, .not_equal => {
-                const operator = try self.eatToken(&[_]Token.Tag{ .equal, .not_equal });
+                const operator = try self.nextToken(&[_]Token.Tag{ .equal, .not_equal });
                 const right = try self.additive();
-                errdefer right.deinit(self.ator);
-                left = try Node.Binary.init(self.ator, left, operator, right);
+                errdefer right.deinit(self.gpa);
+                left = try Node.Binary.init(self.gpa, left, operator, right);
             },
             else => break,
         }
@@ -106,28 +114,28 @@ fn equality(self: *Parser) !*Node {
 ///     .
 /// ```
 fn letRecIn(self: *Parser) !*Node {
-    _ = try self.eatToken(&[_]Token.Tag{.let});
+    _ = try self.nextToken(&[_]Token.Tag{.let});
 
     var is_rec: bool = false;
     if (self.token.tag == .rec) {
-        _ = try self.eatToken(&[_]Token.Tag{.rec});
+        _ = try self.nextToken(&[_]Token.Tag{.rec});
         is_rec = true;
     }
 
-    const name = try self.eatToken(&[_]Token.Tag{.symbol});
+    const name = try self.nextToken(&[_]Token.Tag{.symbol});
 
-    _ = try self.eatToken(&[_]Token.Tag{.assign});
+    _ = try self.nextToken(&[_]Token.Tag{.assign});
     const value = try self.expression();
-    errdefer value.deinit(self.ator);
+    errdefer value.deinit(self.gpa);
 
-    _ = try self.eatToken(&[_]Token.Tag{.in});
+    _ = try self.nextToken(&[_]Token.Tag{.in});
     const body = try self.expression();
-    errdefer body.deinit(self.ator);
+    errdefer body.deinit(self.gpa);
 
     if (is_rec) {
-        return Node.LetRecIn.init(self.ator, name, value, body);
+        return Node.LetRecIn.init(self.gpa, name, value, body);
     }
-    return Node.LetIn.init(self.ator, name, value, body);
+    return Node.LetIn.init(self.gpa, name, value, body);
 }
 
 /// ```
@@ -136,19 +144,19 @@ fn letRecIn(self: *Parser) !*Node {
 ///     .
 /// ```
 fn ifThenElse(self: *Parser) !*Node {
-    _ = try self.eatToken(&[_]Token.Tag{.@"if"});
+    _ = try self.nextToken(&[_]Token.Tag{.@"if"});
     const condition = try self.expression();
-    errdefer condition.deinit(self.ator);
+    errdefer condition.deinit(self.gpa);
 
-    _ = try self.eatToken(&[_]Token.Tag{.then});
+    _ = try self.nextToken(&[_]Token.Tag{.then});
     const consequent = try self.expression();
-    errdefer consequent.deinit(self.ator);
+    errdefer consequent.deinit(self.gpa);
 
-    _ = try self.eatToken(&[_]Token.Tag{.@"else"});
+    _ = try self.nextToken(&[_]Token.Tag{.@"else"});
     const alternate = try self.expression();
-    errdefer alternate.deinit(self.ator);
+    errdefer alternate.deinit(self.gpa);
 
-    return Node.IfThenElse.init(self.ator, condition, consequent, alternate);
+    return Node.IfThenElse.init(self.gpa, condition, consequent, alternate);
 }
 
 /// ```
@@ -157,13 +165,13 @@ fn ifThenElse(self: *Parser) !*Node {
 ///     .
 /// ```
 fn function(self: *Parser) !*Node {
-    _ = try self.eatToken(&[_]Token.Tag{.lambda});
-    const parameter = try self.eatToken(&[_]Token.Tag{.symbol});
-    _ = try self.eatToken(&[_]Token.Tag{.dot});
+    _ = try self.nextToken(&[_]Token.Tag{.lambda});
+    const parameter = try self.nextToken(&[_]Token.Tag{.symbol});
+    _ = try self.nextToken(&[_]Token.Tag{.dot});
     const body = try self.expression();
-    errdefer body.deinit(self.ator);
+    errdefer body.deinit(self.gpa);
 
-    return Node.Function.init(self.ator, parameter, body);
+    return Node.Function.init(self.gpa, parameter, body);
 }
 
 /// ```
@@ -173,15 +181,15 @@ fn function(self: *Parser) !*Node {
 /// ```
 fn additive(self: *Parser) !*Node {
     var left = try self.multiplicative();
-    errdefer left.deinit(self.ator);
+    errdefer left.deinit(self.gpa);
 
     while (true) {
         switch (self.token.tag) {
             .plus, .minus => {
-                const operator = try self.eatToken(&[_]Token.Tag{ .plus, .minus });
+                const operator = try self.nextToken(&[_]Token.Tag{ .plus, .minus });
                 const right = try self.multiplicative();
-                errdefer right.deinit(self.ator);
-                left = try Node.Binary.init(self.ator, left, operator, right);
+                errdefer right.deinit(self.gpa);
+                left = try Node.Binary.init(self.gpa, left, operator, right);
             },
             else => break,
         }
@@ -196,15 +204,15 @@ fn additive(self: *Parser) !*Node {
 /// ```
 fn multiplicative(self: *Parser) !*Node {
     var left = try self.apply();
-    errdefer left.deinit(self.ator);
+    errdefer left.deinit(self.gpa);
 
     while (true) {
         switch (self.token.tag) {
             .star, .slash => {
-                const operator = try self.eatToken(&[_]Token.Tag{ .star, .slash });
+                const operator = try self.nextToken(&[_]Token.Tag{ .star, .slash });
                 const right = try self.apply();
-                errdefer right.deinit(self.ator);
-                left = try Node.Binary.init(self.ator, left, operator, right);
+                errdefer right.deinit(self.gpa);
+                left = try Node.Binary.init(self.gpa, left, operator, right);
             },
             else => break,
         }
@@ -219,14 +227,14 @@ fn multiplicative(self: *Parser) !*Node {
 /// ```
 fn apply(self: *Parser) !*Node {
     var left = try self.primary();
-    errdefer left.deinit(self.ator);
+    errdefer left.deinit(self.gpa);
 
     while (true) {
         switch (self.token.tag) {
             .null, .true, .false, .lambda, .number, .symbol, .lparen => {
                 const right = try self.primary();
-                errdefer right.deinit(self.ator);
-                left = try Node.Apply.init(self.ator, left, right);
+                errdefer right.deinit(self.gpa);
+                left = try Node.Apply.init(self.gpa, left, right);
             },
             else => break,
         }
@@ -248,21 +256,21 @@ fn apply(self: *Parser) !*Node {
 fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
         .null, .true, .false, .number, .symbol => {
-            const token = try self.eatToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol });
-            return Node.Primary.init(self.ator, token);
+            const token = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol });
+            return Node.Primary.init(self.gpa, token);
         },
         .lambda => {
             return self.function();
         },
         .lparen => {
-            _ = try self.eatToken(&[_]Token.Tag{.lparen});
+            _ = try self.nextToken(&[_]Token.Tag{.lparen});
             const node = try self.expression();
-            errdefer node.deinit(self.ator);
-            _ = try self.eatToken(&[_]Token.Tag{.rparen});
+            errdefer node.deinit(self.gpa);
+            _ = try self.nextToken(&[_]Token.Tag{.rparen});
             return node;
         },
         else => {
-            _ = try self.eatToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol, .lambda, .lparen });
+            _ = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol, .lambda, .lparen });
             return error.SyntaxError;
         },
     };
@@ -427,7 +435,7 @@ test "equal" {
         try Node.Binary.init(
             testing.allocator,
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.eqeq, input, "=="),
+            Token.init(.equal, input, "=="),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
         ),
     );
@@ -441,7 +449,7 @@ test "not equal" {
         try Node.Binary.init(
             testing.allocator,
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.noteq, input, "!="),
+            Token.init(.not_equal, input, "!="),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
         ),
     );
@@ -716,6 +724,20 @@ test "parentheses override precedence" {
             ),
             Token.init(.star, input, "*"),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "comment" {
+    const input = "# comment\n1 + 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.plus, input, "+"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
         ),
     );
     try runTest(input, expected);

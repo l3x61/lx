@@ -411,7 +411,7 @@ test "evaluate equality" {
         try Node.Binary.init(
             testing.allocator,
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.eqeq, input, "=="),
+            Token.init(.equal, input, "=="),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
         ),
     );
@@ -428,7 +428,7 @@ test "evaluate inequality" {
         try Node.Binary.init(
             testing.allocator,
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.noteq, input, "!="),
+            Token.init(.not_equal, input, "!="),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
         ),
     );
@@ -650,7 +650,7 @@ test "factorial" {
                     try Node.Binary.init(
                         testing.allocator,
                         try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "n")),
-                        Token.init(.eqeq, input, "=="),
+                        Token.init(.equal, input, "=="),
                         try Node.Primary.init(testing.allocator, Token.init(.number, input, "0")),
                     ),
                     try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
