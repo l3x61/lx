@@ -70,7 +70,7 @@ fn program(self: *Parser) !*Node {
 ///     = let_rec_in
 ///     | if_then_else
 ///     | function
-///     | additive
+///     | equality
 ///     .
 /// ```
 fn expression(self: *Parser) anyerror!*Node {
@@ -89,6 +89,7 @@ fn expression(self: *Parser) anyerror!*Node {
 /// ```
 /// equality
 ///     = additive { ("==" | "!=") additive }
+///     .
 /// ```
 fn equality(self: *Parser) !*Node {
     var left = try self.additive();
@@ -176,7 +177,7 @@ fn function(self: *Parser) !*Node {
 
 /// ```
 /// additive
-///     = multiplicative (("+" | "-") multiplicative)*
+///     = multiplicative { ("+" | "-") multiplicative }
 ///     .
 /// ```
 fn additive(self: *Parser) !*Node {
@@ -199,7 +200,7 @@ fn additive(self: *Parser) !*Node {
 
 /// ```
 /// multiplicative
-///     = apply (("*" | "/") apply)*
+///     = apply { ("*" | "/") apply }
 ///     .
 /// ```
 fn multiplicative(self: *Parser) !*Node {
@@ -222,7 +223,7 @@ fn multiplicative(self: *Parser) !*Node {
 
 /// ```
 /// apply
-///     = primary primary*
+///     = primary { primary }
 ///     .
 /// ```
 fn apply(self: *Parser) !*Node {
@@ -248,7 +249,7 @@ fn apply(self: *Parser) !*Node {
 ///     | "true"
 ///     | "false"
 ///     | NUMBER
-///     | IDENTIFIER
+///     | SYMBOL
 ///     | function
 ///     | "(" expression ")"
 ///     .
