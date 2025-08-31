@@ -1,27 +1,43 @@
 const std = @import("std");
 const Level = std.log.Level;
 const DebugAllocator = std.heap.DebugAllocator;
-const builtin = @import("builtin");
 
-const LoggingAllocator = @import("LoggingAllocator.zig");
+const ansi = @import("ansi.zig");
 const Repl = @import("Repl.zig");
 
 pub const std_options = std.Options{
     .log_level = Level.debug,
-    .logFn = @import("util.zig").logFn,
+    .logFn = logFn,
 };
 
 pub fn main() !void {
     var da: DebugAllocator(.{}) = .init;
     defer _ = da.deinit();
+    const gpa = da.allocator();
 
-    //var la = LoggingAllocator.init(da.allocator());
-    const ator = da.allocator();
-
-    var repl = try Repl.init(ator);
+    var repl = try Repl.init(gpa);
     defer repl.deinit();
 
     try repl.run();
+}
+
+pub fn logFn(
+    comptime level: Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const color = comptime switch (level) {
+        .err => ansi.red,
+        .warn => ansi.yellow,
+        .info => ansi.green,
+        .debug => ansi.dimmed,
+    };
+    const name = if (scope == .default) "" else @tagName(scope) ++ ": ";
+    var buffer: [256]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    nosuspend stderr.print(color ++ name ++ ansi.dimmed ++ format ++ ansi.reset, args) catch return;
 }
 
 test "all" {
