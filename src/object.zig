@@ -7,9 +7,9 @@ const Node = @import("node.zig").Node;
 const Value = @import("value.zig").Value;
 
 pub const Tag = enum {
-    value,
-    node,
     env,
+    node,
+    value,
 
     pub fn format(self: Tag, writer: anytype) !void {
         try writer.print("{s}", .{@tagName(self)});
@@ -17,15 +17,15 @@ pub const Tag = enum {
 };
 
 pub const Object = union(Tag) {
-    value: Value,
-    node: *Node,
     env: *Environment,
+    node: *Node,
+    value: Value,
 
-    pub fn deinit(self: *Object, ator: Allocator) void {
+    pub fn deinit(self: *Object, gpa: Allocator) void {
         switch (self.*) {
-            .value => |*value| value.deinit(ator),
-            .node => |node| node.deinit(ator),
-            .env => |env| env.deinitSelf(ator),
+            .value => |*value| value.deinit(gpa),
+            .node => |node| node.deinit(gpa),
+            .env => |env| env.deinitSelf(gpa),
         }
     }
 };
