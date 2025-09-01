@@ -13,9 +13,9 @@ const mem = std.mem;
 const sort = mem.sort;
 const endsWith = mem.endsWith;
 
-const src = @import("src");
-const ansi = src.ansi;
-const runScript = src.runScript;
+const lx = @import("lx");
+const ansi = lx.ansi;
+const Script = lx.Script;
 
 pub const std_options = std.Options{
     .logFn = logFn,
@@ -106,19 +106,24 @@ fn runTests(gpa: Allocator, dir_path: []const u8, mode: Mode, result: *Result) !
     sort([]const u8, script_paths.items, {}, lessThanU8);
 
     for (script_paths.items) |script_path| {
-        const script = try fs.cwd().readFileAlloc(gpa, script_path, maxInt(u32));
-        defer gpa.free(script);
-
         result.total += 1;
 
-        var had_error = false;
-        runScript(gpa, script) catch {
-            had_error = true;
-        };
+        var failed = false;
+        {
+            var script = Script.init(gpa, script_path) catch {
+                failed = true;
+                continue;
+            };
+            defer script.deinit();
 
-        const should_succeed = (mode == .should_pass);
-        const did_succeed = !had_error;
-        if (did_succeed != should_succeed) {
+            var run_result = script.run(null) catch {
+                failed = true;
+                continue;
+            };
+            run_result.deinit(gpa);
+        }
+
+        if (!failed != (mode == .should_pass)) {
             result.failed += 1;
             try result.failed_paths.append(gpa, try gpa.dupe(u8, script_path));
         } else {

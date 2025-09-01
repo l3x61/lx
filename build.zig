@@ -42,9 +42,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    spec_mod.addImport("src", src_mod);
+    spec_mod.addImport(name, src_mod);
     const spec_exe = b.addExecutable(.{ .name = "spec", .root_module = spec_mod });
     const spec_cmd = b.addRunArtifact(spec_exe);
-    const spec_step = b.step("spec", "Run spec files in spec/pass and spec/fail");
+    const spec_step = b.step("spec", "Run spec");
     spec_step.dependOn(&spec_cmd.step);
 }

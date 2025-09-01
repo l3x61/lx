@@ -15,7 +15,7 @@ const exit = std.process.exit;
 
 const ansi = @import("ansi.zig");
 const Repl = @import("Repl.zig");
-const runScript = @import("runScript.zig").runScript;
+const Script = @import("Script.zig");
 
 pub const std_options = std.Options{
     .log_level = Level.debug,
@@ -32,19 +32,17 @@ pub fn main() !void {
     _ = args.next();
     const file_arg = args.next();
 
-    // script mode
     if (file_arg) |file| {
-        const script = std.fs.cwd().readFileAlloc(gpa, file, maxInt(u32)) catch |err| {
-            log.err("reading {s} failed with {t}\n", .{ file, err });
+        var script = Script.init(gpa, file) catch |err| {
+            log.err("loading script {s} failed with {t}\n", .{ file, err });
             exit(1);
         };
-        defer gpa.free(script);
+        defer script.deinit();
 
-        runScript(gpa, script) catch exit(1);
+        _ = script.run(null) catch exit(1);
         return;
     }
 
-    // interactive mode
     var repl = try Repl.init(gpa);
     defer repl.deinit();
     try repl.run();
