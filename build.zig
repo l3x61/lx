@@ -31,20 +31,4 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = exe_mod });
     const run_tests = b.addRunArtifact(tests);
     test_step.dependOn(&run_tests.step);
-
-    const spec_mod = b.createModule(.{
-        .root_source_file = b.path("spec/runner.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const src_mod = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    spec_mod.addImport(name, src_mod);
-    const spec_exe = b.addExecutable(.{ .name = "spec", .root_module = spec_mod });
-    const spec_cmd = b.addRunArtifact(spec_exe);
-    const spec_step = b.step("spec", "Run spec");
-    spec_step.dependOn(&spec_cmd.step);
 }
