@@ -146,29 +146,6 @@ fn evaluate_(
 
             return try evaluate_(gpa, let_in.body, scope, objects);
         },
-        .let_rec_in => |let_rec_in| {
-            var scope_owned: bool = false;
-            var scope = try Environment.init(gpa, env);
-            errdefer if (!scope_owned) {
-                scope.deinitSelf(gpa);
-            };
-
-            const name = let_rec_in.name.lexeme;
-            try scope.define(gpa, name, Value.init());
-            const value = try evaluate_(gpa, let_rec_in.value, scope, objects);
-
-            if (value.asClosure() == null) {
-                log.err("let rec only allows recursive bindings for functions\n", .{}); // TODO: report line number
-                return error.RecursiveBinding;
-            }
-
-            try scope.bind(name, value);
-
-            try objects.append(gpa, Object{ .env = scope });
-            scope_owned = true;
-
-            return try evaluate_(gpa, let_rec_in.body, scope, objects);
-        },
         .if_then_else => |if_then_else| {
             const condition = try evaluate_(gpa, if_then_else.condition, env, objects);
             const consequent = if_then_else.consequent;
@@ -471,77 +448,14 @@ test "literals" {
     try runTest(ta, ast, expected);
 }
 
-test "let-rec closure allowed" {
-    // let rec f = (\x. x) in f
-    const input = "";
-    const ast = try Node.Program.init(
-        ta,
-        try Node.LetRecIn.init(
-            ta,
-            Token.init(.symbol, input, "f"),
-            try Node.Function.init(
-                ta,
-                Token.init(.symbol, input, "x"),
-                try Node.Primary.init(ta, Token.init(.symbol, input, "x")),
-            ),
-            try Node.Primary.init(ta, Token.init(.symbol, input, "f")),
-        ),
-    );
-    defer ast.deinit(ta);
-
-    var env = try Environment.init(ta, null);
-    defer env.deinitAll(ta);
-
-    var objects: ArrayList(Object) = .empty;
-    defer {
-        var i: usize = 0;
-        while (i < objects.items.len) : (i += 1) {
-            objects.items[i].deinit(ta);
-        }
-        objects.deinit(ta);
-    }
-
-    const actual = try evaluate(ta, ast, env, &objects);
-    try expect(actual.asClosure() != null);
-}
-
-test "let-rec non-function" {
-    // let rec x = 1 in x
-    const input = "";
-    const ast = try Node.Program.init(
-        ta,
-        try Node.LetRecIn.init(
-            ta,
-            Token.init(.symbol, input, "x"),
-            try Node.Primary.init(ta, Token.init(.number, input, "1")),
-            try Node.Primary.init(ta, Token.init(.symbol, input, "x")),
-        ),
-    );
-    defer ast.deinit(ta);
-
-    var env = try Environment.init(ta, null);
-    defer env.deinitAll(ta);
-
-    var objects: ArrayList(Object) = .empty;
-    defer {
-        var i: usize = 0;
-        while (i < objects.items.len) : (i += 1) {
-            objects.items[i].deinit(ta);
-        }
-        objects.deinit(ta);
-    }
-
-    try expectError(error.RecursiveBinding, evaluate(ta, ast, env, &objects));
-}
-
-test "let-rec nested" {
-    // let rec one = (\z. 1) in
-    //   let rec two = (\w. one w) in
+test "let nested" {
+    // let one = (\z. 1) in
+    //   let two = (\w. one w) in
     //     one two
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetRecIn.init(
+        try Node.LetIn.init(
             ta,
             Token.init(.symbol, input, "one"),
             try Node.Function.init(
@@ -549,7 +463,7 @@ test "let-rec nested" {
                 Token.init(.symbol, input, "z"),
                 try Node.Primary.init(ta, Token.init(.number, input, "1")),
             ),
-            try Node.LetRecIn.init(
+            try Node.LetIn.init(
                 ta,
                 Token.init(.symbol, input, "two"),
                 try Node.Function.init(
@@ -626,9 +540,9 @@ test "recursive call" {
     // fn called with false -> returns 1234
 
     // (one liner)
-    // let rec fn = \var. if var then fn false else 1234 in fn false
+    // let fn = \var. if var then fn false else 1234 in fn false
 
-    // let rec fn = \var. if var then
+    // let fn = \var. if var then
     //     fn false
     // else
     //     1234
@@ -637,7 +551,7 @@ test "recursive call" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetRecIn.init(
+        try Node.LetIn.init(
             ta,
             Token.init(.symbol, input, "fn"),
             try Node.Function.init(
@@ -668,11 +582,11 @@ test "recursive call" {
 }
 
 test "factorial" {
-    // let rec fact = \n. if n == 0 then 1 else n * fact (n - 1) in fact 5
+    // let fact = \n. if n == 0 then 1 else n * fact (n - 1) in fact 5
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetRecIn.init(
+        try Node.LetIn.init(
             ta,
             Token.init(.symbol, input, "fact"),
             try Node.Function.init(

@@ -67,7 +67,7 @@ fn program(self: *Parser) !*Node {
 
 /// ```
 /// expression
-///     = let_rec_in
+///     = let_in
 ///     | if_then_else
 ///     | function
 ///     | equality
@@ -75,7 +75,7 @@ fn program(self: *Parser) !*Node {
 /// ```
 fn expression(self: *Parser) anyerror!*Node {
     return switch (self.token.tag) {
-        .let => self.letRecIn(),
+        .let => self.letIn(),
         .@"if" => self.ifThenElse(),
         .lambda => self.function(),
         .null, .true, .false, .number, .symbol, .lparen => self.equality(),
@@ -110,18 +110,12 @@ fn equality(self: *Parser) !*Node {
 }
 
 /// ```
-/// let_rec_in
-///     = "let" ["rec"] IDENTIFIER "=" expression "in" expression
+/// let_in
+///     = "let" IDENTIFIER "=" expression "in" expression
 ///     .
 /// ```
-fn letRecIn(self: *Parser) !*Node {
+fn letIn(self: *Parser) !*Node {
     _ = try self.nextToken(&[_]Token.Tag{.let});
-
-    var is_rec: bool = false;
-    if (self.token.tag == .rec) {
-        _ = try self.nextToken(&[_]Token.Tag{.rec});
-        is_rec = true;
-    }
 
     const name = try self.nextToken(&[_]Token.Tag{.symbol});
 
@@ -133,9 +127,6 @@ fn letRecIn(self: *Parser) !*Node {
     const body = try self.expression();
     errdefer body.deinit(self.gpa);
 
-    if (is_rec) {
-        return Node.LetRecIn.init(self.gpa, name, value, body);
-    }
     return Node.LetIn.init(self.gpa, name, value, body);
 }
 
@@ -461,7 +452,7 @@ test "nested let-in" {
     const input =
         \\let one = 1 in
         \\let two = 2 in
-        \\one two
+        \\  one two
     ;
     const expected = try Node.Program.init(
         testing.allocator,
@@ -484,51 +475,10 @@ test "nested let-in" {
     try runTest(input, expected);
 }
 
-test "let-rec-in" {
-    const input = "let rec x = x in x";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.LetRecIn.init(
-            testing.allocator,
-            Token.init(.symbol, input, "x"),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
 test "let without in is error" {
     const input = "let one = 1";
     var parser = try Parser.init(testing.allocator, input);
     try expectError(error.SyntaxError, parser.parse());
-}
-
-test "nested let-rec in" {
-    const input =
-        \\let rec one = 1 in
-        \\let rec two = 2 in
-        \\one two
-    ;
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.LetRecIn.init(
-            testing.allocator,
-            Token.init(.symbol, input, "one"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            try Node.LetRecIn.init(
-                testing.allocator,
-                Token.init(.symbol, input, "two"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-                try Node.Apply.init(
-                    testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "two")),
-                ),
-            ),
-        ),
-    );
-    try runTest(input, expected);
 }
 
 test "if then else" {

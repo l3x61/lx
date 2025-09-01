@@ -260,7 +260,6 @@ fn colorMap(tag: Token.Tag) []const u8 {
         .lparen,
         .rparen,
         .let,
-        .rec,
         .in,
         .@"if",
         .then,

@@ -26,7 +26,6 @@ pub const Tag = enum {
     slash,
 
     let,
-    rec,
     in,
 
     @"if",
@@ -63,7 +62,6 @@ pub const Tag = enum {
             .slash => "/",
 
             .let => "let",
-            .rec => "rec",
             .in => "in",
 
             .@"if" => "if",

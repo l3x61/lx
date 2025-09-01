@@ -15,7 +15,6 @@ const Lexer = @This();
 const keywords_map = std.StaticStringMap(Token.Tag).initComptime(.{
     // keywords
     .{ "let", .let },
-    .{ "rec", .rec },
     .{ "in", .in },
     .{ "if", .@"if" },
     .{ "then", .then },
@@ -214,25 +213,6 @@ test "let in" {
     const input = "let id = λx.x in id 5";
     const tokens = [_]Token{
         Token.init(.let, input, "let"),
-        Token.init(.symbol, input, "id"),
-        Token.init(.assign, input, "="),
-        Token.init(.lambda, input, "λ"),
-        Token.init(.symbol, input, "x"),
-        Token.init(.dot, input, "."),
-        Token.init(.symbol, input, "x"),
-        Token.init(.in, input, "in"),
-        Token.init(.symbol, input, "id"),
-        Token.init(.number, input, "5"),
-        Token.init(.eof, input, ""),
-    };
-    try runTest(input, &tokens);
-}
-
-test "let rec in" {
-    const input = "let rec id = λx.x in id 5";
-    const tokens = [_]Token{
-        Token.init(.let, input, "let"),
-        Token.init(.rec, input, "rec"),
         Token.init(.symbol, input, "id"),
         Token.init(.assign, input, "="),
         Token.init(.lambda, input, "λ"),
