@@ -54,6 +54,7 @@ pub fn run(self: *Script, parent_env: ?*Environment) !Value {
 }
 
 const testing = std.testing;
+const print = std.debug.print;
 const scripts_dir = "examples/";
 
 test "run all example scripts" {
@@ -105,11 +106,11 @@ test "run all example scripts" {
     }
 
     for (passed.items) |name| {
-        std.debug.print("{s}PASS{s}  {s}\n", .{ ansi.green, ansi.reset, name });
+        print("{s}PASS{s}  {s}\n", .{ ansi.green, ansi.reset, name });
     }
 
     for (failed.items) |item| {
-        std.debug.print("{s}FAIL{s}  {s}  {s}{t}{s}\n", .{
+        print("{s}FAIL{s}  {s}  {s}{t}{s}\n", .{
             ansi.red,
             ansi.reset,
             item.name,
@@ -118,6 +119,4 @@ test "run all example scripts" {
             ansi.reset,
         });
     }
-
-    std.debug.print("\nTOTAL: {} PASSED: {} FAILED: {}\n\n", .{ ntotal, npass, nfail });
 }
