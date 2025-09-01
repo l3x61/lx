@@ -1,0 +1,10 @@
+# Non-function bindings are evaluated in the outer scope.
+# Each new `let` shadows the previous one, but the right-hand side
+# still refers to the variable from the parent scope.
+
+let x = 0 in     # defines x = 0
+let x = x + 1 in # RHS uses the outer x (0), so x = 1 here
+let x = x + 2 in # RHS uses the previous x (1), so x = 3 here
+x
+
+#= 3

@@ -4,6 +4,7 @@ const ArrayList = std.ArrayList;
 
 const fs = std.fs;
 
+const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
 const evaluate = @import("evaluate.zig").evaluate;
 const Parser = @import("Parser.zig");
@@ -50,4 +51,73 @@ pub fn run(self: *Script, parent_env: ?*Environment) !Value {
     defer ast.deinit(gpa);
 
     return evaluate(gpa, ast, env, &self.objects);
+}
+
+const testing = std.testing;
+const scripts_dir = "examples/";
+
+test "run all example scripts" {
+    const gpa = testing.allocator;
+
+    var dir = try fs.cwd().openDir(scripts_dir, .{ .iterate = true });
+    defer dir.close();
+
+    var files = dir.iterate();
+    var ntotal: usize = 0;
+    var npass: usize = 0;
+    var nfail: usize = 0;
+
+    var passed: ArrayList([]u8) = .empty;
+    defer {
+        for (passed.items) |item| gpa.free(item);
+        passed.deinit(gpa);
+    }
+
+    var failed: ArrayList(struct { name: []u8, err: anyerror }) = .empty;
+    defer {
+        for (failed.items) |item| gpa.free(item.name);
+        failed.deinit(gpa);
+    }
+
+    while (try files.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".lx")) continue;
+
+        ntotal += 1;
+
+        const path = try std.fs.path.join(gpa, &.{ scripts_dir, entry.name });
+        defer gpa.free(path);
+
+        var script = try Script.init(gpa, path);
+        defer script.deinit();
+
+        _ = script.run(null) catch |err| {
+            try failed.append(gpa, .{
+                .name = try gpa.dupe(u8, entry.name),
+                .err = err,
+            });
+            nfail += 1;
+            continue;
+        };
+
+        try passed.append(gpa, try gpa.dupe(u8, entry.name));
+        npass += 1;
+    }
+
+    for (passed.items) |name| {
+        std.debug.print("{s}PASS{s}  {s}\n", .{ ansi.green, ansi.reset, name });
+    }
+
+    for (failed.items) |item| {
+        std.debug.print("{s}FAIL{s}  {s}  {s}{t}{s}\n", .{
+            ansi.red,
+            ansi.reset,
+            item.name,
+            ansi.red,
+            item.err,
+            ansi.reset,
+        });
+    }
+
+    std.debug.print("\nTOTAL: {} PASSED: {} FAILED: {}\n\n", .{ ntotal, npass, nfail });
 }

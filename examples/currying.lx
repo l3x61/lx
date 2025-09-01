@@ -1,0 +1,8 @@
+# Functions are curried: applying fewer arguments returns a new function.
+# Here `add` takes x and returns a function waiting for y.
+
+let add = λx. λy. x + y in
+let add5 = add 5 in
+add5 3
+
+#= 8

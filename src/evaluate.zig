@@ -91,9 +91,9 @@ fn evaluate_(
             return Value.Number.init(result);
         },
         .function => |function| {
-            const closure = try Value.Closure.init(gpa, function, env);
-            try objects.append(gpa, Object{ .value = closure });
-            return closure;
+            const scope = try Value.Closure.init(gpa, function, env);
+            try objects.append(gpa, Object{ .value = scope });
+            return scope;
         },
         .apply => |apply| {
             var function = try evaluate_(gpa, apply.function, env, objects);
@@ -127,9 +127,7 @@ fn evaluate_(
         .let_in => |let_in| {
             var scope_owned: bool = false;
             var scope = try Environment.init(gpa, env);
-            errdefer if (!scope_owned) {
-                scope.deinitSelf(gpa);
-            };
+            errdefer if (!scope_owned) scope.deinitSelf(gpa);
 
             const name = let_in.name.lexeme;
             try scope.define(gpa, name, Value.init());

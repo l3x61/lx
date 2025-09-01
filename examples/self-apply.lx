@@ -1,0 +1,6 @@
+# A function can apply itself as an argument.
+# This isn't useful computationally, but shows higher-order power.
+
+let selfApply = λf. f f in
+
+selfApply (λg. 42) #= 42

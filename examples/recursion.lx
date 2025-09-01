@@ -1,0 +1,6 @@
+# When the right-hand side is a function, the name is bound recursively,
+# which allows the function body to refer to itself.
+
+let fact = λn. if n == 0 then 1 else n * fact (n - 1) in
+
+fact 5 #= 120

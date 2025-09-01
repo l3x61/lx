@@ -1,0 +1,8 @@
+let zero = λf. λx. x in
+let next = λn. λf. λx. f (n f x) in
+let one = next zero in
+let two = next one in
+let three = next two in
+
+
+three (λn. n + 1) 0 #= 3

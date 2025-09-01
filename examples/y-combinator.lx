@@ -1,0 +1,9 @@
+# Recursion using the Y-combinator.
+# Here factorial is defined in terms of itself via Y.
+
+let Y = λf. (λx. f (λv. (x x) v))
+            (λx. f (λv. (x x) v)) in
+let factFn = λrec. λn. if n == 0 then 1 else n * rec (n - 1) in
+let fact = Y factFn in
+
+fact 5 #= 120
