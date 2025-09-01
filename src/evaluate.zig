@@ -23,12 +23,12 @@ fn evaluate_(
     gpa: Allocator,
     node: *Node,
     env: *Environment,
-    root: *ArrayList(Object),
+    objects: *ArrayList(Object),
 ) !Value {
     return switch (node.*) {
         .program => |program| {
             const expression = program.expression orelse return Value.init();
-            return try evaluate_(gpa, expression, env, root);
+            return try evaluate_(gpa, expression, env, objects);
         },
         .primary => |primary| {
             const operand = primary.operand;
@@ -42,8 +42,8 @@ fn evaluate_(
             };
         },
         .binary => |binary| {
-            const left = try evaluate_(gpa, binary.left, env, root);
-            const right = try evaluate_(gpa, binary.right, env, root);
+            const left = try evaluate_(gpa, binary.left, env, objects);
+            const right = try evaluate_(gpa, binary.right, env, objects);
 
             switch (binary.operator.tag) {
                 .equal => return Value.Boolean.init(left.equal(right)),
@@ -92,12 +92,12 @@ fn evaluate_(
         },
         .function => |function| {
             const closure = try Value.Closure.init(gpa, function, env);
-            try root.append(gpa, Object{ .value = closure });
+            try objects.append(gpa, Object{ .value = closure });
             return closure;
         },
         .apply => |apply| {
-            var function = try evaluate_(gpa, apply.function, env, root);
-            const argument = try evaluate_(gpa, apply.argument, env, root);
+            var function = try evaluate_(gpa, apply.function, env, objects);
+            const argument = try evaluate_(gpa, apply.argument, env, objects);
 
             return switch (function) {
                 .closure => |closure| {
@@ -106,12 +106,12 @@ fn evaluate_(
                     errdefer if (!scope_owned) scope.deinitSelf(gpa);
 
                     try scope.define(gpa, closure.parameter, argument);
-                    try root.append(gpa, Object{ .env = scope });
+                    try objects.append(gpa, Object{ .env = scope });
                     scope_owned = true;
 
                     const body = try closure.body.clone(gpa);
-                    try root.append(gpa, Object{ .node = body });
-                    return try evaluate_(gpa, body, scope, root);
+                    try objects.append(gpa, Object{ .node = body });
+                    return try evaluate_(gpa, body, scope, objects);
                 },
                 .builtin => |builtin| {
                     const result = try builtin.function(argument, env, builtin.capture_env);
@@ -134,17 +134,17 @@ fn evaluate_(
             const name = let_in.name.lexeme;
             try scope.define(gpa, name, Value.init());
 
-            const value = try evaluate_(gpa, let_in.value, scope, root);
-            if (value.isVoid()) {
-                log.err("let does not allow recursive bindings\n", .{}); // TODO: report line number
-                return error.RecursiveBinding;
-            }
+            const value = switch (let_in.value.tag()) {
+                .function => try evaluate_(gpa, let_in.value, scope, objects),
+                else => try evaluate_(gpa, let_in.value, env, objects),
+            };
+
             try scope.bind(name, value);
 
-            try root.append(gpa, Object{ .env = scope });
+            try objects.append(gpa, Object{ .env = scope });
             scope_owned = true;
 
-            return try evaluate_(gpa, let_in.body, scope, root);
+            return try evaluate_(gpa, let_in.body, scope, objects);
         },
         .let_rec_in => |let_rec_in| {
             var scope_owned: bool = false;
@@ -155,7 +155,7 @@ fn evaluate_(
 
             const name = let_rec_in.name.lexeme;
             try scope.define(gpa, name, Value.init());
-            const value = try evaluate_(gpa, let_rec_in.value, scope, root);
+            const value = try evaluate_(gpa, let_rec_in.value, scope, objects);
 
             if (value.asClosure() == null) {
                 log.err("let rec only allows recursive bindings for functions\n", .{}); // TODO: report line number
@@ -164,21 +164,21 @@ fn evaluate_(
 
             try scope.bind(name, value);
 
-            try root.append(gpa, Object{ .env = scope });
+            try objects.append(gpa, Object{ .env = scope });
             scope_owned = true;
 
-            return try evaluate_(gpa, let_rec_in.body, scope, root);
+            return try evaluate_(gpa, let_rec_in.body, scope, objects);
         },
         .if_then_else => |if_then_else| {
-            const condition = try evaluate_(gpa, if_then_else.condition, env, root);
+            const condition = try evaluate_(gpa, if_then_else.condition, env, objects);
             const consequent = if_then_else.consequent;
             const alternate = if_then_else.alternate;
 
             if (condition.asBoolean()) |boolean| {
                 return if (boolean)
-                    evaluate_(gpa, consequent, env, root)
+                    evaluate_(gpa, consequent, env, objects)
                 else
-                    evaluate_(gpa, alternate, env, root);
+                    evaluate_(gpa, alternate, env, objects);
             } else {
                 log.err("{f} is not a boolean\n", .{condition});
                 return error.NotABoolean;
@@ -352,7 +352,7 @@ test "let-in" {
     try runTest(ta, ast, expected);
 }
 
-test "let-in recursive" {
+test "let-in recursive binding for non-function" {
     // let x = x in x
     const input = "";
     const ast = try Node.Program.init(
@@ -378,7 +378,7 @@ test "let-in recursive" {
         objects.deinit(ta);
     }
 
-    try expectError(error.RecursiveBinding, evaluate(ta, ast, env, &objects));
+    try expectError(error.NotDefined, evaluate(ta, ast, env, &objects));
 }
 
 test "let-in recursive nested" {
@@ -416,7 +416,7 @@ test "let-in recursive nested" {
         objects.deinit(ta);
     }
 
-    try expectError(error.RecursiveBinding, evaluate(ta, ast, env, &objects));
+    try expectError(error.NotDefined, evaluate(ta, ast, env, &objects));
 }
 
 test "evaluate equality" {
