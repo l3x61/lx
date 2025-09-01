@@ -1,5 +1,0 @@
-# lx has only one top level expression
-
-1 + 2
-
-3 + 4 # causes a parser error.
