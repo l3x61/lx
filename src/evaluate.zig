@@ -16,10 +16,10 @@ pub fn evaluate(
     env: *Environment,
     objects: *ArrayList(Object),
 ) !Value {
-    return evaluate_(gpa, node, env, objects);
+    return eval(gpa, node, env, objects);
 }
 
-fn evaluate_(
+fn eval(
     gpa: Allocator,
     node: *Node,
     env: *Environment,
@@ -28,7 +28,7 @@ fn evaluate_(
     return switch (node.*) {
         .program => |program| {
             const expression = program.expression orelse return Value.init();
-            return try evaluate_(gpa, expression, env, objects);
+            return try eval(gpa, expression, env, objects);
         },
         .primary => |primary| {
             const operand = primary.operand;
@@ -42,8 +42,8 @@ fn evaluate_(
             };
         },
         .binary => |binary| {
-            const left = try evaluate_(gpa, binary.left, env, objects);
-            const right = try evaluate_(gpa, binary.right, env, objects);
+            const left = try eval(gpa, binary.left, env, objects);
+            const right = try eval(gpa, binary.right, env, objects);
 
             switch (binary.operator.tag) {
                 .equal => return Value.Boolean.init(left.equal(right)),
@@ -96,8 +96,8 @@ fn evaluate_(
             return scope;
         },
         .application => |application| {
-            var function = try evaluate_(gpa, application.function, env, objects);
-            const argument = try evaluate_(gpa, application.argument, env, objects);
+            var function = try eval(gpa, application.function, env, objects);
+            const argument = try eval(gpa, application.argument, env, objects);
 
             return switch (function) {
                 .closure => |closure| {
@@ -111,7 +111,7 @@ fn evaluate_(
 
                     const body = try closure.body.clone(gpa);
                     try objects.append(gpa, Object{ .node = body });
-                    return try evaluate_(gpa, body, scope, objects);
+                    return try eval(gpa, body, scope, objects);
                 },
                 .builtin => |builtin| {
                     const result = try builtin.function(argument, env, builtin.capture_env);
@@ -133,8 +133,8 @@ fn evaluate_(
             try scope.define(gpa, name, Value.init());
 
             const value = switch (binding.value.tag()) {
-                .function => try evaluate_(gpa, binding.value, scope, objects),
-                else => try evaluate_(gpa, binding.value, env, objects),
+                .function => try eval(gpa, binding.value, scope, objects),
+                else => try eval(gpa, binding.value, env, objects),
             };
 
             try scope.bind(name, value);
@@ -142,18 +142,18 @@ fn evaluate_(
             try objects.append(gpa, Object{ .env = scope });
             scope_owned = true;
 
-            return try evaluate_(gpa, binding.body, scope, objects);
+            return try eval(gpa, binding.body, scope, objects);
         },
         .selection => |selection| {
-            const condition = try evaluate_(gpa, selection.condition, env, objects);
+            const condition = try eval(gpa, selection.condition, env, objects);
             const consequent = selection.consequent;
             const alternate = selection.alternate;
 
             if (condition.asBoolean()) |boolean| {
                 return if (boolean)
-                    evaluate_(gpa, consequent, env, objects)
+                    eval(gpa, consequent, env, objects)
                 else
-                    evaluate_(gpa, alternate, env, objects);
+                    eval(gpa, alternate, env, objects);
             } else {
                 log.err("{f} is not a boolean\n", .{condition});
                 return error.NotABoolean;
