@@ -95,9 +95,9 @@ fn evaluate_(
             try objects.append(gpa, Object{ .value = scope });
             return scope;
         },
-        .apply => |apply| {
-            var function = try evaluate_(gpa, apply.function, env, objects);
-            const argument = try evaluate_(gpa, apply.argument, env, objects);
+        .application => |application| {
+            var function = try evaluate_(gpa, application.function, env, objects);
+            const argument = try evaluate_(gpa, application.argument, env, objects);
 
             return switch (function) {
                 .closure => |closure| {
@@ -119,7 +119,7 @@ fn evaluate_(
                     return result;
                 },
                 else => {
-                    log.err("can not apply {f} to {f}\n", .{ apply.function, apply.argument });
+                    log.err("can not apply {f} to {f}\n", .{ application.function, application.argument });
                     return error.NotCallable;
                 },
             };
@@ -209,7 +209,7 @@ test "number" {
     try runTest(ta, ast, expected);
 }
 
-test "apply" {
+test "application" {
     // (λx. x) 123
     const input = "";
     const ast = try Node.Program.init(

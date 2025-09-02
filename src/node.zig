@@ -15,7 +15,7 @@ pub const Tag = enum {
     primary,
     binary,
     function,
-    apply,
+    application,
     binding,
     selection,
 
@@ -32,7 +32,7 @@ pub const Node = union(Tag) {
     primary: Primary,
     binary: Binary,
     function: Function,
-    apply: Application,
+    application: Application,
     binding: Binding,
     selection: Selection,
 
@@ -179,7 +179,7 @@ pub const Node = union(Tag) {
         ) !*Node {
             const node = try ator.create(Node);
             node.* = Node{
-                .apply = .{
+                .application = .{
                     .function = function,
                     .argument = argument,
                 },
@@ -190,7 +190,7 @@ pub const Node = union(Tag) {
         pub fn deinit(self: *Application, ator: Allocator) void {
             self.function.deinit(ator);
             self.argument.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("apply", self)));
+            ator.destroy(@as(*Node, @fieldParentPtr("application", self)));
         }
 
         pub fn clone(self: *Application, ator: Allocator) !*Node {
@@ -234,7 +234,7 @@ pub const Node = union(Tag) {
             .primary => |*primary| primary.deinit(ator),
             .binary => |*binary| binary.deinit(ator),
             .function => |*function| function.deinit(ator),
-            .apply => |*apply| apply.deinit(ator),
+            .application => |*application| application.deinit(ator),
             .binding => |*binding| binding.deinit(ator),
             .selection => |*selection| selection.deinit(ator),
         }
@@ -246,7 +246,7 @@ pub const Node = union(Tag) {
             .primary => |*primary| try primary.clone(ator),
             .binary => |*binary| try binary.clone(ator),
             .function => |*function| try function.clone(ator),
-            .apply => |*apply| try apply.clone(ator),
+            .application => |*application| try application.clone(ator),
             .binding => |*let_in| try let_in.clone(ator),
             .selection => |*selection| try selection.clone(ator),
         };
@@ -275,10 +275,10 @@ pub const Node = union(Tag) {
                 try function.body.format(writer);
                 try writer.print(")", .{});
             },
-            .apply => |apply| {
-                try apply.function.format(writer);
+            .application => |application| {
+                try application.function.format(writer);
                 try writer.print(" ", .{});
-                try apply.argument.format(writer);
+                try application.argument.format(writer);
             },
             .binding => |let_in| {
                 try writer.print("\nlet ", .{});
@@ -327,8 +327,8 @@ pub const Node = union(Tag) {
                 const b = node_b.function;
                 return a.parameter.equal(b.parameter) and a.body.equal(b.body);
             },
-            .apply => |a| {
-                const b = node_b.apply;
+            .application => |a| {
+                const b = node_b.application;
                 return a.function.equal(b.function) and a.argument.equal(b.argument);
             },
             .binding => |a| {

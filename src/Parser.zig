@@ -185,18 +185,18 @@ fn additive(self: *Parser) !*Node {
 
 /// ```
 /// multiplicative
-///     = apply { ("*" | "/") apply }
+///     = application { ("*" | "/") application }
 ///     .
 /// ```
 fn multiplicative(self: *Parser) !*Node {
-    var left = try self.apply();
+    var left = try self.application();
     errdefer left.deinit(self.gpa);
 
     while (true) {
         switch (self.token.tag) {
             .star, .slash => {
                 const operator = try self.nextToken(&[_]Token.Tag{ .star, .slash });
-                const right = try self.apply();
+                const right = try self.application();
                 errdefer right.deinit(self.gpa);
                 left = try Node.Binary.init(self.gpa, left, operator, right);
             },
@@ -207,11 +207,11 @@ fn multiplicative(self: *Parser) !*Node {
 }
 
 /// ```
-/// apply
+/// application
 ///     = primary { primary }
 ///     .
 /// ```
-fn apply(self: *Parser) !*Node {
+fn application(self: *Parser) !*Node {
     var left = try self.primary();
     errdefer left.deinit(self.gpa);
 
@@ -358,7 +358,7 @@ test "incomplete function 3" {
     try expectError(error.SyntaxError, parser.parse());
 }
 
-test "apply" {
+test "application" {
     const input = "(λx. x) 123";
     const expected = try Node.Program.init(
         testing.allocator,
@@ -490,7 +490,7 @@ test "if then else" {
 }
 
 test "fail to apply selection" {
-    // selection has a lower precedence than apply
+    // selection has a lower precedence than application
     // hence EOF will be expected after parsing the function
     const input = "(\\x. x) if 1 then 2 else 3";
     var parser = try Parser.init(testing.allocator, input);
