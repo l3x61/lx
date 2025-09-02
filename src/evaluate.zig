@@ -103,9 +103,9 @@ fn eval(
                 .closure => |closure| {
                     var scope_owned: bool = false;
                     var scope = try Environment.init(gpa, closure.env);
-                    errdefer if (!scope_owned) scope.deinitSelf(gpa);
+                    errdefer if (!scope_owned) scope.deinitSelf();
 
-                    try scope.define(gpa, closure.parameter, argument);
+                    try scope.define(closure.parameter, argument);
                     try objects.append(gpa, Object{ .env = scope });
                     scope_owned = true;
 
@@ -127,10 +127,10 @@ fn eval(
         .binding => |binding| {
             var scope_owned: bool = false;
             var scope = try Environment.init(gpa, env);
-            errdefer if (!scope_owned) scope.deinitSelf(gpa);
+            errdefer if (!scope_owned) scope.deinitSelf();
 
             const name = binding.name.lexeme;
-            try scope.define(gpa, name, Value.init());
+            try scope.define(name, Value.init());
 
             const value = switch (binding.value.tag()) {
                 .function => try eval(gpa, binding.value, scope, objects),
@@ -169,7 +169,7 @@ const expectError = testing.expectError;
 
 fn runTest(gpa: Allocator, node: *Node, expected: Value) !void {
     var env = try Environment.init(gpa, null);
-    defer env.deinitAll(gpa);
+    defer env.deinitAll();
 
     var objects: ArrayList(Object) = .empty;
     defer {
@@ -342,7 +342,7 @@ test "binding recursive binding for non-function" {
     defer ast.deinit(ta);
 
     var env = try Environment.init(ta, null);
-    defer env.deinitAll(ta);
+    defer env.deinitAll();
 
     var objects: ArrayList(Object) = .empty;
     defer {
@@ -380,7 +380,7 @@ test "binding recursive nested" {
     defer ast.deinit(ta);
 
     var env = try Environment.init(ta, null);
-    defer env.deinitAll(ta);
+    defer env.deinitAll();
 
     var objects: ArrayList(Object) = .empty;
     defer {

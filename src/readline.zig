@@ -50,11 +50,6 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
     errdefer line.deinit(self.gpa);
     var line_pos: usize = 0;
 
-    const start_row, const start_col = try getCursorPosition(self.out);
-    var cursor_col: usize = start_col;
-
-    // -1:       scratch
-    // 0..len-1: history where 0 is the most recent entry
     var history_index: isize = -1;
     var scratch: String = .empty;
     errdefer scratch.deinit(self.gpa);
@@ -80,11 +75,8 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
                 history_index = -1;
                 scratch.clearRetainingCapacity();
 
-                const output = "\n\r";
-                try line.appendSlice(self.gpa, output);
-                try self.out.writeAll(output);
+                try self.out.writeAll("\r\n");
                 try self.out.flush();
-
                 break;
             },
 
@@ -92,13 +84,10 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
 
             key.arrow_up => {
                 if (self.history.items.len == 0) continue;
-
                 if (history_index == -1) {
-                    // backup live edit
                     scratch.clearRetainingCapacity();
                     try scratch.appendSlice(self.gpa, line.items);
                 }
-
                 if (history_index < @as(isize, @intCast(self.history.items.len - 1))) {
                     history_index += 1;
                     const index = self.history.items.len - 1 - @as(usize, @intCast(history_index));
@@ -106,13 +95,11 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
                     line.clearRetainingCapacity();
                     try line.appendSlice(self.gpa, entry.items);
                     line_pos = line.items.len;
-                    cursor_col = start_col + utf8CountCodepoints(line.items);
                 }
             },
 
             key.arrow_down => {
                 if (self.history.items.len == 0) continue;
-
                 if (history_index > 0) {
                     history_index -= 1;
                     const index = self.history.items.len - 1 - @as(usize, @intCast(history_index));
@@ -120,34 +107,23 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
                     line.clearRetainingCapacity();
                     try line.appendSlice(self.gpa, entry.items);
                     line_pos = line.items.len;
-                    cursor_col = start_col + utf8CountCodepoints(line.items);
                 } else if (history_index == 0) {
-                    // restore live edit
                     history_index = -1;
                     line.clearRetainingCapacity();
                     try line.appendSlice(self.gpa, scratch.items);
                     line_pos = line.items.len;
-                    cursor_col = start_col + utf8CountCodepoints(line.items);
                 }
             },
 
+            // No immediate cursor moves; just update state.
             key.arrow_left => {
                 if (line_pos > 0) {
-                    const prev = utf8PreviousCodepoint(line.items, line_pos);
-                    line_pos = prev;
-                    cursor_col -= 1;
-                    try self.out.writeAll("\x1b[1D");
-                    try self.out.flush();
+                    line_pos = utf8PreviousCodepoint(line.items, line_pos);
                 }
             },
-
             key.arrow_right => {
                 if (line_pos < line.items.len) {
-                    const next = utf8NextCodepoint(line.items, line_pos);
-                    line_pos = next;
-                    cursor_col += 1;
-                    try self.out.writeAll("\x1b[1C");
-                    try self.out.flush();
+                    line_pos = utf8NextCodepoint(line.items, line_pos);
                 }
             },
 
@@ -155,7 +131,6 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
                 const output = "λ";
                 try line.insertSlice(self.gpa, line_pos, output);
                 line_pos += output.len;
-                cursor_col += 1;
             },
 
             key.backspace => {
@@ -164,22 +139,26 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
                     const del_len = line_pos - start;
                     try line.replaceRange(self.gpa, start, del_len, &[_]u8{});
                     line_pos = start;
-                    cursor_col -= 1;
                 }
             },
 
             else => {
                 try line.insertSlice(self.gpa, line_pos, bytes);
                 line_pos += bytes.len;
-                cursor_col += utf8CountCodepoints(bytes);
             },
         }
 
-        try setCursorPos(self.out, start_row, start_col);
+        try self.out.writeAll("\r");
         try self.out.writeAll(ansi.erase_to_end);
+        try self.out.writeAll(prompt);
         try writeColored(self.out, line.items);
         try self.out.flush();
-        try setCursorPos(self.out, start_row, cursor_col);
+
+        const tail_cols = utf8CountCodepoints(line.items[line_pos..]);
+        if (tail_cols > 0) {
+            try self.out.print("\x1b[{d}D", .{tail_cols});
+            try self.out.flush();
+        }
     }
 
     try cook(raw);
@@ -306,26 +285,26 @@ fn writeColored(out: *Writer, source: []const u8) !void {
 
 fn uncook() !termios {
     const cooked = try posix.tcgetattr(STDIN_FILENO);
-
     var raw = cooked;
 
-    // https://www.man7.org/linux/man-pages/man3/termios.3.html
     raw.lflag.ECHO = false;
     raw.lflag.ICANON = false;
     raw.lflag.ISIG = false;
-    raw.iflag.IXON = false;
     raw.lflag.IEXTEN = false;
+    raw.iflag.IXON = false;
     raw.iflag.ICRNL = false;
-    raw.oflag.OPOST = false;
     raw.iflag.BRKINT = false;
     raw.iflag.INPCK = false;
     raw.iflag.ISTRIP = false;
+
+    raw.oflag.OPOST = false;
+
     raw.cflag.CSIZE = .CS8;
+
     raw.cc[@intFromEnum(posix.V.MIN)] = 0;
-    raw.cc[@intFromEnum(posix.V.TIME)] = 1;
+    raw.cc[@intFromEnum(posix.V.TIME)] = 1; // deciseconds
 
     try posix.tcsetattr(STDIN_FILENO, .FLUSH, raw);
-
     return cooked;
 }
 

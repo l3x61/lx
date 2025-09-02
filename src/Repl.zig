@@ -39,11 +39,21 @@ var stderr_buffer: [max_path_bytes]u8 = undefined;
 var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
 const stderr = &stderr_writer.interface;
 
+const result_name = "?";
+
 fn initEnv(gpa: Allocator) !*Environment {
     const builtin_exit = @import("builtin/exit.zig");
 
     var env = try Environment.init(gpa, null);
-    try env.define(gpa, builtin_exit.name, Value.Builtin.init(builtin_exit.name, builtin_exit.function, null));
+    try env.define(result_name, Value.init());
+    try env.define(
+        builtin_exit.name,
+        Value.Builtin.init(
+            builtin_exit.name,
+            builtin_exit.function,
+            null,
+        ),
+    );
 
     return env;
 }
@@ -83,9 +93,8 @@ pub fn run(self: *Repl) !void {
 
         const parse_duration = timer.lap();
 
-        // TODO: allow to reuse the last result in a new eval loop
-        //       bound to maybe ? or _
         const result = evaluate(gpa, ast, env, &objects) catch continue;
+        try env.assign(result_name, result);
 
         const exec_duration = timer.read();
 

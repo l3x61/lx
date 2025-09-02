@@ -18,7 +18,7 @@ const Repl = @import("Repl.zig");
 const Script = @import("Script.zig");
 
 pub const std_options = std.Options{
-    .log_level = Level.debug,
+    .log_level = Level.err,
     .logFn = logFn,
 };
 

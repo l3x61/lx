@@ -105,7 +105,7 @@ pub const Value = union(Tag) {
     pub fn deinit(self: *Value, ator: Allocator) void {
         return switch (self.*) {
             .closure => |closure| closure.deinit(ator),
-            .builtin => |builtin| if (builtin.capture_env) |ce| ce.deinitSelf(ator),
+            .builtin => |builtin| if (builtin.capture_env) |env| env.deinitSelf(),
             else => {},
         };
     }
@@ -146,12 +146,49 @@ pub const Value = union(Tag) {
 
     pub fn format(self: Value, writer: anytype) !void {
         switch (self) {
-            .void => try writer.print("<void>", .{}),
-            .null => try writer.print("null", .{}),
-            .boolean => |boolean| try writer.print("{any}", .{boolean}),
-            .number => |number| try writer.print("{d}", .{number}),
-            .builtin => |builtin| try writer.print("<{s}>", .{builtin.name}),
-            .closure => |closure| try writer.print("<λ{s}. {f}>", .{ closure.parameter, closure.body }),
+            .void => {
+                try writer.print("{s}void{s}", .{
+                    ansi.dim,
+                    ansi.reset,
+                });
+            },
+            .null => {
+                try writer.print("{s}null{s}", .{
+                    ansi.blue,
+                    ansi.reset,
+                });
+            },
+            .boolean => |boolean| {
+                try writer.print("{s}{any}{s}", .{
+                    ansi.blue,
+                    boolean,
+                    ansi.reset,
+                });
+            },
+            .number => |number| {
+                try writer.print("{s}{d}{s}", .{
+                    ansi.blue,
+                    number,
+                    ansi.reset,
+                });
+            },
+            .builtin => |builtin| {
+                try writer.print("{s}{s}{s}", .{
+                    ansi.magenta,
+                    builtin.name,
+                    ansi.reset,
+                });
+            },
+            .closure => |closure| {
+                try writer.print("{s}λ{s}{s}{s}.{s} {f}", .{
+                    ansi.red,
+                    ansi.reset,
+                    closure.parameter,
+                    ansi.red,
+                    ansi.reset,
+                    closure.body,
+                });
+            },
         }
     }
 
