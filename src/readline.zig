@@ -271,7 +271,7 @@ fn colorMap(tag: Token.Tag) []const u8 {
         .comment,
         => ansi.dim,
 
-        .symbol,
+        .identifier,
         => ansi.white,
 
         else => ansi.reset,

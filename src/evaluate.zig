@@ -37,7 +37,7 @@ fn evaluate_(
                 .true => Value.Boolean.init(true),
                 .false => Value.Boolean.init(false),
                 .number => try Value.Number.parse(operand.lexeme),
-                .symbol => try env.lookup(primary.operand.lexeme),
+                .identifier => try env.lookup(primary.operand.lexeme),
                 else => unreachable,
             };
         },
@@ -218,8 +218,8 @@ test "apply" {
             ta,
             try Node.Function.init(
                 ta,
-                Token.init(.symbol, input, "x"),
-                try Node.Primary.init(ta, Token.init(.symbol, input, "x")),
+                Token.init(.identifier, input, "x"),
+                try Node.Primary.init(ta, Token.init(.identifier, input, "x")),
             ),
             try Node.Primary.init(ta, Token.init(.number, input, "123")),
         ),
@@ -239,7 +239,7 @@ test "return" {
             ta,
             try Node.Function.init(
                 ta,
-                Token.init(.symbol, input, "x"),
+                Token.init(.identifier, input, "x"),
                 try Node.Primary.init(ta, Token.init(.number, input, "999")),
             ),
             try Node.Primary.init(ta, Token.init(.number, input, "123")),
@@ -260,13 +260,13 @@ test "shadowing" {
             ta,
             try Node.Function.init(
                 ta,
-                Token.init(.symbol, input, "x"),
+                Token.init(.identifier, input, "x"),
                 try Node.Application.init(
                     ta,
                     try Node.Function.init(
                         ta,
-                        Token.init(.symbol, input, "x"),
-                        try Node.Primary.init(ta, Token.init(.symbol, input, "x")),
+                        Token.init(.identifier, input, "x"),
+                        try Node.Primary.init(ta, Token.init(.identifier, input, "x")),
                     ),
                     try Node.Primary.init(ta, Token.init(.number, input, "2")),
                 ),
@@ -291,11 +291,11 @@ test "closure" {
                 ta,
                 try Node.Function.init(
                     ta,
-                    Token.init(.symbol, input, "x"),
+                    Token.init(.identifier, input, "x"),
                     try Node.Function.init(
                         ta,
-                        Token.init(.symbol, input, "y"),
-                        try Node.Primary.init(ta, Token.init(.symbol, input, "x")),
+                        Token.init(.identifier, input, "y"),
+                        try Node.Primary.init(ta, Token.init(.identifier, input, "x")),
                     ),
                 ),
                 try Node.Primary.init(ta, Token.init(.number, input, "-1")),
@@ -316,9 +316,9 @@ test "binding" {
         ta,
         try Node.Binding.init(
             ta,
-            Token.init(.symbol, input, "one"),
+            Token.init(.identifier, input, "one"),
             try Node.Primary.init(ta, Token.init(.number, input, "1")),
-            try Node.Primary.init(ta, Token.init(.symbol, input, "one")),
+            try Node.Primary.init(ta, Token.init(.identifier, input, "one")),
         ),
     );
     defer ast.deinit(ta);
@@ -334,9 +334,9 @@ test "binding recursive binding for non-function" {
         ta,
         try Node.Binding.init(
             ta,
-            Token.init(.symbol, input, "x"),
-            try Node.Primary.init(ta, Token.init(.symbol, input, "x")),
-            try Node.Primary.init(ta, Token.init(.symbol, input, "x")),
+            Token.init(.identifier, input, "x"),
+            try Node.Primary.init(ta, Token.init(.identifier, input, "x")),
+            try Node.Primary.init(ta, Token.init(.identifier, input, "x")),
         ),
     );
     defer ast.deinit(ta);
@@ -363,16 +363,16 @@ test "binding recursive nested" {
         ta,
         try Node.Binding.init(
             ta,
-            Token.init(.symbol, input, "one"),
+            Token.init(.identifier, input, "one"),
             try Node.Primary.init(ta, Token.init(.number, input, "1")),
             try Node.Binding.init(
                 ta,
-                Token.init(.symbol, input, "two"),
-                try Node.Primary.init(ta, Token.init(.symbol, input, "two")),
+                Token.init(.identifier, input, "two"),
+                try Node.Primary.init(ta, Token.init(.identifier, input, "two")),
                 try Node.Application.init(
                     ta,
-                    try Node.Primary.init(ta, Token.init(.symbol, input, "one")),
-                    try Node.Primary.init(ta, Token.init(.symbol, input, "two")),
+                    try Node.Primary.init(ta, Token.init(.identifier, input, "one")),
+                    try Node.Primary.init(ta, Token.init(.identifier, input, "two")),
                 ),
             ),
         ),
@@ -455,28 +455,28 @@ test "let nested" {
         ta,
         try Node.Binding.init(
             ta,
-            Token.init(.symbol, input, "one"),
+            Token.init(.identifier, input, "one"),
             try Node.Function.init(
                 ta,
-                Token.init(.symbol, input, "z"),
+                Token.init(.identifier, input, "z"),
                 try Node.Primary.init(ta, Token.init(.number, input, "1")),
             ),
             try Node.Binding.init(
                 ta,
-                Token.init(.symbol, input, "two"),
+                Token.init(.identifier, input, "two"),
                 try Node.Function.init(
                     ta,
-                    Token.init(.symbol, input, "w"),
+                    Token.init(.identifier, input, "w"),
                     try Node.Application.init(
                         ta,
-                        try Node.Primary.init(ta, Token.init(.symbol, input, "one")),
-                        try Node.Primary.init(ta, Token.init(.symbol, input, "w")),
+                        try Node.Primary.init(ta, Token.init(.identifier, input, "one")),
+                        try Node.Primary.init(ta, Token.init(.identifier, input, "w")),
                     ),
                 ),
                 try Node.Application.init(
                     ta,
-                    try Node.Primary.init(ta, Token.init(.symbol, input, "one")),
-                    try Node.Primary.init(ta, Token.init(.symbol, input, "two")),
+                    try Node.Primary.init(ta, Token.init(.identifier, input, "one")),
+                    try Node.Primary.init(ta, Token.init(.identifier, input, "two")),
                 ),
             ),
         ),
@@ -551,16 +551,16 @@ test "recursive call" {
         ta,
         try Node.Binding.init(
             ta,
-            Token.init(.symbol, input, "fn"),
+            Token.init(.identifier, input, "fn"),
             try Node.Function.init(
                 ta,
-                Token.init(.symbol, input, "var"),
+                Token.init(.identifier, input, "var"),
                 try Node.Selection.init(
                     ta,
-                    try Node.Primary.init(ta, Token.init(.symbol, input, "var")),
+                    try Node.Primary.init(ta, Token.init(.identifier, input, "var")),
                     try Node.Application.init(
                         ta,
-                        try Node.Primary.init(ta, Token.init(.symbol, input, "fn")),
+                        try Node.Primary.init(ta, Token.init(.identifier, input, "fn")),
                         try Node.Primary.init(ta, Token.init(.false, input, "false")),
                     ),
                     try Node.Primary.init(ta, Token.init(.number, input, "1234")),
@@ -568,7 +568,7 @@ test "recursive call" {
             ),
             try Node.Application.init(
                 ta,
-                try Node.Primary.init(ta, Token.init(.symbol, input, "fn")),
+                try Node.Primary.init(ta, Token.init(.identifier, input, "fn")),
                 try Node.Primary.init(ta, Token.init(.false, input, "false")),
             ),
         ),
@@ -586,29 +586,29 @@ test "factorial" {
         ta,
         try Node.Binding.init(
             ta,
-            Token.init(.symbol, input, "fact"),
+            Token.init(.identifier, input, "fact"),
             try Node.Function.init(
                 ta,
-                Token.init(.symbol, input, "n"),
+                Token.init(.identifier, input, "n"),
                 try Node.Selection.init(
                     ta,
                     try Node.Binary.init(
                         ta,
-                        try Node.Primary.init(ta, Token.init(.symbol, input, "n")),
+                        try Node.Primary.init(ta, Token.init(.identifier, input, "n")),
                         Token.init(.equal, input, "=="),
                         try Node.Primary.init(ta, Token.init(.number, input, "0")),
                     ),
                     try Node.Primary.init(ta, Token.init(.number, input, "1")),
                     try Node.Binary.init(
                         ta,
-                        try Node.Primary.init(ta, Token.init(.symbol, input, "n")),
+                        try Node.Primary.init(ta, Token.init(.identifier, input, "n")),
                         Token.init(.star, input, "*"),
                         try Node.Application.init(
                             ta,
-                            try Node.Primary.init(ta, Token.init(.symbol, input, "fact")),
+                            try Node.Primary.init(ta, Token.init(.identifier, input, "fact")),
                             try Node.Binary.init(
                                 ta,
-                                try Node.Primary.init(ta, Token.init(.symbol, input, "n")),
+                                try Node.Primary.init(ta, Token.init(.identifier, input, "n")),
                                 Token.init(.minus, input, "-"),
                                 try Node.Primary.init(ta, Token.init(.number, input, "1")),
                             ),
@@ -618,7 +618,7 @@ test "factorial" {
             ),
             try Node.Application.init(
                 ta,
-                try Node.Primary.init(ta, Token.init(.symbol, input, "fact")),
+                try Node.Primary.init(ta, Token.init(.identifier, input, "fact")),
                 try Node.Primary.init(ta, Token.init(.number, input, "5")),
             ),
         ),

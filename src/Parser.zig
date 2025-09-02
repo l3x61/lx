@@ -111,7 +111,7 @@ fn equality(self: *Parser) !*Node {
 fn binding(self: *Parser) !*Node {
     _ = try self.nextToken(&[_]Token.Tag{.let});
 
-    const name = try self.nextToken(&[_]Token.Tag{.symbol});
+    const name = try self.nextToken(&[_]Token.Tag{.identifier});
 
     _ = try self.nextToken(&[_]Token.Tag{.assign});
     const value = try self.expression();
@@ -152,7 +152,7 @@ fn selection(self: *Parser) !*Node {
 /// ```
 fn function(self: *Parser) !*Node {
     _ = try self.nextToken(&[_]Token.Tag{.lambda});
-    const parameter = try self.nextToken(&[_]Token.Tag{.symbol});
+    const parameter = try self.nextToken(&[_]Token.Tag{.identifier});
     _ = try self.nextToken(&[_]Token.Tag{.dot});
     const body = try self.expression();
     errdefer body.deinit(self.gpa);
@@ -217,7 +217,7 @@ fn apply(self: *Parser) !*Node {
 
     while (true) {
         switch (self.token.tag) {
-            .null, .true, .false, .lambda, .number, .symbol, .lparen => {
+            .null, .true, .false, .lambda, .number, .identifier, .lparen => {
                 const right = try self.primary();
                 errdefer right.deinit(self.gpa);
                 left = try Node.Application.init(self.gpa, left, right);
@@ -241,8 +241,8 @@ fn apply(self: *Parser) !*Node {
 /// ```
 fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
-        .null, .true, .false, .number, .symbol => {
-            const token = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol });
+        .null, .true, .false, .number, .identifier => {
+            const token = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .identifier });
             return Node.Primary.init(self.gpa, token);
         },
         .lambda => {
@@ -256,7 +256,7 @@ fn primary(self: *Parser) !*Node {
             return node;
         },
         else => {
-            _ = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .symbol, .lambda, .lparen });
+            _ = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .identifier, .lambda, .lparen });
             return error.SyntaxError;
         },
     };
@@ -316,8 +316,8 @@ test "function" {
         testing.allocator,
         try Node.Function.init(
             testing.allocator,
-            Token.init(.symbol, input, "x"),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+            Token.init(.identifier, input, "x"),
+            try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
         ),
     );
     try runTest(input, expected);
@@ -329,11 +329,11 @@ test "nested lambdas" {
         testing.allocator,
         try Node.Function.init(
             testing.allocator,
-            Token.init(.symbol, input, "x"),
+            Token.init(.identifier, input, "x"),
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, input, "y"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+                Token.init(.identifier, input, "y"),
+                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
             ),
         ),
     );
@@ -366,8 +366,8 @@ test "apply" {
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, input, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+                Token.init(.identifier, input, "x"),
+                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
             ),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "123")),
         ),
@@ -387,8 +387,8 @@ test "applications" {
                     testing.allocator,
                     try Node.Function.init(
                         testing.allocator,
-                        Token.init(.symbol, input, "x"),
-                        try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+                        Token.init(.identifier, input, "x"),
+                        try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
                     ),
                     try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
                 ),
@@ -406,9 +406,9 @@ test "binding" {
         testing.allocator,
         try Node.Binding.init(
             testing.allocator,
-            Token.init(.symbol, input, "one"),
+            Token.init(.identifier, input, "one"),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
+            try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "one")),
         ),
     );
     try runTest(input, expected);
@@ -452,16 +452,16 @@ test "nested binding" {
         testing.allocator,
         try Node.Binding.init(
             testing.allocator,
-            Token.init(.symbol, input, "one"),
+            Token.init(.identifier, input, "one"),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             try Node.Binding.init(
                 testing.allocator,
-                Token.init(.symbol, input, "two"),
+                Token.init(.identifier, input, "two"),
                 try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
                 try Node.Application.init(
                     testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "two")),
+                    try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "one")),
+                    try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "two")),
                 ),
             ),
         ),
@@ -505,8 +505,8 @@ test "apply to selection" {
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
-                Token.init(.symbol, input, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+                Token.init(.identifier, input, "x"),
+                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
             ),
             try Node.Selection.init(
                 testing.allocator,
@@ -541,7 +541,7 @@ test "apply to literals" {
             testing.allocator,
             try Node.Application.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "fn")),
+                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "fn")),
                 try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
             ),
             try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
@@ -638,7 +638,7 @@ test "arithmetic expression" {
                 Token.init(.plus, input, "+"),
                 try Node.Binary.init(
                     testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
+                    try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
                     Token.init(.star, input, "*"),
                     try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
                 ),
@@ -646,7 +646,7 @@ test "arithmetic expression" {
             Token.init(.minus, input, "-"),
             try Node.Binary.init(
                 testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "y")),
+                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "y")),
                 Token.init(.slash, input, "/"),
                 try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
             ),
