@@ -67,22 +67,16 @@ fn program(self: *Parser) !*Node {
 
 /// ```
 /// expression
-///     = let_in
-///     | if_then_else
-///     | function
+///     = binding
+///     | selection
 ///     | equality
 ///     .
 /// ```
 fn expression(self: *Parser) anyerror!*Node {
     return switch (self.token.tag) {
-        .let => self.letIn(),
-        .@"if" => self.ifThenElse(),
-        .lambda => self.function(),
-        .null, .true, .false, .number, .symbol, .lparen => self.equality(),
-        else => {
-            _ = try self.nextToken(&[_]Token.Tag{ .let, .@"if", .lambda, .null, .true, .false, .number, .symbol, .lparen });
-            return error.SyntaxError;
-        },
+        .let => self.binding(),
+        .@"if" => self.selection(),
+        else => self.equality(),
     };
 }
 
@@ -110,11 +104,11 @@ fn equality(self: *Parser) !*Node {
 }
 
 /// ```
-/// let_in
+/// binding
 ///     = "let" IDENTIFIER "=" expression "in" expression
 ///     .
 /// ```
-fn letIn(self: *Parser) !*Node {
+fn binding(self: *Parser) !*Node {
     _ = try self.nextToken(&[_]Token.Tag{.let});
 
     const name = try self.nextToken(&[_]Token.Tag{.symbol});
@@ -127,15 +121,15 @@ fn letIn(self: *Parser) !*Node {
     const body = try self.expression();
     errdefer body.deinit(self.gpa);
 
-    return Node.LetIn.init(self.gpa, name, value, body);
+    return Node.Binding.init(self.gpa, name, value, body);
 }
 
 /// ```
-/// if_then_else
+/// selection
 ///     = "if" expression "then" expression "else" expression
 ///     .
 /// ```
-fn ifThenElse(self: *Parser) !*Node {
+fn selection(self: *Parser) !*Node {
     _ = try self.nextToken(&[_]Token.Tag{.@"if"});
     const condition = try self.expression();
     errdefer condition.deinit(self.gpa);
@@ -148,7 +142,7 @@ fn ifThenElse(self: *Parser) !*Node {
     const alternate = try self.expression();
     errdefer alternate.deinit(self.gpa);
 
-    return Node.IfThenElse.init(self.gpa, condition, consequent, alternate);
+    return Node.Selection.init(self.gpa, condition, consequent, alternate);
 }
 
 /// ```
@@ -226,7 +220,7 @@ fn apply(self: *Parser) !*Node {
             .null, .true, .false, .lambda, .number, .symbol, .lparen => {
                 const right = try self.primary();
                 errdefer right.deinit(self.gpa);
-                left = try Node.Apply.init(self.gpa, left, right);
+                left = try Node.Application.init(self.gpa, left, right);
             },
             else => break,
         }
@@ -368,7 +362,7 @@ test "apply" {
     const input = "(λx. x) 123";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Apply.init(
+        try Node.Application.init(
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
@@ -385,11 +379,11 @@ test "applications" {
     const input = "(λx. x) 1 2 3";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Apply.init(
+        try Node.Application.init(
             testing.allocator,
-            try Node.Apply.init(
+            try Node.Application.init(
                 testing.allocator,
-                try Node.Apply.init(
+                try Node.Application.init(
                     testing.allocator,
                     try Node.Function.init(
                         testing.allocator,
@@ -406,11 +400,11 @@ test "applications" {
     try runTest(input, expected);
 }
 
-test "let-in" {
+test "binding" {
     const input = "let one = 1 in one";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.LetIn.init(
+        try Node.Binding.init(
             testing.allocator,
             Token.init(.symbol, input, "one"),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
@@ -448,7 +442,7 @@ test "not equal" {
     try runTest(input, expected);
 }
 
-test "nested let-in" {
+test "nested binding" {
     const input =
         \\let one = 1 in
         \\let two = 2 in
@@ -456,15 +450,15 @@ test "nested let-in" {
     ;
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.LetIn.init(
+        try Node.Binding.init(
             testing.allocator,
             Token.init(.symbol, input, "one"),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            try Node.LetIn.init(
+            try Node.Binding.init(
                 testing.allocator,
                 Token.init(.symbol, input, "two"),
                 try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-                try Node.Apply.init(
+                try Node.Application.init(
                     testing.allocator,
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "one")),
                     try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "two")),
@@ -485,7 +479,7 @@ test "if then else" {
     const input = "if 1 then 2 else 3";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.IfThenElse.init(
+        try Node.Selection.init(
             testing.allocator,
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
@@ -495,26 +489,26 @@ test "if then else" {
     try runTest(input, expected);
 }
 
-test "fail to apply if-then-else" {
-    // if-then-else has a lower precedence than apply
+test "fail to apply selection" {
+    // selection has a lower precedence than apply
     // hence EOF will be expected after parsing the function
     const input = "(\\x. x) if 1 then 2 else 3";
     var parser = try Parser.init(testing.allocator, input);
     try expectError(error.SyntaxError, parser.parse());
 }
 
-test "apply to if-then-else" {
+test "apply to selection" {
     const input = "(\\x. x) (if 1 then 2 else 3)";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Apply.init(
+        try Node.Application.init(
             testing.allocator,
             try Node.Function.init(
                 testing.allocator,
                 Token.init(.symbol, input, "x"),
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "x")),
             ),
-            try Node.IfThenElse.init(
+            try Node.Selection.init(
                 testing.allocator,
                 try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
                 try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
@@ -529,7 +523,7 @@ test "literals" {
     const input = "if null then true else false";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.IfThenElse.init(
+        try Node.Selection.init(
             testing.allocator,
             try Node.Primary.init(testing.allocator, Token.init(.null, input, "null")),
             try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
@@ -543,9 +537,9 @@ test "apply to literals" {
     const input = "fn true false";
     const expected = try Node.Program.init(
         testing.allocator,
-        try Node.Apply.init(
+        try Node.Application.init(
             testing.allocator,
-            try Node.Apply.init(
+            try Node.Application.init(
                 testing.allocator,
                 try Node.Primary.init(testing.allocator, Token.init(.symbol, input, "fn")),
                 try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),

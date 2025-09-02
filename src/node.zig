@@ -16,8 +16,8 @@ pub const Tag = enum {
     binary,
     function,
     apply,
-    let_in,
-    if_then_else,
+    binding,
+    selection,
 
     pub fn format(
         self: Tag,
@@ -32,9 +32,9 @@ pub const Node = union(Tag) {
     primary: Primary,
     binary: Binary,
     function: Function,
-    apply: Apply,
-    let_in: LetIn,
-    if_then_else: IfThenElse,
+    apply: Application,
+    binding: Binding,
+    selection: Selection,
 
     pub fn tag(self: Node) Tag {
         return @as(Tag, self);
@@ -86,31 +86,31 @@ pub const Node = union(Tag) {
         }
     };
 
-    pub const LetIn = struct {
+    pub const Binding = struct {
         name: Token,
         value: *Node,
         body: *Node,
 
         pub fn init(ator: Allocator, name: Token, value: *Node, body: *Node) !*Node {
             const node = try ator.create(Node);
-            node.* = Node{ .let_in = .{ .name = name, .value = value, .body = body } };
+            node.* = Node{ .binding = .{ .name = name, .value = value, .body = body } };
             return node;
         }
 
-        pub fn deinit(self: *LetIn, ator: Allocator) void {
+        pub fn deinit(self: *Binding, ator: Allocator) void {
             self.value.deinit(ator);
             self.body.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("let_in", self)));
+            ator.destroy(@as(*Node, @fieldParentPtr("binding", self)));
         }
 
-        pub fn clone(self: *LetIn, ator: Allocator) !*Node {
+        pub fn clone(self: *Binding, ator: Allocator) !*Node {
             const value = try self.value.clone(ator);
             const body = try self.body.clone(ator);
-            return try LetIn.init(ator, self.name, value, body);
+            return try Binding.init(ator, self.name, value, body);
         }
     };
 
-    pub const IfThenElse = struct {
+    pub const Selection = struct {
         condition: *Node,
         consequent: *Node,
         alternate: *Node,
@@ -122,7 +122,7 @@ pub const Node = union(Tag) {
             alternate: *Node,
         ) !*Node {
             const node = try ator.create(Node);
-            node.* = Node{ .if_then_else = .{
+            node.* = Node{ .selection = .{
                 .condition = condition,
                 .consequent = consequent,
                 .alternate = alternate,
@@ -130,18 +130,18 @@ pub const Node = union(Tag) {
             return node;
         }
 
-        pub fn deinit(self: *IfThenElse, ator: Allocator) void {
+        pub fn deinit(self: *Selection, ator: Allocator) void {
             self.condition.deinit(ator);
             self.consequent.deinit(ator);
             self.alternate.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("if_then_else", self)));
+            ator.destroy(@as(*Node, @fieldParentPtr("selection", self)));
         }
 
-        pub fn clone(self: *IfThenElse, ator: Allocator) !*Node {
+        pub fn clone(self: *Selection, ator: Allocator) !*Node {
             const condition = try self.condition.clone(ator);
             const consequent = try self.consequent.clone(ator);
             const alternate = try self.alternate.clone(ator);
-            return try IfThenElse.init(ator, condition, consequent, alternate);
+            return try Selection.init(ator, condition, consequent, alternate);
         }
     };
 
@@ -168,7 +168,7 @@ pub const Node = union(Tag) {
         }
     };
 
-    pub const Apply = struct {
+    pub const Application = struct {
         function: *Node,
         argument: *Node,
 
@@ -187,16 +187,16 @@ pub const Node = union(Tag) {
             return node;
         }
 
-        pub fn deinit(self: *Apply, ator: Allocator) void {
+        pub fn deinit(self: *Application, ator: Allocator) void {
             self.function.deinit(ator);
             self.argument.deinit(ator);
             ator.destroy(@as(*Node, @fieldParentPtr("apply", self)));
         }
 
-        pub fn clone(self: *Apply, ator: Allocator) !*Node {
+        pub fn clone(self: *Application, ator: Allocator) !*Node {
             const function = try self.function.clone(ator);
             const argument = try self.argument.clone(ator);
-            return try Apply.init(ator, function, argument);
+            return try Application.init(ator, function, argument);
         }
     };
 
@@ -235,8 +235,8 @@ pub const Node = union(Tag) {
             .binary => |*binary| binary.deinit(ator),
             .function => |*function| function.deinit(ator),
             .apply => |*apply| apply.deinit(ator),
-            .let_in => |*let_in| let_in.deinit(ator),
-            .if_then_else => |*if_then_else| if_then_else.deinit(ator),
+            .binding => |*binding| binding.deinit(ator),
+            .selection => |*selection| selection.deinit(ator),
         }
     }
 
@@ -247,8 +247,8 @@ pub const Node = union(Tag) {
             .binary => |*binary| try binary.clone(ator),
             .function => |*function| try function.clone(ator),
             .apply => |*apply| try apply.clone(ator),
-            .let_in => |*let_in| try let_in.clone(ator),
-            .if_then_else => |*if_then_else| try if_then_else.clone(ator),
+            .binding => |*let_in| try let_in.clone(ator),
+            .selection => |*selection| try selection.clone(ator),
         };
     }
 
@@ -280,24 +280,24 @@ pub const Node = union(Tag) {
                 try writer.print(" ", .{});
                 try apply.argument.format(writer);
             },
-            .let_in => |let_in| {
+            .binding => |let_in| {
                 try writer.print("\nlet ", .{});
                 try let_in.name.format(writer);
                 try writer.print(" = ", .{});
                 try let_in.value.format(writer);
                 try writer.print(" in ", .{});
-                if (let_in.body.tag() != .let_in) {
+                if (let_in.body.tag() != .binding) {
                     try writer.print("\n  ", .{});
                 }
                 try let_in.body.format(writer);
             },
-            .if_then_else => |if_then_else| {
+            .selection => |selection| {
                 try writer.print("if ", .{});
-                try if_then_else.condition.format(writer);
+                try selection.condition.format(writer);
                 try writer.print(" then ", .{});
-                try if_then_else.consequent.format(writer);
+                try selection.consequent.format(writer);
                 try writer.print(" else ", .{});
-                try if_then_else.alternate.format(writer);
+                try selection.alternate.format(writer);
             },
         }
     }
@@ -331,12 +331,12 @@ pub const Node = union(Tag) {
                 const b = node_b.apply;
                 return a.function.equal(b.function) and a.argument.equal(b.argument);
             },
-            .let_in => |a| {
-                const b = node_b.let_in;
+            .binding => |a| {
+                const b = node_b.binding;
                 return a.name.equal(b.name) and a.value.equal(b.value) and a.body.equal(b.body);
             },
-            .if_then_else => |a| {
-                const b = node_b.if_then_else;
+            .selection => |a| {
+                const b = node_b.selection;
                 return a.condition.equal(b.condition) and
                     a.consequent.equal(b.consequent) and
                     a.alternate.equal(b.alternate);

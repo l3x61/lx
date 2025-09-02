@@ -42,8 +42,7 @@ language
 
 - [ ] comments
 - [x] let expression
-- [ ] recursive let expression
-- [x] if-then-else expression
+- [x] selection expression
 - [ ] garbage collector
 - [ ] type system
 

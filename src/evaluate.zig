@@ -124,17 +124,17 @@ fn evaluate_(
                 },
             };
         },
-        .let_in => |let_in| {
+        .binding => |binding| {
             var scope_owned: bool = false;
             var scope = try Environment.init(gpa, env);
             errdefer if (!scope_owned) scope.deinitSelf(gpa);
 
-            const name = let_in.name.lexeme;
+            const name = binding.name.lexeme;
             try scope.define(gpa, name, Value.init());
 
-            const value = switch (let_in.value.tag()) {
-                .function => try evaluate_(gpa, let_in.value, scope, objects),
-                else => try evaluate_(gpa, let_in.value, env, objects),
+            const value = switch (binding.value.tag()) {
+                .function => try evaluate_(gpa, binding.value, scope, objects),
+                else => try evaluate_(gpa, binding.value, env, objects),
             };
 
             try scope.bind(name, value);
@@ -142,12 +142,12 @@ fn evaluate_(
             try objects.append(gpa, Object{ .env = scope });
             scope_owned = true;
 
-            return try evaluate_(gpa, let_in.body, scope, objects);
+            return try evaluate_(gpa, binding.body, scope, objects);
         },
-        .if_then_else => |if_then_else| {
-            const condition = try evaluate_(gpa, if_then_else.condition, env, objects);
-            const consequent = if_then_else.consequent;
-            const alternate = if_then_else.alternate;
+        .selection => |selection| {
+            const condition = try evaluate_(gpa, selection.condition, env, objects);
+            const consequent = selection.consequent;
+            const alternate = selection.alternate;
 
             if (condition.asBoolean()) |boolean| {
                 return if (boolean)
@@ -214,7 +214,7 @@ test "apply" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.Apply.init(
+        try Node.Application.init(
             ta,
             try Node.Function.init(
                 ta,
@@ -235,7 +235,7 @@ test "return" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.Apply.init(
+        try Node.Application.init(
             ta,
             try Node.Function.init(
                 ta,
@@ -256,12 +256,12 @@ test "shadowing" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.Apply.init(
+        try Node.Application.init(
             ta,
             try Node.Function.init(
                 ta,
                 Token.init(.symbol, input, "x"),
-                try Node.Apply.init(
+                try Node.Application.init(
                     ta,
                     try Node.Function.init(
                         ta,
@@ -285,9 +285,9 @@ test "closure" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.Apply.init(
+        try Node.Application.init(
             ta,
-            try Node.Apply.init(
+            try Node.Application.init(
                 ta,
                 try Node.Function.init(
                     ta,
@@ -309,12 +309,12 @@ test "closure" {
     try runTest(ta, ast, expected);
 }
 
-test "let-in" {
+test "binding" {
     // let one = 1 in one
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetIn.init(
+        try Node.Binding.init(
             ta,
             Token.init(.symbol, input, "one"),
             try Node.Primary.init(ta, Token.init(.number, input, "1")),
@@ -327,12 +327,12 @@ test "let-in" {
     try runTest(ta, ast, expected);
 }
 
-test "let-in recursive binding for non-function" {
+test "binding recursive binding for non-function" {
     // let x = x in x
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetIn.init(
+        try Node.Binding.init(
             ta,
             Token.init(.symbol, input, "x"),
             try Node.Primary.init(ta, Token.init(.symbol, input, "x")),
@@ -356,20 +356,20 @@ test "let-in recursive binding for non-function" {
     try expectError(error.NotDefined, evaluate(ta, ast, env, &objects));
 }
 
-test "let-in recursive nested" {
+test "binding recursive nested" {
     // let one = 1 in let two = two in one two
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetIn.init(
+        try Node.Binding.init(
             ta,
             Token.init(.symbol, input, "one"),
             try Node.Primary.init(ta, Token.init(.number, input, "1")),
-            try Node.LetIn.init(
+            try Node.Binding.init(
                 ta,
                 Token.init(.symbol, input, "two"),
                 try Node.Primary.init(ta, Token.init(.symbol, input, "two")),
-                try Node.Apply.init(
+                try Node.Application.init(
                     ta,
                     try Node.Primary.init(ta, Token.init(.symbol, input, "one")),
                     try Node.Primary.init(ta, Token.init(.symbol, input, "two")),
@@ -433,7 +433,7 @@ test "literals" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.IfThenElse.init(
+        try Node.Selection.init(
             ta,
             try Node.Primary.init(ta, Token.init(.null, input, "null")),
             try Node.Primary.init(ta, Token.init(.true, input, "true")),
@@ -453,7 +453,7 @@ test "let nested" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetIn.init(
+        try Node.Binding.init(
             ta,
             Token.init(.symbol, input, "one"),
             try Node.Function.init(
@@ -461,19 +461,19 @@ test "let nested" {
                 Token.init(.symbol, input, "z"),
                 try Node.Primary.init(ta, Token.init(.number, input, "1")),
             ),
-            try Node.LetIn.init(
+            try Node.Binding.init(
                 ta,
                 Token.init(.symbol, input, "two"),
                 try Node.Function.init(
                     ta,
                     Token.init(.symbol, input, "w"),
-                    try Node.Apply.init(
+                    try Node.Application.init(
                         ta,
                         try Node.Primary.init(ta, Token.init(.symbol, input, "one")),
                         try Node.Primary.init(ta, Token.init(.symbol, input, "w")),
                     ),
                 ),
-                try Node.Apply.init(
+                try Node.Application.init(
                     ta,
                     try Node.Primary.init(ta, Token.init(.symbol, input, "one")),
                     try Node.Primary.init(ta, Token.init(.symbol, input, "two")),
@@ -549,16 +549,16 @@ test "recursive call" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetIn.init(
+        try Node.Binding.init(
             ta,
             Token.init(.symbol, input, "fn"),
             try Node.Function.init(
                 ta,
                 Token.init(.symbol, input, "var"),
-                try Node.IfThenElse.init(
+                try Node.Selection.init(
                     ta,
                     try Node.Primary.init(ta, Token.init(.symbol, input, "var")),
-                    try Node.Apply.init(
+                    try Node.Application.init(
                         ta,
                         try Node.Primary.init(ta, Token.init(.symbol, input, "fn")),
                         try Node.Primary.init(ta, Token.init(.false, input, "false")),
@@ -566,7 +566,7 @@ test "recursive call" {
                     try Node.Primary.init(ta, Token.init(.number, input, "1234")),
                 ),
             ),
-            try Node.Apply.init(
+            try Node.Application.init(
                 ta,
                 try Node.Primary.init(ta, Token.init(.symbol, input, "fn")),
                 try Node.Primary.init(ta, Token.init(.false, input, "false")),
@@ -584,13 +584,13 @@ test "factorial" {
     const input = "";
     const ast = try Node.Program.init(
         ta,
-        try Node.LetIn.init(
+        try Node.Binding.init(
             ta,
             Token.init(.symbol, input, "fact"),
             try Node.Function.init(
                 ta,
                 Token.init(.symbol, input, "n"),
-                try Node.IfThenElse.init(
+                try Node.Selection.init(
                     ta,
                     try Node.Binary.init(
                         ta,
@@ -603,7 +603,7 @@ test "factorial" {
                         ta,
                         try Node.Primary.init(ta, Token.init(.symbol, input, "n")),
                         Token.init(.star, input, "*"),
-                        try Node.Apply.init(
+                        try Node.Application.init(
                             ta,
                             try Node.Primary.init(ta, Token.init(.symbol, input, "fact")),
                             try Node.Binary.init(
@@ -616,7 +616,7 @@ test "factorial" {
                     ),
                 ),
             ),
-            try Node.Apply.init(
+            try Node.Application.init(
                 ta,
                 try Node.Primary.init(ta, Token.init(.symbol, input, "fact")),
                 try Node.Primary.init(ta, Token.init(.number, input, "5")),
