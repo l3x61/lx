@@ -83,6 +83,8 @@ pub fn run(self: *Repl) !void {
 
         const parse_duration = timer.lap();
 
+        // TODO: allow to reuse the last result in a new eval loop
+        //       bound to maybe ? or _
         const result = evaluate(gpa, ast, env, &objects) catch continue;
 
         const exec_duration = timer.read();

@@ -108,6 +108,8 @@ fn equality(self: *Parser) !*Node {
 ///     = "let" IDENTIFIER "=" expression "in" expression
 ///     .
 /// ```
+// TODO: multiple bindings per let
+//       eg: let I=E_1 { and I=E_N } in E_n+1
 fn binding(self: *Parser) !*Node {
     _ = try self.nextToken(&[_]Token.Tag{.let});
 
@@ -150,6 +152,8 @@ fn selection(self: *Parser) !*Node {
 ///     = ("\\" | "λ") IDENTIFIER "." expression
 ///     .
 /// ```
+// TODO: allow multiple parameters
+//       eg: \ { I . } E
 fn function(self: *Parser) !*Node {
     _ = try self.nextToken(&[_]Token.Tag{.lambda});
     const parameter = try self.nextToken(&[_]Token.Tag{.identifier});

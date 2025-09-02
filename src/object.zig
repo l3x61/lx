@@ -21,6 +21,7 @@ pub const Object = union(Tag) {
     node: *Node,
     value: Value,
 
+    // TODO: actually collect garbage
     pub fn deinit(self: *Object, gpa: Allocator) void {
         switch (self.*) {
             .value => |*value| value.deinit(gpa),
