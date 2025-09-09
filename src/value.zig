@@ -1,7 +1,8 @@
 const std = @import("std");
+const mem = std.mem;
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const parseFloat = std.fmt.parseFloat;
-const FormatOptions = std.fmt.FormatOptions;
 const print = std.debug.print;
 
 const ansi = @import("ansi.zig");
@@ -9,7 +10,6 @@ const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
 
 // TODO: rename void to undefined/uninitialized or maybe free
-// TODO: string type
 // TODO: array type
 // TODO: table type
 pub const Value = union(Tag) {
@@ -17,6 +17,7 @@ pub const Value = union(Tag) {
     null: void,
     boolean: bool,
     number: f64,
+    string: []const u8,
     builtin: Builtin,
     closure: *Closure,
 
@@ -25,6 +26,7 @@ pub const Value = union(Tag) {
         null,
         boolean,
         number,
+        string,
         builtin,
         closure,
 
@@ -64,6 +66,14 @@ pub const Value = union(Tag) {
         }
     };
 
+    pub const String = struct {
+        pub fn init(gpa: Allocator, literal: []const u8) !Value {
+            const string = try gpa.alloc(u8, literal.len);
+            @memcpy(string, literal);
+            return Value{ .string = string };
+        }
+    };
+
     pub const Builtin = struct {
         name: []const u8,
         function: *const fn (argument: Value, env: *Environment, capture_env: ?*Environment) anyerror!Value,
@@ -84,11 +94,11 @@ pub const Value = union(Tag) {
         env: *Environment,
 
         pub fn init(
-            ator: Allocator,
+            gpa: Allocator,
             function: Node.Function,
             env: *Environment,
         ) !Value {
-            const closure = try ator.create(Closure);
+            const closure = try gpa.create(Closure);
             closure.* = Closure{
                 .parameter = function.parameter.lexeme,
                 .body = function.body,
@@ -97,14 +107,15 @@ pub const Value = union(Tag) {
             return Value{ .closure = closure };
         }
 
-        pub fn deinit(self: *Closure, ator: Allocator) void {
-            ator.destroy(self);
+        pub fn deinit(self: *Closure, gpa: Allocator) void {
+            gpa.destroy(self);
         }
     };
 
-    pub fn deinit(self: *Value, ator: Allocator) void {
+    pub fn deinit(self: *Value, gpa: Allocator) void {
         return switch (self.*) {
-            .closure => |closure| closure.deinit(ator),
+            .string => |string| gpa.free(string),
+            .closure => |closure| closure.deinit(gpa),
             .builtin => |builtin| if (builtin.capture_env) |env| env.deinitSelf(),
             else => {},
         };
@@ -126,6 +137,13 @@ pub const Value = union(Tag) {
     pub fn asNumber(self: *const Value) ?f64 {
         return switch (self.*) {
             .number => |number| number,
+            else => null,
+        };
+    }
+
+    pub fn asString(self: *const Value) ?[]const u8 {
+        return switch (self.*) {
+            .string => |string| string,
             else => null,
         };
     }
@@ -172,6 +190,13 @@ pub const Value = union(Tag) {
                     ansi.reset,
                 });
             },
+            .string => |string| {
+                try writer.print("{s}\"{s}\"{s}", .{
+                    ansi.blue,
+                    string,
+                    ansi.reset,
+                });
+            },
             .builtin => |builtin| {
                 try writer.print("{s}{s}{s}", .{
                     ansi.magenta,
@@ -200,10 +225,11 @@ pub const Value = union(Tag) {
         return switch (self) {
             .void => true,
             .null => true,
-            .boolean => |boolean| boolean == other.asBoolean().?,
-            .number => |number| number == other.asNumber().?,
-            .builtin => |builtin| builtin.function == other.asBuiltin().?.function,
-            .closure => |closure| closure == other.asClosure().?,
+            .boolean => |boolean| boolean == other.boolean,
+            .number => |number| number == other.number,
+            .string => |string| mem.eql(u8, string, other.string),
+            .builtin => |builtin| builtin.function == other.builtin.function,
+            .closure => |closure| closure == other.closure,
         };
     }
 };

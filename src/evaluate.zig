@@ -37,6 +37,7 @@ fn eval(
                 .true => Value.Boolean.init(true),
                 .false => Value.Boolean.init(false),
                 .number => try Value.Number.parse(operand.lexeme),
+                .string => try Value.String.init(gpa, operand.lexeme[1 .. operand.lexeme.len - 1]),
                 .identifier => try env.lookup(primary.operand.lexeme),
                 else => unreachable,
             };

@@ -38,6 +38,7 @@ pub const Tag = enum {
 
     number,
     string,
+    string_open,
     identifier,
 
     pub fn format(
@@ -75,6 +76,8 @@ pub const Tag = enum {
             .number => "NUMBER",
             .string => "STRING",
             .identifier => "SYMBOL",
+
+            .string_open => "OPEN STRING",
         };
         try writer.print("{s}", .{name});
     }

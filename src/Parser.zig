@@ -238,15 +238,16 @@ fn application(self: *Parser) !*Node {
 ///     | "true"
 ///     | "false"
 ///     | NUMBER
-///     | SYMBOL
+///     | STRING
+///     | IDENTIFIER
 ///     | function
 ///     | "(" expression ")"
 ///     .
 /// ```
 fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
-        .null, .true, .false, .number, .identifier => {
-            const token = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .identifier });
+        .null, .true, .false, .number, .string, .identifier => {
+            const token = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .string, .identifier });
             return Node.Primary.init(self.gpa, token);
         },
         .lambda => {

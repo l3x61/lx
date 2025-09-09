@@ -45,6 +45,17 @@ pub fn nextToken(self: *Lexer) Token {
         return Token.init(.eof, source, "");
     };
 
+    if (codepoint == '"') {
+        while (true) {
+            const cp = iterator.nextCodepoint() orelse {
+                return Token.init(.string_open, source, iterator.bytes[start..iterator.i]);
+            };
+            if (cp == '"') {
+                return Token.init(.string, source, iterator.bytes[start..iterator.i]);
+            }
+        }
+    }
+
     if (codepoint == '#') {
         consumeWhile(iterator, struct {
             fn notNewline(cp: u21) bool {
@@ -127,7 +138,7 @@ fn getSpecialToken(codepoint: u21) ?Token.Tag {
 }
 
 fn isIdentifier(codepoint: u21) bool {
-    return codepoint != '#' and !isSpace(codepoint) and getSpecialToken(codepoint) == null;
+    return codepoint != '#' and codepoint != '"' and !isSpace(codepoint) and getSpecialToken(codepoint) == null;
 }
 
 fn runTest(input: []const u8, tokens: []const Token) !void {
@@ -331,6 +342,63 @@ test "comment at EOF without newline" {
     const tokens = [_]Token{
         Token.init(.number, input, "1"),
         Token.init(.comment, input, "#end"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "empty string" {
+    const input = "\"\"";
+    const tokens = [_]Token{
+        Token.init(.string, input, "\"\""),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "string unicode" {
+    const input = "\"hello#world!@$%^&*()λ∀∃∈∉\"";
+    const tokens = [_]Token{
+        Token.init(.string, input, "\"hello#world!@$%^&*()λ∀∃∈∉\""),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "multiple strings" {
+    const input = "\"hello world!\" \"\\x. x\"";
+    const tokens = [_]Token{
+        Token.init(.string, input, "\"hello world!\""),
+        Token.init(.string, input, "\"\\x. x\""),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "string with identifiers" {
+    const input = "x\"string\"y";
+    const tokens = [_]Token{
+        Token.init(.identifier, input, "x"),
+        Token.init(.string, input, "\"string\""),
+        Token.init(.identifier, input, "y"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "empty open string" {
+    const input = "\"";
+    const tokens = [_]Token{
+        Token.init(.string_open, input, "\""),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "open string " {
+    const input = "\"hello";
+    const tokens = [_]Token{
+        Token.init(.string_open, input, "\"hello"),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
