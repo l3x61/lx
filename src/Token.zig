@@ -16,22 +16,21 @@ pub const Tag = enum {
     dot,
     assign,
     equal,
+    not,
     not_equal,
     lparen,
     rparen,
-
     plus,
+    concat,
     minus,
     star,
     slash,
 
     let,
     in,
-
     @"if",
     then,
     @"else",
-
     null,
     true,
     false,
@@ -53,18 +52,18 @@ pub const Tag = enum {
             .dot => ".",
             .assign => "=",
             .equal => "==",
+            .not => "!",
             .not_equal => "!=",
             .lparen => "(",
             .rparen => ")",
-
             .plus => "+",
+            .concat => "++",
             .minus => "-",
             .star => "*",
             .slash => "/",
 
             .let => "let",
             .in => "in",
-
             .@"if" => "if",
             .then => "then",
             .@"else" => "else",
@@ -75,9 +74,8 @@ pub const Tag = enum {
 
             .number => "NUMBER",
             .string => "STRING",
-            .identifier => "SYMBOL",
-
             .string_open => "OPEN STRING",
+            .identifier => "IDENTIFIER",
         };
         try writer.print("{s}", .{name});
     }
@@ -88,7 +86,7 @@ pub fn init(tag: Tag, source: []const u8, lexeme: []const u8) Token {
 }
 
 pub fn equal(a: Token, b: Token) bool {
-    return a.tag == b.tag and a.source.ptr == b.source.ptr and eql(u8, a.lexeme, b.lexeme);
+    return a.tag == b.tag and eql(u8, a.lexeme, b.lexeme);
 }
 
 pub fn format(self: Token, writer: anytype) !void {

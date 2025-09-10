@@ -12,14 +12,12 @@ const Token = @import("Token.zig");
 
 const Lexer = @This();
 
-const keywords_map = std.StaticStringMap(Token.Tag).initComptime(.{
-    // keywords
+const keywords = std.StaticStringMap(Token.Tag).initComptime(.{
     .{ "let", .let },
     .{ "in", .in },
     .{ "if", .@"if" },
     .{ "then", .then },
     .{ "else", .@"else" },
-    // literals
     .{ "null", .null },
     .{ "true", .true },
     .{ "false", .false },
@@ -37,108 +35,163 @@ pub fn nextToken(self: *Lexer) Token {
     const source = self.source;
     const iterator = &self.iterator;
 
-    consumeWhile(iterator, isSpace);
-
-    const start = iterator.i;
-
-    const codepoint = iterator.nextCodepoint() orelse {
-        return Token.init(.eof, source, "");
+    const State = enum {
+        start,
+        comment,
+        equal,
+        number,
+        string,
+        identifier,
     };
 
-    if (codepoint == '"') {
-        while (true) {
-            const cp = iterator.nextCodepoint() orelse {
-                return Token.init(.string_open, source, iterator.bytes[start..iterator.i]);
-            };
-            if (cp == '"') {
-                return Token.init(.string, source, iterator.bytes[start..iterator.i]);
+    var start = iterator.i;
+    var tag: Token.Tag = .eof;
+
+    state: switch (State.start) {
+        .start => switch (iterator.nextCodepoint() orelse break :state) {
+            '\t', '\n', '\r', ' ' => {
+                start = iterator.i;
+                continue :state .start;
+            },
+            '#' => {
+                tag = .comment;
+                continue :state .comment;
+            },
+            '\\', 'λ' => {
+                tag = .lambda;
+                break :state;
+            },
+            '=' => {
+                tag = .assign;
+                continue :state .equal;
+            },
+            '.' => {
+                tag = .dot;
+                break :state;
+            },
+            '!' => {
+                const previous = iterator.i;
+                switch (iterator.nextCodepoint() orelse break :state) {
+                    '=' => {
+                        tag = .not_equal;
+                    },
+                    else => {
+                        iterator.i = previous;
+                        tag = .not;
+                    },
+                }
+                break :state;
+            },
+            '(' => {
+                tag = .lparen;
+                break :state;
+            },
+            ')' => {
+                tag = .rparen;
+                break :state;
+            },
+            '+' => {
+                const previous = iterator.i;
+                switch (iterator.nextCodepoint() orelse break :state) {
+                    '+' => {
+                        tag = .concat;
+                    },
+                    else => {
+                        iterator.i = previous;
+                        tag = .plus;
+                    },
+                }
+                break :state;
+            },
+            '-' => {
+                tag = .minus;
+                break :state;
+            },
+            '*' => {
+                tag = .star;
+                break :state;
+            },
+            '/' => {
+                tag = .slash;
+                break :state;
+            },
+            '0'...'9' => {
+                tag = .number;
+                continue :state .number;
+            },
+            '"' => {
+                tag = .string;
+                continue :state .string;
+            },
+            else => {
+                tag = .identifier;
+                continue :state .identifier;
+            },
+        },
+        .comment => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '\n' => {
+                    iterator.i = previous;
+                    break :state;
+                },
+                else => continue :state .comment,
             }
-        }
-    }
-
-    if (codepoint == '#') {
-        consumeWhile(iterator, struct {
-            fn notNewline(cp: u21) bool {
-                return cp != '\n';
+            tag = .comment;
+        },
+        .equal => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '=' => {
+                    tag = .equal;
+                    break :state;
+                },
+                else => {
+                    iterator.i = previous;
+                    break :state;
+                },
             }
-        }.notNewline);
-        return Token.init(.comment, source, iterator.bytes[start..iterator.i]);
+        },
+        .string => {
+            switch (iterator.nextCodepoint() orelse {
+                tag = .string_open;
+                break :state;
+            }) {
+                '"' => {
+                    tag = .string;
+                    break :state;
+                },
+                else => continue :state .string,
+            }
+            tag = .string;
+        },
+        .number => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '0'...'9' => continue :state .number,
+                else => {
+                    iterator.i = previous;
+                    break :state;
+                },
+            }
+            tag = .number;
+        },
+        .identifier => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '\t', '\n', '\r', ' ', '.', '-', '"', '(', ')' => {
+                    iterator.i = previous;
+                    break :state;
+                },
+                else => continue :state .identifier,
+            }
+        },
     }
 
-    if (codepoint == '=') {
-        if (iterator.i < iterator.bytes.len and iterator.bytes[iterator.i] == '=') {
-            iterator.i += 1;
-            return Token.init(.equal, source, iterator.bytes[start..iterator.i]);
-        }
-        return Token.init(.assign, source, iterator.bytes[start..iterator.i]);
-    }
+    const lexeme = source[start..iterator.i];
 
-    if (codepoint == '!') {
-        if (iterator.i < iterator.bytes.len and iterator.bytes[iterator.i] == '=') {
-            iterator.i += 1;
-            return Token.init(.not_equal, source, iterator.bytes[start..iterator.i]);
-        }
-    }
-
-    if (getSpecialToken(codepoint)) |tag| {
-        return Token.init(tag, source, iterator.bytes[start..iterator.i]);
-    }
-
-    consumeWhile(iterator, isIdentifier);
-    const lexeme = iterator.bytes[start..iterator.i];
-
-    if (keywords_map.get(lexeme)) |keyword_tag| {
-        return Token.init(keyword_tag, source, lexeme);
-    }
-
-    _ = parseFloat(f64, lexeme) catch {
-        return Token.init(.identifier, source, lexeme);
-    };
-    return Token.init(.number, source, lexeme);
-}
-
-fn consumeWhile(iterator: *Utf8Iterator, predicate: fn (u21) bool) void {
-    while (true) {
-        const i = iterator.i;
-        const codepoint = iterator.nextCodepoint() orelse return;
-        if (!predicate(codepoint)) {
-            iterator.i = i;
-            return;
-        }
-    }
-}
-
-fn isSpace(codepoint: u21) bool {
-    return switch (codepoint) {
-        '\t',
-        '\n',
-        '\r',
-        ' ',
-        0x0C,
-        0x85,
-        0xA0,
-        => true,
-        else => false,
-    };
-}
-
-fn getSpecialToken(codepoint: u21) ?Token.Tag {
-    return switch (codepoint) {
-        '\\', 'λ' => .lambda,
-        '.' => .dot,
-        '=' => .assign,
-        '(' => .lparen,
-        ')' => .rparen,
-        '+' => .plus,
-        '-' => .minus,
-        '*' => .star,
-        '/' => .slash,
-        else => null,
-    };
-}
-
-fn isIdentifier(codepoint: u21) bool {
-    return codepoint != '#' and codepoint != '"' and !isSpace(codepoint) and getSpecialToken(codepoint) == null;
+    if (keywords.get(lexeme)) |keyword| return Token.init(keyword, source, lexeme);
+    return Token.init(tag, source, lexeme);
 }
 
 fn runTest(input: []const u8, tokens: []const Token) !void {
@@ -151,8 +204,8 @@ fn runTest(input: []const u8, tokens: []const Token) !void {
         expect(expected.equal(actual)) catch |err| {
             print(ansi.red ++ "error: " ++ ansi.reset, .{});
             print("at token {d} of {d} in `{s}`\n", .{ i, tokens.len, escaped.data.bytes });
-            print("expected: {f}\n", .{expected.tag});
-            print("     got: {f}\n\n", .{actual.tag});
+            print("expected: {f} `{s}`\n", .{ expected.tag, expected.lexeme });
+            print("     got: {f} `{s}`\n\n", .{ actual.tag, actual.lexeme });
             return err;
         };
     }
