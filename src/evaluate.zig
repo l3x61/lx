@@ -33,7 +33,6 @@ fn eval(
         .primary => |primary| {
             const operand = primary.operand;
             return switch (operand.tag) {
-                .null => Value.Null.init(),
                 .true => Value.Boolean.init(true),
                 .false => Value.Boolean.init(false),
                 .number => try Value.Number.parse(operand.lexeme),
@@ -430,20 +429,20 @@ test "evaluate inequality" {
 }
 
 test "literals" {
-    // if null then true else false
+    // if true then true else false
     const input = "";
     const ast = try Node.Program.init(
         ta,
         try Node.Selection.init(
             ta,
-            try Node.Primary.init(ta, Token.init(.null, input, "null")),
+            try Node.Primary.init(ta, Token.init(.true, input, "true")),
             try Node.Primary.init(ta, Token.init(.true, input, "true")),
             try Node.Primary.init(ta, Token.init(.false, input, "false")),
         ),
     );
     defer ast.deinit(ta);
 
-    const expected = Value.Boolean.init(false);
+    const expected = Value.Boolean.init(true);
     try runTest(ta, ast, expected);
 }
 

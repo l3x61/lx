@@ -18,7 +18,6 @@ const keywords = std.StaticStringMap(Token.Tag).initComptime(.{
     .{ "if", .@"if" },
     .{ "then", .then },
     .{ "else", .@"else" },
-    .{ "null", .null },
     .{ "true", .true },
     .{ "false", .false },
 });
@@ -319,10 +318,9 @@ test "if then else" {
     try runTest(input, &tokens);
 }
 
-test "null true false" {
-    const input = "null true false";
+test "boolean" {
+    const input = "true false";
     const tokens = [_]Token{
-        Token.init(.null, input, "null"),
         Token.init(.true, input, "true"),
         Token.init(.false, input, "false"),
         Token.init(.eof, input, ""),

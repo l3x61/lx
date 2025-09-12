@@ -525,12 +525,12 @@ test "apply to selection" {
 }
 
 test "literals" {
-    const input = "if null then true else false";
+    const input = "if true then true else false";
     const expected = try Node.Program.init(
         testing.allocator,
         try Node.Selection.init(
             testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.null, input, "null")),
+            try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
             try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
             try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
         ),

@@ -13,7 +13,6 @@ const Node = @import("node.zig").Node;
 // TODO: table type
 pub const Value = union(Tag) {
     free: void,
-    null: void,
     boolean: bool,
     number: f64,
     string: []const u8,
@@ -22,7 +21,6 @@ pub const Value = union(Tag) {
 
     pub const Tag = enum {
         free,
-        null,
         boolean,
         number,
         string,
@@ -41,12 +39,6 @@ pub const Value = union(Tag) {
     pub fn init() Value {
         return Value{ .free = {} };
     }
-
-    pub const Null = struct {
-        pub fn init() Value {
-            return Value{ .null = {} };
-        }
-    };
 
     pub const Boolean = struct {
         pub fn init(value: bool) Value {
@@ -126,7 +118,6 @@ pub const Value = union(Tag) {
 
     pub fn asBoolean(self: *const Value) ?bool {
         return switch (self.*) {
-            .null => false,
             .boolean => |boolean| boolean,
             .number => |number| number != 0,
             else => null,
@@ -164,14 +155,8 @@ pub const Value = union(Tag) {
     pub fn format(self: Value, writer: anytype) !void {
         switch (self) {
             .free => {
-                try writer.print("{s}void{s}", .{
+                try writer.print("{s}free{s}", .{
                     ansi.dim,
-                    ansi.reset,
-                });
-            },
-            .null => {
-                try writer.print("{s}null{s}", .{
-                    ansi.blue,
                     ansi.reset,
                 });
             },
@@ -223,7 +208,6 @@ pub const Value = union(Tag) {
 
         return switch (self) {
             .free => true,
-            .null => true,
             .boolean => |boolean| boolean == other.boolean,
             .number => |number| number == other.number,
             .string => |string| mem.eql(u8, string, other.string),
