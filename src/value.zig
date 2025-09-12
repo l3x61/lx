@@ -28,7 +28,15 @@ pub const Value = union(Tag) {
         closure,
 
         pub fn format(self: Tag, writer: anytype) !void {
-            try writer.print("{s}", .{@tagName(self)});
+            const name = switch (self) {
+                .free => "Free",
+                .boolean => "Boolean",
+                .number => "Number",
+                .string => "String",
+                .builtin => "Builtin",
+                .closure => "Closure",
+            };
+            try writer.print("{s}", .{name});
         }
     };
 

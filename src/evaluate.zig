@@ -119,7 +119,12 @@ fn eval(
                     return result;
                 },
                 else => {
-                    log.err("can not apply {f} to {f}\n", .{ application.function, application.argument });
+                    log.err("can not apply {f}:{f} to {f}:{f}\n", .{
+                        application.function,
+                        function.tag(),
+                        application.argument,
+                        argument.tag(),
+                    });
                     return error.NotCallable;
                 },
             };
