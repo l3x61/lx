@@ -58,7 +58,7 @@ pub fn define(self: *Environment, key: []const u8, value: Value) !void {
 
 pub fn bind(self: *Environment, key: []const u8, value: Value) !void {
     if (self.record.getPtr(key)) |val_ptr| {
-        if (val_ptr.*.isVoid()) {
+        if (val_ptr.*.isFree()) {
             val_ptr.* = value;
             return;
         } else {

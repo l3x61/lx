@@ -9,11 +9,10 @@ const ansi = @import("ansi.zig");
 const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
 
-// TODO: rename void to undefined/uninitialized or maybe free
 // TODO: array type
 // TODO: table type
 pub const Value = union(Tag) {
-    void: void,
+    free: void,
     null: void,
     boolean: bool,
     number: f64,
@@ -22,7 +21,7 @@ pub const Value = union(Tag) {
     closure: *Closure,
 
     pub const Tag = enum {
-        void,
+        free,
         null,
         boolean,
         number,
@@ -40,7 +39,7 @@ pub const Value = union(Tag) {
     }
 
     pub fn init() Value {
-        return Value{ .void = {} };
+        return Value{ .free = {} };
     }
 
     pub const Null = struct {
@@ -121,8 +120,8 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn isVoid(self: *const Value) bool {
-        return self.tag() == .void;
+    pub fn isFree(self: *const Value) bool {
+        return self.tag() == .free;
     }
 
     pub fn asBoolean(self: *const Value) ?bool {
@@ -164,7 +163,7 @@ pub const Value = union(Tag) {
 
     pub fn format(self: Value, writer: anytype) !void {
         switch (self) {
-            .void => {
+            .free => {
                 try writer.print("{s}void{s}", .{
                     ansi.dim,
                     ansi.reset,
@@ -223,7 +222,7 @@ pub const Value = union(Tag) {
         }
 
         return switch (self) {
-            .void => true,
+            .free => true,
             .null => true,
             .boolean => |boolean| boolean == other.boolean,
             .number => |number| number == other.number,
