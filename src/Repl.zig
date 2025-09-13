@@ -19,7 +19,7 @@ const Environment = @import("Environment.zig");
 const evaluate = @import("evaluate.zig").evaluate;
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
-const ReadLine = @import("ReadLine.zig");
+const ReadLine = @import("readline.zig");
 const Value = @import("value.zig").Value;
 const Object = @import("object.zig").Object;
 
@@ -59,15 +59,24 @@ fn initEnv(gpa: Allocator) !*Environment {
 }
 
 pub fn init(gpa: Allocator) !Repl {
+    var objects: ArrayList(Object) = .empty;
+    const env = try initEnv(gpa);
+    try objects.append(gpa, Object{ .env = env });
+
     return Repl{
         .gpa = gpa,
-        .env = try initEnv(gpa),
+        .env = env,
         .rl = ReadLine.init(gpa, stdout),
-        .objects = .empty,
+        .objects = objects,
     };
 }
 
 pub fn deinit(self: *Repl) void {
+    for (self.objects.items) |*obj| {
+        obj.deinit(self.gpa);
+    }
+    self.objects.deinit(self.gpa);
+
     self.rl.deinit();
 }
 
@@ -129,7 +138,7 @@ pub fn formatElapsedTime(buffer: []u8, ns: u64) ![]const u8 {
 
         else => block: {
             const s = @as(f64, @floatFromInt(ns)) / std.time.ns_per_s;
-            break :block std.fmt.bufPrint(buffer, "{d:.6}s", .{s});
+            break :block try std.fmt.bufPrint(buffer, "{d:.6}s", .{s});
         },
     };
 }
