@@ -14,10 +14,23 @@ const zeroes = mem.zeroes;
 const bytesToValue = mem.bytesToValue;
 
 const ansi = @import("ansi.zig");
-const key = @import("key.zig");
 const Token = @import("Token.zig");
 const Lexer = @import("Lexer.zig");
 const String = ArrayList(u8);
+
+// https://github.com/termbox/termbox2/blob/290ac6b8225aacfd16851224682b851b65fcb918/termbox2.h#L122
+const key = enum(u21) {
+    ctrl_c = 0x03,
+    ctrl_d = 0x04,
+    enter = 0x0D,
+    shift_enter = 0x0A,
+    backspace = 0x7F,
+    arrow_left = 0x44_5B_1B,
+    arrow_right = 0x43_5B_1B,
+    arrow_up = 0x41_5B_1B,
+    arrow_down = 0x42_5B_1B,
+    backslash = 0x5C,
+};
 
 const ReadLine = @This();
 
