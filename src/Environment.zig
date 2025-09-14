@@ -1,10 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const HashMap = std.StringArrayHashMap;
-const testing = std.testing;
-const print = std.debug.print;
-const expect = testing.expect;
-const expectError = testing.expectError;
 
 const ansi = @import("ansi.zig");
 const Value = @import("value.zig").Value;
@@ -15,8 +11,6 @@ const Environment = @This();
 gpa: Allocator,
 parent: ?*Environment,
 record: HashMap(Value),
-
-// TODO: like with ArrayList pass the allocator for every invocation that allocates
 
 pub fn init(gpa: Allocator, parent: ?*Environment) !*Environment {
     const self = try gpa.create(Environment);
@@ -100,6 +94,14 @@ pub fn lookup(self: *Environment, key: []const u8) !Value {
     return error.NotDefined;
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const print = std.debug.print;
+
+const testing = std.testing;
+const expect = testing.expect;
+const expectError = testing.expectError;
+
 pub fn debug(self: *Environment) void {
     if (self.record.unmanaged.entries.len == 0) {
         print("{s}empty{s}\n", .{ ansi.dim, ansi.reset });
@@ -150,4 +152,57 @@ test "shadowing" {
     try child.define("x", x_child);
 
     try expect((try child.lookup("x")).equal(x_child));
+}
+
+test "redefine error" {
+    const env = try Environment.init(testing.allocator, null);
+    defer env.deinitAll();
+
+    try env.define("x", Value.Number.init(1));
+    try expectError(error.AlreadyDefined, env.define("x", Value.Number.init(2)));
+}
+
+test "bind fills nearest free slot" {
+    const parent = try Environment.init(testing.allocator, null);
+    defer parent.deinitAll();
+    // adjust to your API for a 'free' value
+    try parent.define("x", Value.free());
+
+    const child = try Environment.init(testing.allocator, parent);
+    defer child.deinitAll();
+
+    try child.bind("x", Value.Number.init(7));
+    try expect((try parent.lookup("x")).equal(Value.Number.init(7)));
+}
+
+test "bind error if already bound" {
+    const env = try Environment.init(testing.allocator, null);
+    defer env.deinitAll();
+    try env.define("x", Value.Number.init(1));
+
+    try expectError(error.AlreadyDefined, env.bind("x", Value.Number.init(2)));
+}
+
+test "bind error if not declared" {
+    const env = try Environment.init(testing.allocator, null);
+    defer env.deinitAll();
+    try expectError(error.NotDefined, env.bind("x", Value.Number.init(1)));
+}
+
+test "assign updates nearest ancestor that has the key" {
+    const parent = try Environment.init(testing.allocator, null);
+    defer parent.deinitAll();
+    try parent.define("x", Value.Number.init(1));
+
+    const child = try Environment.init(testing.allocator, parent);
+    defer child.deinitAll();
+
+    try child.assign("x", Value.Number.init(3));
+    try expect((try parent.lookup("x")).equal(Value.Number.init(3)));
+}
+
+test "assign error if not defined" {
+    const env = try Environment.init(testing.allocator, null);
+    defer env.deinitAll();
+    try expectError(error.NotDefined, env.assign("x", Value.Number.init(1)));
 }
