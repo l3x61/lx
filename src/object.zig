@@ -26,7 +26,7 @@ pub const Object = union(Tag) {
         switch (self.*) {
             .value => |*value| value.deinit(gpa),
             .node => |node| node.deinit(gpa),
-            .env => |env| env.deinitSelf(),
+            .env => |env| env.deinit(),
         }
     }
 };

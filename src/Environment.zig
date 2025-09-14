@@ -10,24 +10,24 @@ const Environment = @This();
 
 gpa: Allocator,
 parent: ?*Environment,
-record: HashMap(Value),
+bindings: HashMap(?Value),
 
 pub fn init(gpa: Allocator, parent: ?*Environment) !*Environment {
     const self = try gpa.create(Environment);
     self.* = Environment{
         .gpa = gpa,
         .parent = parent,
-        .record = HashMap(Value).init(gpa),
+        .bindings = HashMap(?Value).init(gpa),
     };
     return self;
 }
 
-pub fn deinitSelf(self: *Environment) void {
-    var it = self.record.iterator();
+pub fn deinit(self: *Environment) void {
+    var it = self.bindings.iterator();
     while (it.next()) |entry| {
         self.gpa.free(entry.key_ptr.*);
     }
-    self.record.deinit();
+    self.bindings.deinit();
     self.gpa.destroy(self);
 }
 
@@ -35,66 +35,47 @@ pub fn deinitAll(self: *Environment) void {
     if (self.parent) |parent| {
         parent.deinitAll();
     }
-    self.deinitSelf();
+    self.deinit();
 }
 
-pub fn define(self: *Environment, key: []const u8, value: Value) !void {
+pub fn bind(self: *Environment, key: []const u8, value: ?Value) !void {
     const new_key = try self.gpa.dupe(u8, key);
     errdefer self.gpa.free(new_key);
 
-    const entry = try self.record.getOrPut(new_key);
+    const entry = try self.bindings.getOrPut(new_key);
     if (entry.found_existing) {
-        log.err("{s} already defined\n", .{key});
+        log.err("{s} is already bound\n", .{key});
         return error.AlreadyDefined;
     }
     entry.value_ptr.* = value;
 }
 
-pub fn bind(self: *Environment, key: []const u8, value: Value) !void {
-    if (self.record.getPtr(key)) |val_ptr| {
-        if (val_ptr.*.isFree()) {
-            val_ptr.* = value;
-            return;
-        } else {
-            log.err("{s} already bound to {f}\n", .{ key, val_ptr.* });
-            return error.AlreadyDefined;
-        }
-    }
-
-    if (self.parent) |parent| {
-        return try parent.bind(key, value);
-    }
-
-    log.err("{s} is not defined\n", .{key});
-    return error.NotDefined;
-}
-
-pub fn assign(self: *Environment, key: []const u8, value: Value) !void {
-    if (self.record.getPtr(key)) |val_ptr| {
+pub fn set(self: *Environment, key: []const u8, value: Value) !void {
+    if (self.bindings.getPtr(key)) |val_ptr| {
         val_ptr.* = value;
         return;
     }
 
     if (self.parent) |parent| {
-        return try parent.bind(key, value);
+        return try parent.set(key, value);
     }
 
-    log.err("{s} is not defined\n", .{key});
+    log.err("{s} is not bound\n", .{key});
     return error.NotDefined;
 }
 
-pub fn lookup(self: *Environment, key: []const u8) !Value {
-    if (self.record.get(key)) |value| {
-        return value;
+pub fn get(self: *Environment, key: []const u8) !Value {
+    if (self.bindings.get(key)) |maybe_value| {
+        if (maybe_value) |value| return value;
+        log.err("{s} is not bound\n", .{key});
+        return error.NotDefined;
     }
     if (self.parent) |parent| {
-        return parent.lookup(key);
+        return parent.get(key);
     }
-    log.err("{s} is not defined\n", .{key});
+    log.err("{s} is not bound\n", .{key});
     return error.NotDefined;
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const print = std.debug.print;
 
@@ -103,106 +84,91 @@ const expect = testing.expect;
 const expectError = testing.expectError;
 
 pub fn debug(self: *Environment) void {
-    if (self.record.unmanaged.entries.len == 0) {
+    if (self.bindings.unmanaged.entries.len == 0) {
         print("{s}empty{s}\n", .{ ansi.dim, ansi.reset });
     }
-    self._debug(0);
+    self.dbg(0);
 }
 
-fn _debug(self: *Environment, depth: usize) void {
-    var it = self.record.iterator();
+fn dbg(self: *Environment, depth: usize) void {
+    var it = self.bindings.iterator();
     while (it.next()) |entry| {
-        print("[{d}] {s} = {f}\n", .{ depth, entry.key_ptr.*, entry.value_ptr.* });
+        if (entry.value_ptr.*) |v|
+            print("[{d}] {s} = {f}\n", .{ depth, entry.key_ptr.*, v })
+        else
+            print("[{d}] {s} = {s}free{s}\n", .{ depth, entry.key_ptr.*, ansi.dim, ansi.reset });
     }
     if (self.parent) |parent| {
-        parent._debug(depth + 1);
+        parent.dbg(depth + 1);
     }
 }
 
-test "define and lookup variable" {
+test "bind, get, and get not bound" {
     const env = try Environment.init(testing.allocator, null);
     defer env.deinitAll();
+
     const x = Value.Number.init(123);
-    try env.define("x", x);
+    try env.bind("x", x);
 
-    try expect((try env.lookup("x")).equal(x));
-    try expectError(error.NotDefined, env.lookup("y"));
+    try expect((try env.get("x")).equal(x));
+    try expectError(error.NotDefined, env.get("y"));
 }
 
-test "lookup variable via parent" {
+test "shadowing prefers nearest scope" {
     const parent = try Environment.init(testing.allocator, null);
-    const x = Value.Number.init(42);
-    try parent.define("x", x);
+    try parent.bind("x", Value.Number.init(1));
 
     const child = try Environment.init(testing.allocator, parent);
     defer child.deinitAll();
+    try child.bind("x", Value.Number.init(2));
 
-    try expect((try child.lookup("x")).equal(x));
-    try expectError(error.NotDefined, child.lookup("y"));
+    try expect((try child.get("x")).equal(Value.Number.init(2)));
+    try expect((try parent.get("x")).equal(Value.Number.init(1)));
 }
 
-test "shadowing" {
-    const parent = try Environment.init(testing.allocator, null);
-    const x_parent = Value.Number.init(42);
-    try parent.define("x", x_parent);
-
-    const child = try Environment.init(testing.allocator, parent);
-    defer child.deinitAll();
-    const x_child = Value.Number.init(99);
-    try child.define("x", x_child);
-
-    try expect((try child.lookup("x")).equal(x_child));
-}
-
-test "redefine error" {
+test "rebind in same scope errors" {
     const env = try Environment.init(testing.allocator, null);
     defer env.deinitAll();
 
-    try env.define("x", Value.Number.init(1));
-    try expectError(error.AlreadyDefined, env.define("x", Value.Number.init(2)));
-}
-
-test "bind fills nearest free slot" {
-    const parent = try Environment.init(testing.allocator, null);
-    defer parent.deinitAll();
-    // adjust to your API for a 'free' value
-    try parent.define("x", Value.free());
-
-    const child = try Environment.init(testing.allocator, parent);
-    defer child.deinitAll();
-
-    try child.bind("x", Value.Number.init(7));
-    try expect((try parent.lookup("x")).equal(Value.Number.init(7)));
-}
-
-test "bind error if already bound" {
-    const env = try Environment.init(testing.allocator, null);
-    defer env.deinitAll();
-    try env.define("x", Value.Number.init(1));
-
+    try env.bind("x", Value.Number.init(1));
     try expectError(error.AlreadyDefined, env.bind("x", Value.Number.init(2)));
 }
 
-test "bind error if not declared" {
+test "set errors when name not declared" {
     const env = try Environment.init(testing.allocator, null);
     defer env.deinitAll();
-    try expectError(error.NotDefined, env.bind("x", Value.Number.init(1)));
+    try expectError(error.NotDefined, env.set("x", Value.Number.init(1)));
 }
 
-test "assign updates nearest ancestor that has the key" {
+test "set updates nearest declared in ancestor" {
     const parent = try Environment.init(testing.allocator, null);
-    defer parent.deinitAll();
-    try parent.define("x", Value.Number.init(1));
+    try parent.bind("x", Value.Number.init(1));
 
     const child = try Environment.init(testing.allocator, parent);
     defer child.deinitAll();
 
-    try child.assign("x", Value.Number.init(3));
-    try expect((try parent.lookup("x")).equal(Value.Number.init(3)));
+    try child.set("x", Value.Number.init(3));
+    try expect((try parent.get("x")).equal(Value.Number.init(3)));
 }
 
-test "assign error if not defined" {
-    const env = try Environment.init(testing.allocator, null);
-    defer env.deinitAll();
-    try expectError(error.NotDefined, env.assign("x", Value.Number.init(1)));
+test "set fills previously-declared free slot" {
+    const parent = try Environment.init(testing.allocator, null);
+    try parent.bind("x", null);
+
+    const child = try Environment.init(testing.allocator, parent);
+    defer child.deinitAll();
+
+    try child.set("x", Value.Number.init(7));
+    try expect((try parent.get("x")).equal(Value.Number.init(7)));
+}
+
+test "deinitAll cleans whole chain" {
+    const root = try Environment.init(testing.allocator, null);
+    try root.bind("a", Value.Number.init(1));
+    const mid = try Environment.init(testing.allocator, root);
+    try mid.bind("b", Value.Number.init(2));
+    const leaf = try Environment.init(testing.allocator, mid);
+    try leaf.bind("c", Value.Number.init(3));
+
+    leaf.deinitAll();
 }

@@ -19,7 +19,7 @@ const Lexer = @import("Lexer.zig");
 const String = ArrayList(u8);
 
 // https://github.com/termbox/termbox2/blob/290ac6b8225aacfd16851224682b851b65fcb918/termbox2.h#L122
-const key = enum(u21) {
+const KeyCode = enum(u64) {
     ctrl_c = 0x03,
     ctrl_d = 0x04,
     enter = 0x0D,
@@ -51,7 +51,6 @@ pub fn deinit(self: *ReadLine) void {
     self.history.deinit(self.gpa);
 }
 
-/// caller does not own the returned String
 pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
     try self.out.writeAll(prompt);
     try self.out.flush();
@@ -75,11 +74,11 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
         switch (bytesToValue(u64, bytes)) {
             0x00...0x02 => continue,
 
-            key.ctrl_c => return error.Interrupted,
+            @intFromEnum(KeyCode.ctrl_c) => return error.Interrupted,
 
             0x04...0x0C => continue,
 
-            key.enter => {
+            @intFromEnum(KeyCode.enter) => {
                 var saved: String = .empty;
                 errdefer saved.deinit(self.gpa);
                 try saved.appendSlice(self.gpa, line.items);
@@ -95,7 +94,7 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
 
             0x0E...0x1F => continue,
 
-            key.arrow_up => {
+            @intFromEnum(KeyCode.arrow_up) => {
                 if (self.history.items.len == 0) continue;
                 if (history_index == -1) {
                     scratch.clearRetainingCapacity();
@@ -111,7 +110,7 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
                 }
             },
 
-            key.arrow_down => {
+            @intFromEnum(KeyCode.arrow_down) => {
                 if (self.history.items.len == 0) continue;
                 if (history_index > 0) {
                     history_index -= 1;
@@ -128,25 +127,24 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
                 }
             },
 
-            // No immediate cursor moves; just update state.
-            key.arrow_left => {
+            @intFromEnum(KeyCode.arrow_left) => {
                 if (line_pos > 0) {
                     line_pos = utf8PreviousCodepoint(line.items, line_pos);
                 }
             },
-            key.arrow_right => {
+            @intFromEnum(KeyCode.arrow_right) => {
                 if (line_pos < line.items.len) {
                     line_pos = utf8NextCodepoint(line.items, line_pos);
                 }
             },
 
-            key.backslash => {
+            @intFromEnum(KeyCode.backslash) => {
                 const output = "λ";
                 try line.insertSlice(self.gpa, line_pos, output);
                 line_pos += output.len;
             },
 
-            key.backspace => {
+            @intFromEnum(KeyCode.backspace) => {
                 if (line_pos > 0) {
                     const start = utf8PreviousCodepoint(line.items, line_pos);
                     const del_len = line_pos - start;
@@ -313,7 +311,7 @@ fn uncook() !termios {
     raw.cflag.CSIZE = .CS8;
 
     raw.cc[@intFromEnum(posix.V.MIN)] = 0;
-    raw.cc[@intFromEnum(posix.V.TIME)] = 1; // deciseconds
+    raw.cc[@intFromEnum(posix.V.TIME)] = 1;
 
     try posix.tcsetattr(STDIN_FILENO, .FLUSH, raw);
     return cooked;

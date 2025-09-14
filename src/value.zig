@@ -115,7 +115,7 @@ pub const Value = union(Tag) {
         return switch (self.*) {
             .string => |string| gpa.free(string),
             .closure => |closure| closure.deinit(gpa),
-            .builtin => |builtin| if (builtin.capture_env) |env| env.deinitSelf(),
+            .builtin => |builtin| if (builtin.capture_env) |env| env.deinit(),
             else => {},
         };
     }

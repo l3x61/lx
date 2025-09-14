@@ -1,5 +1,3 @@
-// TODO: this probably does not have to be a structure
-
 const std = @import("std");
 const build_options = @import("build_options");
 
@@ -45,8 +43,8 @@ fn initEnv(gpa: Allocator) !*Environment {
     const builtin_exit = @import("builtin/exit.zig");
 
     var env = try Environment.init(gpa, null);
-    try env.define(result_name, Value.init());
-    try env.define(
+    try env.bind(result_name, Value.init());
+    try env.bind(
         builtin_exit.name,
         Value.Builtin.init(
             builtin_exit.name,
@@ -103,7 +101,7 @@ pub fn run(self: *Repl) !void {
         const parse_duration = timer.lap();
 
         const result = evaluate(gpa, ast, env, &objects) catch continue;
-        try env.assign(result_name, result);
+        try env.set(result_name, result);
 
         const exec_duration = timer.read();
 

@@ -37,7 +37,7 @@ fn eval(
                 .false => Value.Boolean.init(false),
                 .number => try Value.Number.parse(operand.lexeme),
                 .string => try Value.String.init(gpa, operand.lexeme[1 .. operand.lexeme.len - 1]),
-                .identifier => try env.lookup(primary.operand.lexeme),
+                .identifier => try env.get(primary.operand.lexeme),
                 else => unreachable,
             };
         },
@@ -103,9 +103,9 @@ fn eval(
                 .closure => |closure| {
                     var scope_owned: bool = false;
                     var scope = try Environment.init(gpa, closure.env);
-                    errdefer if (!scope_owned) scope.deinitSelf();
+                    errdefer if (!scope_owned) scope.deinit();
 
-                    try scope.define(closure.parameter, argument);
+                    try scope.bind(closure.parameter, argument);
                     try objects.append(gpa, Object{ .env = scope });
                     scope_owned = true;
 
@@ -132,17 +132,17 @@ fn eval(
         .binding => |binding| {
             var scope_owned: bool = false;
             var scope = try Environment.init(gpa, env);
-            errdefer if (!scope_owned) scope.deinitSelf();
+            errdefer if (!scope_owned) scope.deinit();
 
             const name = binding.name.lexeme;
-            try scope.define(name, Value.init());
+            try scope.bind(name, null);
 
             const value = switch (binding.value.tag()) {
                 .function => try eval(gpa, binding.value, scope, objects),
                 else => try eval(gpa, binding.value, env, objects),
             };
 
-            try scope.bind(name, value);
+            try scope.set(name, value);
 
             try objects.append(gpa, Object{ .env = scope });
             scope_owned = true;
