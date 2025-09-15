@@ -24,7 +24,9 @@ pub const std_options = std.Options{
 
 pub fn main() !void {
     var da: DebugAllocator(.{}) = .init;
-    defer _ = da.deinit();
+    defer _ = {
+        if (da.deinit() == .leak) log.err("memory leaked\n", .{});
+    };
     const gpa = da.allocator();
 
     var args = try std.process.argsWithAllocator(gpa);
@@ -35,7 +37,7 @@ pub fn main() !void {
     if (file_arg) |file| {
         var script = Script.init(gpa, file) catch |err| {
             log.err("loading script {s} failed with {t}\n", .{ file, err });
-            exit(1);
+            return error.LoadScript;
         };
         defer script.deinit();
 

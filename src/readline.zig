@@ -51,7 +51,7 @@ pub fn deinit(self: *ReadLine) void {
     self.history.deinit(self.gpa);
 }
 
-pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
+pub fn readLine(self: *ReadLine, prompt: []const u8) ![]u8 {
     try self.out.writeAll(prompt);
     try self.out.flush();
 
@@ -132,6 +132,7 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
                     line_pos = utf8PreviousCodepoint(line.items, line_pos);
                 }
             },
+
             @intFromEnum(KeyCode.arrow_right) => {
                 if (line_pos < line.items.len) {
                     line_pos = utf8NextCodepoint(line.items, line_pos);
@@ -173,7 +174,7 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) !String {
     }
 
     try cook(raw);
-    return line;
+    return line.toOwnedSlice(self.gpa);
 }
 
 fn utf8CountCodepoints(bytes: []const u8) usize {

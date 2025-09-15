@@ -91,39 +91,22 @@ pub const Value = union(Tag) {
         parameter: []const u8,
         body: *Node,
         env: *Environment,
-        lexemes: ArrayList([]u8),
 
         pub fn init(
             gpa: Allocator,
             function: Node.Function,
             env: *Environment,
         ) !Value {
-            const body = try function.body.clone(gpa);
-
-            var closure = try gpa.create(Closure);
+            const closure = try gpa.create(Closure);
             closure.* = Closure{
-                .parameter = undefined,
-                .body = body,
+                .parameter = function.parameter.lexeme,
+                .body = function.body,
                 .env = env,
-                .lexemes = .empty,
             };
-
-            const param = try gpa.dupe(u8, function.parameter.lexeme);
-            errdefer gpa.free(param);
-            closure.parameter = param;
-            try closure.lexemes.append(gpa, param);
-
-            try cloneLexemes(gpa, body, &closure.lexemes);
-
-            return Value{ .closure = closure };
+            return .{ .closure = closure };
         }
 
         pub fn deinit(self: *Closure, gpa: Allocator) void {
-            for (self.lexemes.items) |str| gpa.free(str);
-            self.lexemes.deinit(gpa);
-
-            self.body.deinit(gpa);
-
             gpa.destroy(self);
         }
     };
@@ -214,26 +197,11 @@ pub const Value = union(Tag) {
                 });
             },
             .closure => |closure| {
-                try writer.print("{s}λ{s}{s}{s}.{s} {f}", .{
-                    ansi.red,
-                    ansi.reset,
-                    closure.parameter,
-                    ansi.red,
-                    ansi.reset,
-                    closure.body,
-                });
-
                 var env = closure.env;
-                var printed_any: bool = false;
 
                 while (env.parent) |parent| : (env = parent) {
                     var it = env.bindings.iterator();
                     while (it.next()) |entry| {
-                        if (!printed_any) {
-                            try writer.print("\n", .{});
-                            printed_any = true;
-                        }
-
                         try writer.print(" {s} = ", .{entry.key_ptr.*});
 
                         if (entry.value_ptr.*) |value| {
@@ -258,6 +226,15 @@ pub const Value = union(Tag) {
                         try writer.print("\n", .{});
                     }
                 }
+
+                try writer.print("{s}λ{s}{s}{s}.{s} {f}", .{
+                    ansi.red,
+                    ansi.reset,
+                    closure.parameter,
+                    ansi.red,
+                    ansi.reset,
+                    closure.body,
+                });
             },
         }
     }
@@ -277,53 +254,3 @@ pub const Value = union(Tag) {
         };
     }
 };
-
-fn cloneLexemes(gpa: Allocator, node: *Node, lexemes: *ArrayList([]u8)) anyerror!void {
-    switch (node.*) {
-        .program => |*program| {
-            if (program.expression) |expr| try cloneLexemes(gpa, expr, lexemes);
-        },
-        .primary => |*primary| {
-            var token = &primary.operand;
-            const lexeme = try gpa.dupe(u8, token.lexeme);
-            try lexemes.append(gpa, lexeme);
-            token.source = lexeme;
-            token.lexeme = lexeme;
-        },
-        .binary => |*binary| {
-            var token = &binary.operator;
-            const lexeme = try gpa.dupe(u8, token.lexeme);
-            try lexemes.append(gpa, lexeme);
-            token.source = lexeme;
-            token.lexeme = lexeme;
-            try cloneLexemes(gpa, binary.left, lexemes);
-            try cloneLexemes(gpa, binary.right, lexemes);
-        },
-        .function => |*function| {
-            var token = &function.parameter;
-            const lexeme = try gpa.dupe(u8, token.lexeme);
-            try lexemes.append(gpa, lexeme);
-            token.source = lexeme;
-            token.lexeme = lexeme;
-            try cloneLexemes(gpa, function.body, lexemes);
-        },
-        .application => |*application| {
-            try cloneLexemes(gpa, application.function, lexemes);
-            try cloneLexemes(gpa, application.argument, lexemes);
-        },
-        .binding => |*binding| {
-            var token = &binding.name;
-            const lexeme = try gpa.dupe(u8, token.lexeme);
-            try lexemes.append(gpa, lexeme);
-            token.source = lexeme;
-            token.lexeme = lexeme;
-            try cloneLexemes(gpa, binding.value, lexemes);
-            try cloneLexemes(gpa, binding.body, lexemes);
-        },
-        .selection => |*selection| {
-            try cloneLexemes(gpa, selection.condition, lexemes);
-            try cloneLexemes(gpa, selection.consequent, lexemes);
-            try cloneLexemes(gpa, selection.alternate, lexemes);
-        },
-    }
-}
