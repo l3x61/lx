@@ -9,6 +9,6 @@ pub fn function(arg: Value, _: *Environment, _: ?*Environment) anyerror!Value {
     if (arg.asNumber()) |status| {
         std.process.exit(@intFromFloat(status));
     }
-    log.err("expected a number but got {f} instead\n", .{arg.tag()});
+    log.warn("expected a number but got {f} instead\n", .{arg.tag()});
     return error.TypeError;
 }

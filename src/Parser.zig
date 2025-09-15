@@ -43,7 +43,7 @@ fn nextToken(self: *Parser, expected: []const Token.Tag) !Token {
     while (self.token.tag == .comment) self.token = self.lexer.nextToken();
 
     if (!token.isOneOf(expected)) {
-        log.err("expected {any} but got {f}\n", .{ expected, token.tag });
+        log.warn("expected {any} but got {f}\n", .{ expected, token.tag });
         return error.SyntaxError;
     }
     return token;

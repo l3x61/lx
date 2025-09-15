@@ -44,7 +44,7 @@ pub fn bind(self: *Environment, key: []const u8, value: ?Value) !void {
 
     const entry = try self.bindings.getOrPut(new_key);
     if (entry.found_existing) {
-        log.err("{s} is already bound\n", .{key});
+        log.warn("{s} is already bound\n", .{key});
         return error.AlreadyDefined;
     }
     entry.value_ptr.* = value;
@@ -60,20 +60,20 @@ pub fn set(self: *Environment, key: []const u8, value: Value) !void {
         return try parent.set(key, value);
     }
 
-    log.err("{s} is not bound\n", .{key});
+    log.warn("{s} is not bound\n", .{key});
     return error.NotDefined;
 }
 
 pub fn get(self: *Environment, key: []const u8) !Value {
     if (self.bindings.get(key)) |maybe_value| {
         if (maybe_value) |value| return value;
-        log.err("{s} is not bound\n", .{key});
+        log.warn("{s} is not bound\n", .{key});
         return error.NotDefined;
     }
     if (self.parent) |parent| {
         return parent.get(key);
     }
-    log.err("{s} is not bound\n", .{key});
+    log.warn("{s} is not bound\n", .{key});
     return error.NotDefined;
 }
 

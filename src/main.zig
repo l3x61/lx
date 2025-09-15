@@ -18,8 +18,26 @@ const Repl = @import("Repl.zig");
 const Script = @import("Script.zig");
 
 pub const std_options = std.Options{
-    .log_level = Level.err,
-    .logFn = logFn,
+    .logFn = struct {
+        fn logFn(
+            comptime level: Level,
+            comptime scope: @Type(.enum_literal),
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            const color = comptime switch (level) {
+                .err => ansi.red,
+                .warn => ansi.red,
+                .info => ansi.dim,
+                .debug => ansi.dim,
+            };
+            const name = if (scope == .default) "" else @tagName(scope) ++ ": ";
+            var buffer: [256]u8 = undefined;
+            const stderr = std.debug.lockStderrWriter(&buffer);
+            defer std.debug.unlockStderrWriter();
+            nosuspend stderr.print(color ++ name ++ ansi.dim ++ format ++ ansi.reset, args) catch return;
+        }
+    }.logFn,
 };
 
 pub fn main() !void {
@@ -49,25 +67,6 @@ pub fn main() !void {
     defer repl.deinit();
     try repl.run();
     return;
-}
-
-fn logFn(
-    comptime level: Level,
-    comptime scope: @Type(.enum_literal),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    const color = comptime switch (level) {
-        .err => ansi.red,
-        .warn => ansi.yellow,
-        .info => ansi.green,
-        .debug => ansi.dim,
-    };
-    const name = if (scope == .default) "" else @tagName(scope) ++ ": ";
-    var buffer: [256]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buffer);
-    defer std.debug.unlockStderrWriter();
-    nosuspend stderr.print(color ++ name ++ ansi.dim ++ format ++ ansi.reset, args) catch return;
 }
 
 test "all" {

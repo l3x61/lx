@@ -62,7 +62,7 @@ fn eval(
                     .slash => .{ "divide", "by" },
                     else => unreachable,
                 };
-                log.err("can not {s} {f} {s} {f}\n", .{
+                log.warn("can not {s} {f} {s} {f}\n", .{
                     operation,
                     left.tag(),
                     preposition,
@@ -80,7 +80,7 @@ fn eval(
                 .star => lnum * rnum,
                 .slash => {
                     if (rnum == 0) {
-                        log.err("division by 0 in expression {f}\n", .{node});
+                        log.warn("division by 0 in expression {f}\n", .{node});
                         return error.DivisionByZero;
                     }
                     return Value.Number.init(lnum / rnum);
@@ -117,7 +117,7 @@ fn eval(
                     return result;
                 },
                 else => {
-                    log.err("can not apply {f}:{f} to {f}:{f}\n", .{
+                    log.warn("can not apply {f}:{f} to {f}:{f}\n", .{
                         application.function,
                         function.tag(),
                         application.argument,
@@ -158,7 +158,7 @@ fn eval(
                 else
                     eval(gpa, alternate, env, objects);
             } else {
-                log.err("{f} is not a boolean\n", .{condition});
+                log.warn("{f} is not a boolean\n", .{condition});
                 return error.NotABoolean;
             }
         },
@@ -186,7 +186,7 @@ fn runTest(gpa: Allocator, node: *Node, expected: Value) !void {
     const actual = try evaluate(gpa, node, env, &objects);
 
     expect(expected.equal(actual)) catch |err| {
-        log.err("expected {f} but got {f}\n", .{ expected, actual });
+        log.warn("expected {f} but got {f}\n", .{ expected, actual });
         return err;
     };
 }
