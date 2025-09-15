@@ -109,9 +109,7 @@ fn eval(
                     try objects.append(gpa, Object{ .env = scope });
                     scope_owned = true;
 
-                    const body = try closure.body.clone(gpa);
-                    try objects.append(gpa, Object{ .node = body });
-                    return try eval(gpa, body, scope, objects);
+                    return try eval(gpa, closure.body, scope, objects);
                 },
                 .builtin => |builtin| {
                     const result = try builtin.function(argument, env, builtin.capture_env);

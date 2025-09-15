@@ -70,8 +70,8 @@ pub fn init(gpa: Allocator) !Repl {
 }
 
 pub fn deinit(self: *Repl) void {
-    for (self.objects.items) |*obj| {
-        obj.deinit(self.gpa);
+    for (self.objects.items) |*item| {
+        item.deinit(self.gpa);
     }
     self.objects.deinit(self.gpa);
 
@@ -81,16 +81,19 @@ pub fn deinit(self: *Repl) void {
 pub fn run(self: *Repl) !void {
     const gpa = self.gpa;
     const env = self.env;
-    var rl = self.rl;
-    var objects = self.objects;
+    var rl = &self.rl;
+    const objects = &self.objects;
+
     try welcomeMessage();
 
     var timer = try Timer.start();
+
     while (true) {
-        const line = rl.readLine(prompt) catch |err| switch (err) {
+        var line = rl.readLine(prompt) catch |err| switch (err) {
             error.Interrupted => break,
             else => return err,
         };
+        defer line.deinit(gpa);
 
         _ = timer.lap();
 
@@ -100,7 +103,7 @@ pub fn run(self: *Repl) !void {
 
         const parse_duration = timer.lap();
 
-        const result = evaluate(gpa, ast, env, &objects) catch continue;
+        const result = evaluate(gpa, ast, env, objects) catch continue;
         try env.set(result_name, result);
 
         const exec_duration = timer.read();
