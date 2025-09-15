@@ -31,7 +31,6 @@ pub const Tag = enum {
     @"if",
     then,
     @"else",
-    null,
     true,
     false,
 
@@ -68,7 +67,6 @@ pub const Tag = enum {
             .then => "then",
             .@"else" => "else",
 
-            .null => "null",
             .true => "true",
             .false => "false",
 

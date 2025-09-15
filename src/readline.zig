@@ -255,7 +255,6 @@ fn colorMap(tag: Token.Tag) []const u8 {
         .string_open,
         => ansi.blue,
 
-        .null,
         .true,
         .false,
         => ansi.cyan,

@@ -221,7 +221,7 @@ fn application(self: *Parser) !*Node {
 
     while (true) {
         switch (self.token.tag) {
-            .null, .true, .false, .lambda, .number, .identifier, .lparen => {
+            .true, .false, .number, .string, .identifier, .lambda, .lparen => {
                 const right = try self.primary();
                 errdefer right.deinit(self.gpa);
                 left = try Node.Application.init(self.gpa, left, right);
@@ -234,7 +234,6 @@ fn application(self: *Parser) !*Node {
 
 /// ```
 /// primary
-///     = "null"
 ///     | "true"
 ///     | "false"
 ///     | NUMBER
@@ -244,10 +243,12 @@ fn application(self: *Parser) !*Node {
 ///     | "(" expression ")"
 ///     .
 /// ```
+const primary_tags = &[_]Token.Tag{ .true, .false, .number, .string, .identifier, .lambda, .lparen };
+
 fn primary(self: *Parser) !*Node {
     return switch (self.token.tag) {
-        .null, .true, .false, .number, .string, .identifier => {
-            const token = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .string, .identifier });
+        else => {
+            const token = try self.nextToken(primary_tags);
             return Node.Primary.init(self.gpa, token);
         },
         .lambda => {
@@ -259,10 +260,6 @@ fn primary(self: *Parser) !*Node {
             errdefer node.deinit(self.gpa);
             _ = try self.nextToken(&[_]Token.Tag{.rparen});
             return node;
-        },
-        else => {
-            _ = try self.nextToken(&[_]Token.Tag{ .null, .true, .false, .number, .identifier, .lambda, .lparen });
-            return error.SyntaxError;
         },
     };
 }
