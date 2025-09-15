@@ -111,7 +111,13 @@ pub fn run(self: *Repl) !void {
 }
 
 fn welcomeMessage() !void {
-    try stderr.print("λx. version {s}\n", .{build_options.version});
+    try stderr.print("{s}λ{s}x{s}.{s} version {s}\n", .{
+        ansi.bold ++ ansi.red,
+        ansi.reset ++ ansi.bold,
+        ansi.red,
+        ansi.reset,
+        build_options.version,
+    });
     // TODO: provide a `help` command
     try stderr.flush();
 }
