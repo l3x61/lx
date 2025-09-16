@@ -48,7 +48,7 @@ pub fn run(self: *Script, parent_env: ?*Environment) !Value {
 
     var parser = try Parser.init(gpa, self.text);
     const ast = try parser.parse();
-    defer ast.deinit(gpa);
+    try self.objects.append(gpa, Object{ .node = ast });
 
     return evaluate(gpa, ast, env, &self.objects);
 }

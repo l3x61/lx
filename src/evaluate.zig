@@ -36,7 +36,11 @@ fn eval(
                 .true => Value.Boolean.init(true),
                 .false => Value.Boolean.init(false),
                 .number => try Value.Number.parse(operand.lexeme),
-                .string => try Value.String.init(gpa, operand.lexeme[1 .. operand.lexeme.len - 1]),
+                .string => block: {
+                    const string = try Value.String.init(gpa, operand.lexeme[1 .. operand.lexeme.len - 1]);
+                    try objects.append(gpa, Object{ .value = string });
+                    break :block string;
+                },
                 .identifier => try env.get(primary.operand.lexeme),
                 else => unreachable,
             };

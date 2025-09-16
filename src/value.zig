@@ -15,7 +15,7 @@ pub const Value = union(Tag) {
     free: void,
     boolean: bool,
     number: f64,
-    string: []const u8,
+    string: *String,
     builtin: Builtin,
     closure: *Closure,
 
@@ -66,10 +66,27 @@ pub const Value = union(Tag) {
     };
 
     pub const String = struct {
+        bytes: []u8,
+
+        pub fn deinit(self: *String, gpa: Allocator) void {
+            gpa.free(self.bytes);
+            gpa.destroy(self);
+        }
+
         pub fn init(gpa: Allocator, literal: []const u8) !Value {
-            const string = try gpa.alloc(u8, literal.len);
-            @memcpy(string, literal);
-            return Value{ .string = string };
+            const str = try gpa.create(String);
+            errdefer gpa.destroy(str);
+            const bytes = try gpa.dupe(u8, literal);
+            errdefer gpa.free(bytes);
+            str.* = .{ .bytes = bytes };
+            return Value{ .string = str };
+        }
+
+        pub fn fromOwned(gpa: Allocator, owned: []u8) !Value {
+            const str = try gpa.create(String);
+            errdefer gpa.destroy(str);
+            str.* = .{ .bytes = owned };
+            return Value{ .string = str };
         }
     };
 
@@ -113,7 +130,7 @@ pub const Value = union(Tag) {
 
     pub fn deinit(self: *Value, gpa: Allocator) void {
         return switch (self.*) {
-            .string => |string| gpa.free(string),
+            .string => |str| str.deinit(gpa),
             .closure => |closure| closure.deinit(gpa),
             .builtin => |builtin| if (builtin.capture_env) |env| env.deinit(),
             else => {},
@@ -141,7 +158,7 @@ pub const Value = union(Tag) {
 
     pub fn asString(self: *const Value) ?[]const u8 {
         return switch (self.*) {
-            .string => |string| string,
+            .string => |str| str.bytes,
             else => null,
         };
     }
@@ -185,7 +202,7 @@ pub const Value = union(Tag) {
             .string => |string| {
                 try writer.print("{s}\"{s}\"{s}", .{
                     ansi.blue,
-                    string,
+                    string.bytes,
                     ansi.reset,
                 });
             },
@@ -202,7 +219,7 @@ pub const Value = union(Tag) {
                 while (env.parent) |parent| : (env = parent) {
                     var it = env.bindings.iterator();
                     while (it.next()) |entry| {
-                        try writer.print(" {s} = ", .{entry.key_ptr.*});
+                        try writer.print(ansi.dim ++ " {s} = ", .{entry.key_ptr.*});
 
                         if (entry.value_ptr.*) |value| {
                             switch (value) {
@@ -223,7 +240,7 @@ pub const Value = union(Tag) {
                             try writer.print("{f}", .{free});
                         }
 
-                        try writer.print("\n", .{});
+                        try writer.print("\n" ++ ansi.reset, .{});
                     }
                 }
 
@@ -248,7 +265,7 @@ pub const Value = union(Tag) {
             .free => true,
             .boolean => |boolean| boolean == other.boolean,
             .number => |number| number == other.number,
-            .string => |string| mem.eql(u8, string, other.string),
+            .string => |string| mem.eql(u8, string.bytes, other.string.bytes),
             .builtin => |builtin| builtin.function == other.builtin.function,
             .closure => |closure| closure == other.closure,
         };
