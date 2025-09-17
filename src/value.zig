@@ -16,7 +16,7 @@ pub const Value = union(Tag) {
     boolean: bool,
     number: f64,
     string: *String,
-    native: Native,
+    native: *Native,
     closure: *Closure,
 
     pub const Tag = enum {
@@ -96,11 +96,19 @@ pub const Value = union(Tag) {
         capture_env: ?*Environment,
 
         pub fn init(
+            gpa: Allocator,
             name: []const u8,
             function: fn (argument: Value, env: *Environment, capture_env: ?*Environment) anyerror!Value,
             capture_env: ?*Environment,
-        ) Value {
-            return Value{ .native = Native{ .name = name, .function = function, .capture_env = capture_env } };
+        ) !Value {
+            const native = try gpa.create(Native);
+            native.* = Native{ .name = name, .function = function, .capture_env = capture_env };
+            return Value{ .native = native };
+        }
+
+        pub fn deinit(self: *Native, gpa: Allocator) void {
+            if (self.capture_env) |env| env.deinit();
+            gpa.destroy(self);
         }
     };
 
@@ -132,7 +140,7 @@ pub const Value = union(Tag) {
         return switch (self.*) {
             .string => |str| str.deinit(gpa),
             .closure => |closure| closure.deinit(gpa),
-            .native => |native| if (native.capture_env) |env| env.deinit(),
+            .native => |native| native.deinit(gpa),
             else => {},
         };
     }
@@ -163,7 +171,7 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn asNative(self: Value) ?Native {
+    pub fn asNative(self: Value) ?*Native {
         return switch (self) {
             .native => |native| native,
             else => null,
