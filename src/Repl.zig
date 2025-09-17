@@ -86,7 +86,7 @@ pub fn run(self: *Repl) !void {
             error.Interrupted => break,
             else => return err,
         };
-        const line_val = try Value.String.fromOwned(gpa, line);
+        const line_val = try Value.String.initFromOwned(gpa, line);
         try objects.append(gpa, .{ .value = line_val });
 
         _ = timer.lap();

@@ -68,25 +68,23 @@ pub const Value = union(Tag) {
     pub const String = struct {
         bytes: []u8,
 
-        pub fn deinit(self: *String, gpa: Allocator) void {
-            gpa.free(self.bytes);
-            gpa.destroy(self);
-        }
-
         pub fn init(gpa: Allocator, literal: []const u8) !Value {
             const str = try gpa.create(String);
             errdefer gpa.destroy(str);
-            const bytes = try gpa.dupe(u8, literal);
-            errdefer gpa.free(bytes);
-            str.* = .{ .bytes = bytes };
+
+            str.* = .{ .bytes = try gpa.dupe(u8, literal) };
             return Value{ .string = str };
         }
 
-        pub fn fromOwned(gpa: Allocator, owned: []u8) !Value {
+        pub fn initFromOwned(gpa: Allocator, owned: []u8) !Value {
             const str = try gpa.create(String);
-            errdefer gpa.destroy(str);
             str.* = .{ .bytes = owned };
             return Value{ .string = str };
+        }
+
+        pub fn deinit(self: *String, gpa: Allocator) void {
+            gpa.free(self.bytes);
+            gpa.destroy(self);
         }
     };
 
