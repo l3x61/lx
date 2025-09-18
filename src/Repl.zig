@@ -44,7 +44,7 @@ fn initEnv(gpa: Allocator) !*Environment {
 
     var env = try Environment.init(gpa, null);
     try env.bind(result_name, Value.init());
-    try env.bind(exit.name, Value.Native.init(exit.name, exit.function, null));
+    try env.bind(exit.name, try Value.Native.init(gpa, exit.name, exit.function, null));
 
     return env;
 }

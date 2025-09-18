@@ -75,4 +75,5 @@ test "all" {
     _ = @import("Environment.zig");
     _ = @import("evaluate.zig");
     _ = @import("Script.zig");
+    _ = @import("Gc.zig");
 }

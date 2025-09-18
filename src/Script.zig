@@ -44,7 +44,9 @@ pub fn run(self: *Script, parent_env: ?*Environment) !Value {
     try self.objects.append(gpa, Object{ .env = env });
 
     const exit = @import("native/exit.zig");
-    try env.bind(exit.name, Value.Native.init(exit.name, exit.function, null));
+    const native = try Value.Native.init(gpa, exit.name, exit.function, null);
+    try env.bind(exit.name, native);
+    try self.objects.append(gpa, Object{ .value = native });
 
     var parser = try Parser.init(gpa, self.text);
     const ast = try parser.parse();
