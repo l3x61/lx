@@ -16,7 +16,7 @@ pub const Value = union(Tag) {
     boolean: bool,
     number: f64,
     string: *String,
-    builtin: Builtin,
+    native: Native,
     closure: *Closure,
 
     pub const Tag = enum {
@@ -24,7 +24,7 @@ pub const Value = union(Tag) {
         boolean,
         number,
         string,
-        builtin,
+        native,
         closure,
 
         pub fn format(self: Tag, writer: anytype) !void {
@@ -33,7 +33,7 @@ pub const Value = union(Tag) {
                 .boolean => "Boolean",
                 .number => "Number",
                 .string => "String",
-                .builtin => "Builtin",
+                .native => "Native",
                 .closure => "Closure",
             };
             try writer.print("{s}", .{name});
@@ -90,7 +90,7 @@ pub const Value = union(Tag) {
         }
     };
 
-    pub const Builtin = struct {
+    pub const Native = struct {
         name: []const u8,
         function: *const fn (argument: Value, env: *Environment, capture_env: ?*Environment) anyerror!Value,
         capture_env: ?*Environment,
@@ -100,7 +100,7 @@ pub const Value = union(Tag) {
             function: fn (argument: Value, env: *Environment, capture_env: ?*Environment) anyerror!Value,
             capture_env: ?*Environment,
         ) Value {
-            return Value{ .builtin = Builtin{ .name = name, .function = function, .capture_env = capture_env } };
+            return Value{ .native = Native{ .name = name, .function = function, .capture_env = capture_env } };
         }
     };
 
@@ -132,7 +132,7 @@ pub const Value = union(Tag) {
         return switch (self.*) {
             .string => |str| str.deinit(gpa),
             .closure => |closure| closure.deinit(gpa),
-            .builtin => |builtin| if (builtin.capture_env) |env| env.deinit(),
+            .native => |native| if (native.capture_env) |env| env.deinit(),
             else => {},
         };
     }
@@ -163,9 +163,9 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn asBuiltin(self: Value) ?Builtin {
+    pub fn asNative(self: Value) ?Native {
         return switch (self) {
-            .builtin => |builtin| builtin,
+            .native => |native| native,
             else => null,
         };
     }
@@ -206,10 +206,10 @@ pub const Value = union(Tag) {
                     ansi.reset,
                 });
             },
-            .builtin => |builtin| {
+            .native => |native| {
                 try writer.print("{s}{s}{s}", .{
                     ansi.magenta,
-                    builtin.name,
+                    native.name,
                     ansi.reset,
                 });
             },
@@ -266,7 +266,7 @@ pub const Value = union(Tag) {
             .boolean => |boolean| boolean == other.boolean,
             .number => |number| number == other.number,
             .string => |string| mem.eql(u8, string.bytes, other.string.bytes),
-            .builtin => |builtin| builtin.function == other.builtin.function,
+            .native => |native| native.function == other.native.function,
             .closure => |closure| closure == other.closure,
         };
     }

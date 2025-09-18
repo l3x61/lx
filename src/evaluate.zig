@@ -115,8 +115,8 @@ fn eval(
 
                     return try eval(gpa, closure.body, scope, objects);
                 },
-                .builtin => |builtin| {
-                    const result = try builtin.function(argument, env, builtin.capture_env);
+                .native => |native| {
+                    const result = try native.function(argument, env, native.capture_env);
                     defer function.deinit(gpa);
                     return result;
                 },

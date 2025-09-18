@@ -1,5 +1,5 @@
 const std = @import("std");
-const log = std.log.scoped(.builtin_exit);
+const log = std.log.scoped(.native_exit);
 const Environment = @import("../Environment.zig");
 const Value = @import("../value.zig").Value;
 

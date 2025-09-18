@@ -40,11 +40,11 @@ const stderr = &stderr_writer.interface;
 const result_name = "?";
 
 fn initEnv(gpa: Allocator) !*Environment {
-    const exit = @import("builtin/exit.zig");
+    const exit = @import("native/exit.zig");
 
     var env = try Environment.init(gpa, null);
     try env.bind(result_name, Value.init());
-    try env.bind(exit.name, Value.Builtin.init(exit.name, exit.function, null));
+    try env.bind(exit.name, Value.Native.init(exit.name, exit.function, null));
 
     return env;
 }
