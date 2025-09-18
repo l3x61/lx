@@ -178,7 +178,7 @@ pub fn nextToken(self: *Lexer) Token {
         .identifier => {
             const previous = iterator.i;
             switch (iterator.nextCodepoint() orelse break :state) {
-                '\t', '\n', '\r', ' ', '.', '-', '"', '(', ')' => {
+                '\t', '\n', '\r', ' ', '.', '+', '-', '*', '/', '"', '(', ')' => {
                     iterator.i = previous;
                     break :state;
                 },
@@ -450,6 +450,30 @@ test "open string " {
     const input = "\"hello";
     const tokens = [_]Token{
         Token.init(.string_open, input, "\"hello"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "plus (and other operators) split identifiers" {
+    const input = "x+y x++y hello+world x-y x*y x/x";
+    const tokens = [_]Token{
+        Token.init(.identifier, input, "x"),
+        Token.init(.plus, input, "+"),
+        Token.init(.identifier, input, "y"),
+        Token.init(.identifier, input, "x"),
+        Token.init(.concat, input, "++"),
+        Token.init(.identifier, input, "y"),
+        Token.init(.identifier, input, "hello"),
+        Token.init(.plus, input, "+"),
+        Token.init(.identifier, input, "world"),
+        Token.init(.minus, input, "-"),
+        Token.init(.identifier, input, "x"),
+        Token.init(.star, input, "*"),
+        Token.init(.identifier, input, "y"),
+        Token.init(.identifier, input, "x"),
+        Token.init(.slash, input, "/"),
+        Token.init(.identifier, input, "y"),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
