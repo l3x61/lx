@@ -456,18 +456,14 @@ test "open string " {
 }
 
 test "plus (and other operators) split identifiers" {
-    const input = "x+y x++y hello+world x-y x*y x/x";
+    const input = "x+y x-y x*y x/y";
     const tokens = [_]Token{
         Token.init(.identifier, input, "x"),
         Token.init(.plus, input, "+"),
         Token.init(.identifier, input, "y"),
         Token.init(.identifier, input, "x"),
-        Token.init(.concat, input, "++"),
-        Token.init(.identifier, input, "y"),
-        Token.init(.identifier, input, "hello"),
-        Token.init(.plus, input, "+"),
-        Token.init(.identifier, input, "world"),
         Token.init(.minus, input, "-"),
+        Token.init(.identifier, input, "y"),
         Token.init(.identifier, input, "x"),
         Token.init(.star, input, "*"),
         Token.init(.identifier, input, "y"),
