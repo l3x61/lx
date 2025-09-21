@@ -1,34 +1,31 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 
 const Environment = @import("Environment.zig");
 const Node = @import("node.zig").Node;
-const Object = @import("object.zig").Object;
 const Token = @import("Token.zig");
 const Value = @import("value.zig").Value;
+const Gc = @import("Gc.zig");
 
 const log = std.log.scoped(.eval);
 
 pub fn evaluate(
-    gpa: Allocator,
     node: *Node,
+    gc: *Gc,
     env: *Environment,
-    objects: *ArrayList(Object),
 ) !Value {
-    return eval(gpa, node, env, objects);
+    return eval(node, gc, env);
 }
 
 fn eval(
-    gpa: Allocator,
     node: *Node,
+    gc: *Gc,
     env: *Environment,
-    objects: *ArrayList(Object),
 ) !Value {
+    const gpa = gc.allocator();
     return switch (node.*) {
         .program => |program| {
             const expression = program.expression orelse return Value.init();
-            return try eval(gpa, expression, env, objects);
+            return try eval(expression, gc, env);
         },
         .primary => |primary| {
             const operand = primary.operand;
@@ -37,8 +34,9 @@ fn eval(
                 .false => Value.Boolean.init(false),
                 .number => try Value.Number.parse(operand.lexeme),
                 .string => block: {
-                    const string = try Value.String.init(gpa, operand.lexeme[1 .. operand.lexeme.len - 1]);
-                    try objects.append(gpa, Object{ .value = string });
+                    var string = try Value.String.init(gpa, operand.lexeme[1 .. operand.lexeme.len - 1]);
+                    errdefer string.deinit(gpa);
+                    try gc.track(string);
                     break :block string;
                 },
                 .identifier => try env.get(primary.operand.lexeme),
@@ -46,8 +44,8 @@ fn eval(
             };
         },
         .binary => |binary| {
-            const left = try eval(gpa, binary.left, env, objects);
-            const right = try eval(gpa, binary.right, env, objects);
+            const left = try eval(binary.left, gc, env);
+            const right = try eval(binary.right, gc, env);
 
             switch (binary.operator.tag) {
                 .equal => return Value.Boolean.init(left.equal(right)),
@@ -95,29 +93,29 @@ fn eval(
             return Value.Number.init(result);
         },
         .function => |function| {
-            const scope = try Value.Closure.init(gpa, function, env);
-            try objects.append(gpa, Object{ .value = scope });
-            return scope;
+            var closure = try Value.Closure.init(gpa, function, env);
+            errdefer closure.deinit(gpa);
+            try gc.track(closure);
+            return closure;
         },
         .application => |application| {
-            var function = try eval(gpa, application.function, env, objects);
-            const argument = try eval(gpa, application.argument, env, objects);
+            var function = try eval(application.function, gc, env);
+            const argument = try eval(application.argument, gc, env);
 
             return switch (function) {
                 .closure => |closure| {
-                    var scope_owned: bool = false;
+                    var scope_tracked: bool = false;
                     var scope = try Environment.init(gpa, closure.env);
-                    errdefer if (!scope_owned) scope.deinit();
+                    errdefer if (!scope_tracked) scope.deinit();
 
                     try scope.bind(closure.parameter, argument);
-                    try objects.append(gpa, Object{ .env = scope });
-                    scope_owned = true;
+                    try gc.track(scope);
+                    scope_tracked = true;
 
-                    return try eval(gpa, closure.body, scope, objects);
+                    return try eval(closure.body, gc, scope);
                 },
                 .native => |native| {
                     const result = try native.function(argument, env, native.capture_env);
-                    defer function.deinit(gpa);
                     return result;
                 },
                 else => {
@@ -132,35 +130,36 @@ fn eval(
             };
         },
         .binding => |binding| {
-            var scope_owned: bool = false;
+            var scope_tracked: bool = false;
+
             var scope = try Environment.init(gpa, env);
-            errdefer if (!scope_owned) scope.deinit();
+            errdefer if (!scope_tracked) scope.deinit();
 
             const name = binding.name.lexeme;
             try scope.bind(name, null);
 
             const value = switch (binding.value.tag()) {
-                .function => try eval(gpa, binding.value, scope, objects),
-                else => try eval(gpa, binding.value, env, objects),
+                .function => try eval(binding.value, gc, scope),
+                else => try eval(binding.value, gc, env),
             };
 
             try scope.set(name, value);
 
-            try objects.append(gpa, Object{ .env = scope });
-            scope_owned = true;
+            try gc.track(scope);
+            scope_tracked = true;
 
-            return try eval(gpa, binding.body, scope, objects);
+            return try eval(binding.body, gc, scope);
         },
         .selection => |selection| {
-            const condition = try eval(gpa, selection.condition, env, objects);
+            const condition = try eval(selection.condition, gc, env);
             const consequent = selection.consequent;
             const alternate = selection.alternate;
 
             if (condition.asBoolean()) |boolean| {
                 return if (boolean)
-                    eval(gpa, consequent, env, objects)
+                    eval(consequent, gc, env)
                 else
-                    eval(gpa, alternate, env, objects);
+                    eval(alternate, gc, env);
             } else {
                 log.warn("{f} is not a boolean\n", .{condition});
                 return error.NotABoolean;
@@ -169,25 +168,26 @@ fn eval(
     };
 }
 
+const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const ta = testing.allocator;
 const expect = testing.expect;
 const expectError = testing.expectError;
 
-fn runTest(gpa: Allocator, node: *Node, expected: Value) !void {
-    var env = try Environment.init(gpa, null);
-    defer env.deinitAll();
+fn runTest(node: *Node, expected: Value) !void {
+    var gc = try Gc.init(ta);
+    defer gc.deinit();
 
-    var objects: ArrayList(Object) = .empty;
-    defer {
-        var i: usize = 0;
-        while (i < objects.items.len) : (i += 1) {
-            objects.items[i].deinit(gpa);
-        }
-        objects.deinit(gpa);
-    }
+    const gc_gpa = gc.allocator();
 
-    const actual = try evaluate(gpa, node, env, &objects);
+    var env_tracked = false;
+    var env = try Environment.init(gc_gpa, null);
+    errdefer if (!env_tracked) env.deinitAll();
+
+    try gc.track(env);
+    env_tracked = true;
+
+    const actual = try evaluate(node, &gc, env);
 
     expect(expected.equal(actual)) catch |err| {
         log.warn("expected {f} but got {f}\n", .{ expected, actual });
@@ -200,7 +200,7 @@ test "empty" {
     defer ast.deinit(ta);
 
     const expected = Value.init();
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "number" {
@@ -213,7 +213,7 @@ test "number" {
     defer ast.deinit(ta);
     const expected = Value.Number.init(123);
 
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "application" {
@@ -234,7 +234,7 @@ test "application" {
     defer ast.deinit(ta);
     const expected = Value.Number.init(123);
 
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "return" {
@@ -255,7 +255,7 @@ test "return" {
     defer ast.deinit(ta);
     const expected = Value.Number.init(999);
 
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "shadowing" {
@@ -284,7 +284,7 @@ test "shadowing" {
     defer ast.deinit(ta);
 
     const expected = Value.Number.init(2);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "closure" {
@@ -313,7 +313,7 @@ test "closure" {
     defer ast.deinit(ta);
 
     const expected = Value.Number.init(-1);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "binding" {
@@ -331,7 +331,7 @@ test "binding" {
     defer ast.deinit(ta);
 
     const expected = Value.Number.init(1);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "binding recursive binding for non-function" {
@@ -348,19 +348,19 @@ test "binding recursive binding for non-function" {
     );
     defer ast.deinit(ta);
 
-    var env = try Environment.init(ta, null);
-    defer env.deinitAll();
+    var gc = try Gc.init(ta);
+    defer gc.deinit();
 
-    var objects: ArrayList(Object) = .empty;
-    defer {
-        var i: usize = 0;
-        while (i < objects.items.len) : (i += 1) {
-            objects.items[i].deinit(ta);
-        }
-        objects.deinit(ta);
-    }
+    const gc_gpa = gc.allocator();
 
-    try expectError(error.NotDefined, evaluate(ta, ast, env, &objects));
+    var env_tracked = false;
+    var env = try Environment.init(gc_gpa, null);
+    errdefer if (!env_tracked) env.deinitAll();
+
+    try gc.track(env);
+    env_tracked = true;
+
+    try expectError(error.NotDefined, evaluate(ast, &gc, env));
 }
 
 test "binding recursive nested" {
@@ -386,19 +386,19 @@ test "binding recursive nested" {
     );
     defer ast.deinit(ta);
 
-    var env = try Environment.init(ta, null);
-    defer env.deinitAll();
+    var gc = try Gc.init(ta);
+    defer gc.deinit();
 
-    var objects: ArrayList(Object) = .empty;
-    defer {
-        var i: usize = 0;
-        while (i < objects.items.len) : (i += 1) {
-            objects.items[i].deinit(ta);
-        }
-        objects.deinit(ta);
-    }
+    const gc_gpa = gc.allocator();
 
-    try expectError(error.NotDefined, evaluate(ta, ast, env, &objects));
+    var env_tracked = false;
+    var env = try Environment.init(gc_gpa, null);
+    errdefer if (!env_tracked) env.deinitAll();
+
+    try gc.track(env);
+    env_tracked = true;
+
+    try expectError(error.NotDefined, evaluate(ast, &gc, env));
 }
 
 test "evaluate equality" {
@@ -415,7 +415,7 @@ test "evaluate equality" {
     defer ast.deinit(ta);
 
     const expected = Value.Boolean.init(true);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "evaluate inequality" {
@@ -432,7 +432,7 @@ test "evaluate inequality" {
     defer ast.deinit(ta);
 
     const expected = Value.Boolean.init(true);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "literals" {
@@ -450,7 +450,7 @@ test "literals" {
     defer ast.deinit(ta);
 
     const expected = Value.Boolean.init(true);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "let nested" {
@@ -491,7 +491,7 @@ test "let nested" {
     defer ast.deinit(ta);
 
     const expected = Value.Number.init(1);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "multiplication precedence over addition" {
@@ -514,7 +514,7 @@ test "multiplication precedence over addition" {
     defer ast.deinit(ta);
 
     const expected = Value.Number.init(7);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "arithmetic expression" {
@@ -537,7 +537,7 @@ test "arithmetic expression" {
     defer ast.deinit(ta);
 
     const expected = Value.Number.init(9);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "recursive call" {
@@ -583,7 +583,7 @@ test "recursive call" {
     defer ast.deinit(ta);
 
     const expected = Value.Number.init(1234);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }
 
 test "factorial" {
@@ -633,5 +633,5 @@ test "factorial" {
     defer ast.deinit(ta);
 
     const expected = Value.Number.init(120);
-    try runTest(ta, ast, expected);
+    try runTest(ast, expected);
 }

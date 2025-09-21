@@ -1,7 +1,6 @@
 const std = @import("std");
 const build_options = @import("build_options");
 
-const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.repl);
 const max_path_bytes = std.fs.max_path_bytes;
@@ -19,15 +18,15 @@ const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const ReadLine = @import("readline.zig");
 const Value = @import("value.zig").Value;
-const Object = @import("object.zig").Object;
+const Gc = @import("Gc.zig");
 
 const Repl = @This();
 const prompt = ansi.cyan ++ "> " ++ ansi.reset;
 
 gpa: Allocator,
+gc: Gc,
 env: *Environment,
 rl: ReadLine,
-objects: ArrayList(Object),
 
 var stdout_buffer: [max_path_bytes]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -39,65 +38,88 @@ const stderr = &stderr_writer.interface;
 
 const result_name = "?";
 
-fn initEnv(gpa: Allocator) !*Environment {
+fn initEnv(gc: *Gc) !*Environment {
     const exit = @import("native/exit.zig");
 
+    const gpa = gc.allocator();
+
+    var env_tracked = false;
     var env = try Environment.init(gpa, null);
+    errdefer if (!env_tracked) env.deinit();
+
+    try gc.track(env);
+    env_tracked = true;
+
     try env.bind(result_name, Value.init());
-    try env.bind(exit.name, try Value.Native.init(gpa, exit.name, exit.function, null));
+
+    var native_tracked = false;
+    var native = try Value.Native.init(gpa, exit.name, exit.function, null);
+    errdefer if (!native_tracked) native.deinit(gpa);
+    try env.bind(exit.name, native);
+    try gc.track(native);
+    native_tracked = true;
 
     return env;
 }
 
 pub fn init(gpa: Allocator) !Repl {
-    var objects: ArrayList(Object) = .empty;
-    const env = try initEnv(gpa);
-    try objects.append(gpa, Object{ .env = env });
+    var gc = try Gc.init(gpa);
+    errdefer gc.deinit();
+
+    const env = try initEnv(&gc);
 
     return Repl{
         .gpa = gpa,
+        .gc = gc,
         .env = env,
         .rl = ReadLine.init(gpa, stdout),
-        .objects = objects,
     };
 }
 
 pub fn deinit(self: *Repl) void {
-    for (self.objects.items) |*item| {
-        item.deinit(self.gpa);
-    }
-    self.objects.deinit(self.gpa);
-
+    self.gc.deinit();
     self.rl.deinit();
 }
 
 pub fn run(self: *Repl) !void {
     const gpa = self.gpa;
+    const gc = &self.gc;
+    const gc_gpa = gc.allocator();
     const env = self.env;
     var rl = &self.rl;
-    const objects = &self.objects;
 
     try welcomeMessage();
 
     var timer = try Timer.start();
 
     while (true) {
-        const line = rl.readLine(prompt) catch |err| switch (err) {
+        const input = rl.readLine(prompt) catch |err| switch (err) {
             error.Interrupted => break,
             else => return err,
         };
-        const line_val = try Value.String.fromOwned(gpa, line);
-        try objects.append(gpa, .{ .value = line_val });
+        defer gpa.free(input);
+
+        var line_tracked = false;
+        var line = try Value.String.init(gpa, input);
+        errdefer if (!line_tracked) line.deinit(gc_gpa);
+
+        try gc.track(line);
+        line_tracked = true;
 
         _ = timer.lap();
 
-        var parser = try Parser.init(gpa, line);
+        var parser = try Parser.init(gc_gpa, line.asString().?);
+
+        var ast_tracked = false;
         const ast = parser.parse() catch continue;
-        try objects.append(gpa, .{ .node = ast });
+        errdefer if (!ast_tracked) ast.deinit(gc_gpa);
+
+        try gc.track(ast);
+        ast_tracked = true;
 
         const parse_duration = timer.lap();
 
-        const result = evaluate(gpa, ast, env, objects) catch continue;
+        const result = evaluate(ast, gc, env) catch continue;
         try env.set(result_name, result);
 
         const exec_duration = timer.read();

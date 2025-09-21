@@ -9,50 +9,65 @@ const Environment = @import("Environment.zig");
 const evaluate = @import("evaluate.zig").evaluate;
 const Parser = @import("Parser.zig");
 const Value = @import("value.zig").Value;
-const Object = @import("object.zig").Object;
+const Gc = @import("Gc.zig");
 
 const max_file_size = std.math.maxInt(u32);
 const Script = @This();
 
 gpa: Allocator,
-objects: ArrayList(Object) = .empty,
+gc: Gc,
 path: []u8,
 text: []u8,
 
 pub fn init(gpa: Allocator, path: []const u8) !Script {
+    var gc = try Gc.init(gpa);
+    errdefer gc.deinit();
+
     const text = try fs.cwd().readFileAlloc(gpa, path, max_file_size);
     const copy = try gpa.dupe(u8, path);
     return Script{
         .gpa = gpa,
+        .gc = gc,
         .path = copy,
         .text = text,
-        .objects = .empty,
     };
 }
 
 pub fn deinit(self: *Script) void {
-    for (self.objects.items) |*object| object.deinit(self.gpa);
-    self.objects.deinit(self.gpa);
+    self.gc.deinit();
     self.gpa.free(self.text);
     self.gpa.free(self.path);
 }
 
 pub fn run(self: *Script, parent_env: ?*Environment) !Value {
-    const gpa = self.gpa;
+    var gc = &self.gc;
+    const gpa = gc.allocator();
 
+    var env_tracked = false;
     var env = try Environment.init(gpa, parent_env);
-    try self.objects.append(gpa, Object{ .env = env });
+    errdefer if (!env_tracked) env.deinit();
+
+    try gc.track(env);
+    env_tracked = true;
 
     const exit = @import("native/exit.zig");
-    const native = try Value.Native.init(gpa, exit.name, exit.function, null);
+    var native_tracked = false;
+    var native = try Value.Native.init(gpa, exit.name, exit.function, null);
+    errdefer if (!native_tracked) native.deinit(gpa);
+
     try env.bind(exit.name, native);
-    try self.objects.append(gpa, Object{ .value = native });
+    try gc.track(native);
+    native_tracked = true;
 
     var parser = try Parser.init(gpa, self.text);
     const ast = try parser.parse();
-    try self.objects.append(gpa, Object{ .node = ast });
+    var ast_tracked = false;
+    errdefer if (!ast_tracked) ast.deinit(gpa);
 
-    return evaluate(gpa, ast, env, &self.objects);
+    try gc.track(ast);
+    ast_tracked = true;
+
+    return evaluate(ast, gc, env);
 }
 
 const testing = std.testing;

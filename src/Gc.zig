@@ -1,7 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
-
 const ArrayList = std.ArrayList;
 const Env = @import("Environment.zig");
 const Node = @import("node.zig").Node;
@@ -34,18 +32,18 @@ const GcObject = struct {
     },
 };
 
-arena: ArenaAllocator,
 objects: ArrayList(GcObject),
+gpa: Allocator,
 
 pub fn init(gpa: Allocator) !Gc {
     return .{
-        .arena = ArenaAllocator.init(gpa),
         .objects = .empty,
+        .gpa = gpa,
     };
 }
 
 pub fn allocator(self: *Gc) Allocator {
-    return self.arena.allocator();
+    return self.gpa;
 }
 
 pub fn deinit(self: *Gc) void {
@@ -59,7 +57,7 @@ pub fn deinit(self: *Gc) void {
             .closure => |closure| closure.deinit(gpa),
         }
     }
-    self.arena.deinit();
+    self.objects.deinit(gpa);
 }
 
 pub fn track(self: *Gc, object: anytype) !void {
