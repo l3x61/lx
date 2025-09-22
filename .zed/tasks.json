@@ -8,7 +8,7 @@
         "command": "zig test -freference-trace src/main.zig"
     },
     {
-        "label": "Clean",
-        "command": "rm -rf .zig-cache zig-out"
+        "label": "Docs",
+        "command": "cd $ZED_WORKTREE_ROOT/docs && npm run docs:dev"
     }
 ]
