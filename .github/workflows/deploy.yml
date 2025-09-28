@@ -25,20 +25,22 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: lx/docs/package-lock.json
 
       - uses: actions/configure-pages@v4
 
       - name: Install dependencies
+        working-directory: lx
         run: npm ci
 
       - name: Build with VitePress
+        working-directory: lx
         run: npm run docs:build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/.vitepress/dist
+          path: lx/docs/.vitepress/dist
 
   deploy:
     environment:
