@@ -1,4 +1,5 @@
 name: Deploy VitePress site to Pages
+
 on:
   push:
     branches: [main]
@@ -16,26 +17,35 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lx
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm 
+          cache: npm
+          cache-dependency-path: lx/package-lock.json
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
+
       - name: Install dependencies
-        run: npm ci 
+        run: npm ci
+
       - name: Build with VitePress
-        run: npm run docs:build 
+        run: npm run docs:build
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/.vitepress/dist
+          path: lx/docs/.vitepress/dist
 
   deploy:
     environment:
