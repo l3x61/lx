@@ -6,6 +6,7 @@ export default defineConfig({
     lang: "en-US",
     title: "Lx Reference",
     description: "Lambda Expression Language",
+    base: "/lx",
 
     markdown: {
         theme: { light: "github-light", dark: "github-dark" },
