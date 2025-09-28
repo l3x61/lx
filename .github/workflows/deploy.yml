@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: lx/package-lock.json
+          cache-dependency-path: lx/docs/package-lock.json
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
