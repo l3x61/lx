@@ -1,28 +1,31 @@
-import { defineConfig } from 'vitepress'
+import { defineConfig } from "vitepress";
+import { lx } from "./languages/lx";
+import { wsn } from "./languages/wsn";
 
-// https://vitepress.dev/reference/site-config
 export default defineConfig({
-  title: "My Awesome Project",
-  description: "A VitePress Site",
-  themeConfig: {
-    // https://vitepress.dev/reference/default-theme-config
-    nav: [
-      { text: 'Home', link: '/' },
-      { text: 'Examples', link: '/markdown-examples' }
-    ],
+    lang: "en-US",
+    title: "Lx Reference",
+    description: "Lambda Expression Language",
 
-    sidebar: [
-      {
-        text: 'Examples',
-        items: [
-          { text: 'Markdown Examples', link: '/markdown-examples' },
-          { text: 'Runtime API Examples', link: '/api-examples' }
-        ]
-      }
-    ],
+    markdown: {
+        theme: { light: "github-light", dark: "github-dark" },
+        shikiSetup: async (shiki) => {
+            await shiki.loadLanguage(lx);
+            await shiki.loadLanguage(wsn);
+        },
+    },
 
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/vuejs/vitepress' }
-    ]
-  }
-})
+    themeConfig: {
+        nav: [
+            { text: "Home", link: "/" },
+            { text: "Reference", link: "/lxref" },
+        ],
+        search: {
+            provider: "local",
+        },
+        outline: {
+            level: [2, 6],
+        },
+        socialLinks: [{ icon: "github", link: "https://github.com/l3x61/lx" }],
+    },
+});
