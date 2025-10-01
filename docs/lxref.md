@@ -4,15 +4,18 @@
 ```wsn
 program = [ expression ] EOF .
 
-expression = binding | selection | equality .
+expression = binding | selection | binary .
 
 binding = "let" IDENTIFIER "=" expression "in" expression .
 
 selection = "if" expression "then" expression "else" expression .
 
-equality = additive { ("==" | "!=") additive } .
-additive = multiplicative { ("+" | "-") multiplicative } .
-multiplicative = application { ("*" | "/") application } .
+binary
+    = application ("==" | "!=") binary
+    | application ("+" | "-") binary
+    | application ("*" | "/") binary
+    | application
+    .
 
 application = primary { primary } .
 

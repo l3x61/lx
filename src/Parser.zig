@@ -69,38 +69,15 @@ fn program(self: *Parser) !*Node {
 /// expression
 ///     = binding
 ///     | selection
-///     | equality
+///     | binary
 ///     .
 /// ```
 fn expression(self: *Parser) anyerror!*Node {
     return switch (self.token.tag) {
         .let => self.binding(),
         .@"if" => self.selection(),
-        else => self.equality(),
+        else => self.binary(Precedence.lowest),
     };
-}
-
-/// ```
-/// equality
-///     = additive { ("==" | "!=") additive }
-///     .
-/// ```
-fn equality(self: *Parser) !*Node {
-    var left = try self.additive();
-    errdefer left.deinit(self.gpa);
-
-    while (true) {
-        switch (self.token.tag) {
-            .equal, .not_equal => {
-                const operator = try self.nextToken(&[_]Token.Tag{ .equal, .not_equal });
-                const right = try self.additive();
-                errdefer right.deinit(self.gpa);
-                left = try Node.Binary.init(self.gpa, left, operator, right);
-            },
-            else => break,
-        }
-    }
-    return left;
 }
 
 /// ```
@@ -147,66 +124,46 @@ fn selection(self: *Parser) !*Node {
     return Node.Selection.init(self.gpa, condition, consequent, alternate);
 }
 
-/// ```
-/// function
-///     = ("\\" | "λ") IDENTIFIER "." expression
-///     .
-/// ```
-// TODO: allow multiple parameters
-//       eg: \ { I . } E
-fn function(self: *Parser) !*Node {
-    _ = try self.nextToken(&[_]Token.Tag{.lambda});
-    const parameter = try self.nextToken(&[_]Token.Tag{.identifier});
-    _ = try self.nextToken(&[_]Token.Tag{.dot});
-    const body = try self.expression();
-    errdefer body.deinit(self.gpa);
+const Precedence = struct {
+    const lowest: u8 = 0;
+    const equality: u8 = 1;
+    const term: u8 = 2;
+    const factor: u8 = 3;
+};
 
-    return Node.Function.init(self.gpa, parameter, body);
+fn infix(tag: Token.Tag) ?u8 {
+    return switch (tag) {
+        .equal, .not_equal => Precedence.equality,
+        .plus, .minus => Precedence.term,
+        .star, .slash => Precedence.factor,
+        else => null,
+    };
 }
 
-/// ```
-/// additive
-///     = multiplicative { ("+" | "-") multiplicative }
+/// binary
+///     = application ("==" | "!=") binary
+///     | application ("+" | "-") binary
+///     | application ("*" | "/") binary
+///     | application
 ///     .
-/// ```
-fn additive(self: *Parser) !*Node {
-    var left = try self.multiplicative();
-    errdefer left.deinit(self.gpa);
-
-    while (true) {
-        switch (self.token.tag) {
-            .plus, .minus => {
-                const operator = try self.nextToken(&[_]Token.Tag{ .plus, .minus });
-                const right = try self.multiplicative();
-                errdefer right.deinit(self.gpa);
-                left = try Node.Binary.init(self.gpa, left, operator, right);
-            },
-            else => break,
-        }
-    }
-    return left;
-}
-
-/// ```
-/// multiplicative
-///     = application { ("*" | "/") application }
-///     .
-/// ```
-fn multiplicative(self: *Parser) !*Node {
+fn binary(self: *Parser, precedence: u8) !*Node {
     var left = try self.application();
     errdefer left.deinit(self.gpa);
 
     while (true) {
-        switch (self.token.tag) {
-            .star, .slash => {
-                const operator = try self.nextToken(&[_]Token.Tag{ .star, .slash });
-                const right = try self.application();
-                errdefer right.deinit(self.gpa);
-                left = try Node.Binary.init(self.gpa, left, operator, right);
-            },
-            else => break,
-        }
+        const operator_tag = self.token.tag;
+        const operator_precedence = infix(operator_tag) orelse break;
+
+        if (operator_precedence < precedence) break;
+
+        const operator = try self.nextToken(&[_]Token.Tag{operator_tag});
+        const next_precedence = operator_precedence + 1;
+        const right = try self.binary(next_precedence);
+        errdefer right.deinit(self.gpa);
+
+        left = try Node.Binary.init(self.gpa, left, operator, right);
     }
+
     return left;
 }
 
@@ -262,6 +219,23 @@ fn primary(self: *Parser) !*Node {
             return node;
         },
     };
+}
+
+/// ```
+/// function
+///     = ("\\" | "λ") IDENTIFIER "." expression
+///     .
+/// ```
+// TODO: allow multiple parameters
+//       eg: \ { I . } E
+fn function(self: *Parser) !*Node {
+    _ = try self.nextToken(&[_]Token.Tag{.lambda});
+    const parameter = try self.nextToken(&[_]Token.Tag{.identifier});
+    _ = try self.nextToken(&[_]Token.Tag{.dot});
+    const body = try self.expression();
+    errdefer body.deinit(self.gpa);
+
+    return Node.Function.init(self.gpa, parameter, body);
 }
 
 fn runTest(input: []const u8, expected: *Node) !void {
