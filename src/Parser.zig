@@ -129,6 +129,7 @@ const Precedence = struct {
     const equality: u8 = 1;
     const term: u8 = 2;
     const factor: u8 = 3;
+    const unary: u8 = 4;
 };
 
 fn infix(tag: Token.Tag) ?u8 {
@@ -141,13 +142,13 @@ fn infix(tag: Token.Tag) ?u8 {
 }
 
 /// binary
-///     = application ("==" | "!=") binary
-///     | application ("+" | "-") binary
-///     | application ("*" | "/") binary
-///     | application
+///     = unary ("==" | "!=") binary
+///     | unary ("+" | "-") binary
+///     | unary ("*" | "/") binary
+///     | unary
 ///     .
 fn binary(self: *Parser, precedence: u8) !*Node {
-    var left = try self.application();
+    var left = try self.unary();
     errdefer left.deinit(self.gpa);
 
     while (true) {
@@ -165,6 +166,27 @@ fn binary(self: *Parser, precedence: u8) !*Node {
     }
 
     return left;
+}
+
+fn prefix(tag: Token.Tag) ?u8 {
+    return switch (tag) {
+        .minus => Precedence.unary,
+        else => null,
+    };
+}
+
+/// unary
+///     = ("-") unary
+///     | application
+///     .
+fn unary(self: *Parser) !*Node {
+    if (prefix(self.token.tag)) |_| {
+        const operator = try self.nextToken(&[_]Token.Tag{self.token.tag});
+        const operand = try self.unary();
+        errdefer operand.deinit(self.gpa);
+        return try Node.Unary.init(self.gpa, operator, operand);
+    }
+    return try self.application();
 }
 
 /// ```
@@ -659,6 +681,72 @@ test "comment" {
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             Token.init(.plus, input, "+"),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "unary minus" {
+    const input = "-5";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Unary.init(
+            testing.allocator,
+            Token.init(.minus, input, "-"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "unary minus with binary operation" {
+    const input = "-5 + 3";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Unary.init(
+                testing.allocator,
+                Token.init(.minus, input, "-"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
+            ),
+            Token.init(.plus, input, "+"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "unary minus precedence" {
+    const input = "-5 * 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Unary.init(
+                testing.allocator,
+                Token.init(.minus, input, "-"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
+            ),
+            Token.init(.star, input, "*"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "double unary minus" {
+    const input = "--5";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Unary.init(
+            testing.allocator,
+            Token.init(.minus, input, "-"),
+            try Node.Unary.init(
+                testing.allocator,
+                Token.init(.minus, input, "-"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
+            ),
         ),
     );
     try runTest(input, expected);

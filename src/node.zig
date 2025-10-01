@@ -13,6 +13,7 @@ const String = std.ArrayList(u8);
 pub const Tag = enum {
     program,
     primary,
+    unary,
     binary,
     function,
     application,
@@ -30,6 +31,7 @@ pub const Tag = enum {
 pub const Node = union(Tag) {
     program: Program,
     primary: Primary,
+    unary: Unary,
     binary: Binary,
     function: Function,
     application: Application,
@@ -83,6 +85,29 @@ pub const Node = union(Tag) {
 
         fn clone(self: *Primary, ator: Allocator) !*Node {
             return try Primary.init(ator, self.operand);
+        }
+    };
+
+    pub const Unary = struct {
+        operator: Token,
+        operand: *Node,
+
+        pub fn init(ator: Allocator, operator: Token, operand: *Node) !*Node {
+            const node = try ator.create(Node);
+            node.* = Node{
+                .unary = .{ .operator = operator, .operand = operand },
+            };
+            return node;
+        }
+
+        fn deinit(self: *Unary, ator: Allocator) void {
+            self.operand.deinit(ator);
+            ator.destroy(@as(*Node, @fieldParentPtr("unary", self)));
+        }
+
+        fn clone(self: *Unary, ator: Allocator) !*Node {
+            const operand = try self.operand.clone(ator);
+            return try Unary.init(ator, self.operator, operand);
         }
     };
 
@@ -232,6 +257,7 @@ pub const Node = union(Tag) {
         switch (self.*) {
             .program => |*program| program.deinit(ator),
             .primary => |*primary| primary.deinit(ator),
+            .unary => |*unary| unary.deinit(ator),
             .binary => |*binary| binary.deinit(ator),
             .function => |*function| function.deinit(ator),
             .application => |*application| application.deinit(ator),
@@ -244,6 +270,7 @@ pub const Node = union(Tag) {
         return switch (self.*) {
             .program => |*program| try program.clone(ator),
             .primary => |*primary| try primary.clone(ator),
+            .unary => |*unary| try unary.clone(ator),
             .binary => |*binary| try binary.clone(ator),
             .function => |*function| try function.clone(ator),
             .application => |*application| try application.clone(ator),
@@ -262,6 +289,11 @@ pub const Node = union(Tag) {
             .primary => |primary| {
                 const operand = primary.operand;
                 try writer.print("{s}", .{operand.lexeme});
+            },
+            .unary => |unary| {
+                try writer.print("({s}", .{unary.operator.lexeme});
+                try unary.operand.format(writer);
+                try writer.print(")", .{});
             },
             .binary => |binary| {
                 try writer.print("(", .{});
@@ -316,6 +348,11 @@ pub const Node = union(Tag) {
             .primary => |a| {
                 const b = node_b.primary;
                 return a.operand.equal(b.operand);
+            },
+            .unary => |a| {
+                const b = node_b.unary;
+                return a.operator.equal(b.operator) and
+                    a.operand.equal(b.operand);
             },
             .binary => |a| {
                 const b = node_b.binary;

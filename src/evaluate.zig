@@ -43,6 +43,21 @@ fn eval(
                 else => unreachable,
             };
         },
+        .unary => |unary| {
+            const operand = try eval(unary.operand, gc, env);
+
+            switch (unary.operator.tag) {
+                .minus => {
+                    const operand_number = operand.asNumber();
+                    if (operand_number == null) {
+                        log.warn("can not negate {f}\n", .{operand.tag()});
+                        return error.TypeError;
+                    }
+                    return Value.Number.init(-operand_number.?);
+                },
+                else => unreachable,
+            }
+        },
         .binary => |binary| {
             const left = try eval(binary.left, gc, env);
             const right = try eval(binary.right, gc, env);
@@ -200,6 +215,21 @@ test "empty" {
     defer ast.deinit(ta);
 
     const expected = Value.init();
+    try runTest(ast, expected);
+}
+
+test "unary minus" {
+    const ast = try Node.Program.init(
+        ta,
+        try Node.Unary.init(
+            ta,
+            Token.init(.minus, "-5", "-"),
+            try Node.Primary.init(ta, Token.init(.number, "-5", "5")),
+        ),
+    );
+    defer ast.deinit(ta);
+
+    const expected = Value.Number.init(-5);
     try runTest(ast, expected);
 }
 
