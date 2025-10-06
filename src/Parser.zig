@@ -127,14 +127,16 @@ fn selection(self: *Parser) !*Node {
 const Precedence = struct {
     const lowest: u8 = 0;
     const equality: u8 = 1;
-    const term: u8 = 2;
-    const factor: u8 = 3;
-    const unary: u8 = 4;
+    const comparison: u8 = 2;
+    const term: u8 = 3;
+    const factor: u8 = 4;
+    const unary: u8 = 5;
 };
 
 fn infix(tag: Token.Tag) ?u8 {
     return switch (tag) {
         .equal, .not_equal => Precedence.equality,
+        .greater, .greater_equal, .less, .less_equal => Precedence.comparison,
         .plus, .minus => Precedence.term,
         .star, .slash => Precedence.factor,
         else => null,
@@ -143,6 +145,10 @@ fn infix(tag: Token.Tag) ?u8 {
 
 /// binary
 ///     = unary ("==" | "!=") binary
+///     | unary (">") binary
+///     | unary ("<") binary
+///     | unary (">=") binary
+///     | unary ("<=") binary
 ///     | unary ("+" | "-") binary
 ///     | unary ("*" | "/") binary
 ///     | unary
@@ -435,6 +441,119 @@ test "not equal" {
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
             Token.init(.not_equal, input, "!="),
             try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "greater" {
+    const input = "1 > 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.greater, input, ">"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "less" {
+    const input = "1 < 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.less, input, "<"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "greater equal" {
+    const input = "1 >= 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.greater_equal, input, ">="),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "less equal" {
+    const input = "1 <= 2";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+            Token.init(.less_equal, input, "<="),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "comparison precedence" {
+    const input = "1 < 2 == 3";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                Token.init(.less, input, "<"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+            ),
+            Token.init(.equal, input, "=="),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "term tighter than comparison" {
+    const input = "1 + 2 > 3";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                Token.init(.plus, input, "+"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+            ),
+            Token.init(.greater, input, ">"),
+            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
+        ),
+    );
+    try runTest(input, expected);
+}
+
+test "comparison tighter than equality" {
+    const input = "1 > 2 == false";
+    const expected = try Node.Program.init(
+        testing.allocator,
+        try Node.Binary.init(
+            testing.allocator,
+            try Node.Binary.init(
+                testing.allocator,
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
+                Token.init(.greater, input, ">"),
+                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
+            ),
+            Token.init(.equal, input, "=="),
+            try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
         ),
     );
     try runTest(input, expected);

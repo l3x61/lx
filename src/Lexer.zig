@@ -38,6 +38,8 @@ pub fn nextToken(self: *Lexer) Token {
         start,
         comment,
         equal,
+        greater,
+        less,
         number,
         string,
         identifier,
@@ -80,6 +82,14 @@ pub fn nextToken(self: *Lexer) Token {
                     },
                 }
                 break :state;
+            },
+            '>' => {
+                tag = .greater;
+                continue :state .greater;
+            },
+            '<' => {
+                tag = .less;
+                continue :state .less;
             },
             '(' => {
                 tag = .lparen;
@@ -151,6 +161,32 @@ pub fn nextToken(self: *Lexer) Token {
                 },
             }
         },
+        .greater => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '=' => {
+                    tag = .greater_equal;
+                    break :state;
+                },
+                else => {
+                    iterator.i = previous;
+                    break :state;
+                },
+            }
+        },
+        .less => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '=' => {
+                    tag = .less_equal;
+                    break :state;
+                },
+                else => {
+                    iterator.i = previous;
+                    break :state;
+                },
+            }
+        },
         .string => {
             switch (iterator.nextCodepoint() orelse {
                 tag = .string_open;
@@ -178,7 +214,7 @@ pub fn nextToken(self: *Lexer) Token {
         .identifier => {
             const previous = iterator.i;
             switch (iterator.nextCodepoint() orelse break :state) {
-                '\t', '\n', '\r', ' ', '.', '+', '-', '*', '/', '"', '(', ')' => {
+                '\t', '\n', '\r', ' ', '.', '+', '-', '*', '/', '"', '(', ')', '<', '>', '=' => {
                     iterator.i = previous;
                     break :state;
                 },
@@ -353,6 +389,23 @@ test "equality operators" {
         Token.init(.number, input, "2"),
         Token.init(.not_equal, input, "!="),
         Token.init(.number, input, "3"),
+        Token.init(.eof, input, ""),
+    };
+    try runTest(input, &tokens);
+}
+
+test "comparison operators" {
+    const input = "1 > 2 < 3 >= 4 <= 5";
+    const tokens = [_]Token{
+        Token.init(.number, input, "1"),
+        Token.init(.greater, input, ">"),
+        Token.init(.number, input, "2"),
+        Token.init(.less, input, "<"),
+        Token.init(.number, input, "3"),
+        Token.init(.greater_equal, input, ">="),
+        Token.init(.number, input, "4"),
+        Token.init(.less_equal, input, "<="),
+        Token.init(.number, input, "5"),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);

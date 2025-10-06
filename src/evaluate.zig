@@ -62,9 +62,33 @@ fn eval(
             const left = try eval(binary.left, gc, env);
             const right = try eval(binary.right, gc, env);
 
-            switch (binary.operator.tag) {
+            const operator = binary.operator.tag;
+
+            switch (operator) {
                 .equal => return Value.Boolean.init(left.equal(right)),
                 .not_equal => return Value.Boolean.init(!left.equal(right)),
+                .greater, .greater_equal, .less, .less_equal => {
+                    const left_number = left.asNumber();
+                    const right_number = right.asNumber();
+
+                    if (left_number == null or right_number == null) {
+                        log.warn("can not compare {f} with {f}\n", .{ left.tag(), right.tag() });
+                        return error.TypeError;
+                    }
+
+                    const lnum = left_number.?;
+                    const rnum = right_number.?;
+
+                    const comparison = switch (operator) {
+                        .greater => lnum > rnum,
+                        .greater_equal => lnum >= rnum,
+                        .less => lnum < rnum,
+                        .less_equal => lnum <= rnum,
+                        else => unreachable,
+                    };
+
+                    return Value.Boolean.init(comparison);
+                },
                 else => {},
             }
 
@@ -72,7 +96,7 @@ fn eval(
             const right_number = right.asNumber();
 
             if (left_number == null or right_number == null) {
-                const operation, const preposition = switch (binary.operator.tag) {
+                const operation, const preposition = switch (operator) {
                     .plus => .{ "add", "to" },
                     .minus => .{ "subtract", "from" },
                     .star => .{ "multiply", "with" },
@@ -91,7 +115,7 @@ fn eval(
             const lnum = left_number.?;
             const rnum = right_number.?;
 
-            const result = switch (binary.operator.tag) {
+            const result = switch (operator) {
                 .plus => lnum + rnum,
                 .minus => lnum - rnum,
                 .star => lnum * rnum,
@@ -463,6 +487,68 @@ test "evaluate inequality" {
 
     const expected = Value.Boolean.init(true);
     try runTest(ast, expected);
+}
+
+test "evaluate greater" {
+    const input = "";
+    const ast = try Node.Program.init(
+        ta,
+        try Node.Binary.init(
+            ta,
+            try Node.Primary.init(ta, Token.init(.number, input, "3")),
+            Token.init(.greater, input, ">"),
+            try Node.Primary.init(ta, Token.init(.number, input, "2")),
+        ),
+    );
+    defer ast.deinit(ta);
+
+    const expected = Value.Boolean.init(true);
+    try runTest(ast, expected);
+}
+
+test "evaluate less equal" {
+    const input = "";
+    const ast = try Node.Program.init(
+        ta,
+        try Node.Binary.init(
+            ta,
+            try Node.Primary.init(ta, Token.init(.number, input, "2")),
+            Token.init(.less_equal, input, "<="),
+            try Node.Primary.init(ta, Token.init(.number, input, "2")),
+        ),
+    );
+    defer ast.deinit(ta);
+
+    const expected = Value.Boolean.init(true);
+    try runTest(ast, expected);
+}
+
+test "evaluate comparison type error" {
+    const input = "";
+    const ast = try Node.Program.init(
+        ta,
+        try Node.Binary.init(
+            ta,
+            try Node.Primary.init(ta, Token.init(.true, input, "true")),
+            Token.init(.greater, input, ">"),
+            try Node.Primary.init(ta, Token.init(.number, input, "1")),
+        ),
+    );
+    defer ast.deinit(ta);
+
+    var gc = try Gc.init(ta);
+    defer gc.deinit();
+
+    const gc_gpa = gc.allocator();
+
+    var env_tracked = false;
+    var env = try Environment.init(gc_gpa, null);
+    errdefer if (!env_tracked) env.deinitAll();
+
+    try gc.track(env);
+    env_tracked = true;
+
+    try expectError(error.TypeError, evaluate(ast, &gc, env));
 }
 
 test "literals" {
