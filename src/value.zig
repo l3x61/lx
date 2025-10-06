@@ -195,7 +195,7 @@ pub const Value = union(Tag) {
             },
             .boolean => |boolean| {
                 try writer.print("{s}{any}{s}", .{
-                    ansi.blue,
+                    ansi.cyan,
                     boolean,
                     ansi.reset,
                 });
@@ -222,47 +222,121 @@ pub const Value = union(Tag) {
                 });
             },
             .closure => |closure| {
-                var env = closure.env;
-
-                while (env.parent) |parent| : (env = parent) {
-                    var it = env.bindings.iterator();
-                    while (it.next()) |entry| {
-                        try writer.print(ansi.dim ++ " {s} = ", .{entry.key_ptr.*});
-
-                        if (entry.value_ptr.*) |value| {
-                            switch (value) {
-                                .closure => |inner| {
-                                    try writer.print("{s}λ{s}{s}{s}.{s} {f}", .{
-                                        ansi.red,
-                                        ansi.reset,
-                                        inner.parameter,
-                                        ansi.red,
-                                        ansi.reset,
-                                        inner.body,
-                                    });
-                                },
-                                else => try writer.print("{f}", .{value}),
-                            }
-                        } else {
-                            const free = Value.init();
-                            try writer.print("{f}", .{free});
-                        }
-
-                        try writer.print("\n" ++ ansi.reset, .{});
-                    }
-                }
-
-                try writer.print("{s}λ{s}{s}{s}.{s} {f}", .{
+                try writer.print("{s}λ{s}{s}{s}.{s} ", .{
                     ansi.red,
                     ansi.reset,
                     closure.parameter,
                     ansi.red,
                     ansi.reset,
-                    closure.body,
                 });
+                var formatter = ClosureFormatter{ .env = closure.env };
+                const scope = Binding{ .name = closure.parameter, .parent = null };
+                try formatter.format(closure.body, writer, &scope);
             },
         }
     }
+
+    const Binding = struct {
+        name: []const u8,
+        parent: ?*const Binding,
+
+        fn has(self: *const Binding, name: []const u8) bool {
+            if (mem.eql(u8, self.name, name)) {
+                return true;
+            }
+            if (self.parent) |parent| {
+                return parent.has(name);
+            }
+            return false;
+        }
+    };
+
+    const ClosureFormatter = struct {
+        env: *Environment,
+
+        fn get(self: *ClosureFormatter, name: []const u8) ?Value {
+            return getFromEnv(self.env, name);
+        }
+
+        fn getFromEnv(env: ?*Environment, name: []const u8) ?Value {
+            const current = env orelse return null;
+            if (current.bindings.get(name)) |value| {
+                return value;
+            }
+            return getFromEnv(current.parent, name);
+        }
+
+        fn format(
+            self: *ClosureFormatter,
+            node: *Node,
+            writer: anytype,
+            scope: *const Binding,
+        ) !void {
+            switch (node.*) {
+                .program => |program| if (program.expression) |expression| {
+                    try self.format(expression, writer, scope);
+                },
+                .primary => |primary| {
+                    const operand = primary.operand;
+                    if (operand.tag == .identifier and !Binding.has(scope, operand.lexeme)) {
+                        if (self.get(operand.lexeme)) |value| {
+                            try writer.print("{f}", .{value});
+                            return;
+                        }
+                    }
+
+                    try writer.print("{s}", .{operand.color()});
+                    try writer.print("{s}", .{operand.lexeme});
+                    try writer.print("{s}", .{ansi.reset});
+                },
+                .unary => |unary| {
+                    try writer.print("{s}", .{unary.operator.lexeme});
+                    try self.format(unary.operand, writer, scope);
+                },
+                .binary => |binary| {
+                    try self.format(binary.left, writer, scope);
+                    try writer.print(" {s} ", .{binary.operator.lexeme});
+                    try self.format(binary.right, writer, scope);
+                },
+                .function => |function| {
+                    try writer.print("{s}λ{s}{s}{s}.{s} ", .{
+                        ansi.red,
+                        ansi.reset,
+                        function.parameter.lexeme,
+                        ansi.red,
+                        ansi.reset,
+                    });
+                    const next = Binding{ .name = function.parameter.lexeme, .parent = scope };
+                    try self.format(function.body, writer, &next);
+                },
+                .application => |application| {
+                    try self.format(application.function, writer, scope);
+                    try writer.print(" ", .{});
+                    try self.format(application.argument, writer, scope);
+                },
+                .binding => |let_in| {
+                    try writer.print("\nlet ", .{});
+                    try writer.print("{s}", .{let_in.name.lexeme});
+                    try writer.print(" = ", .{});
+                    try self.format(let_in.value, writer, scope);
+                    try writer.print(" in ", .{});
+                    if (let_in.body.tag() != .binding) {
+                        try writer.print("\n  ", .{});
+                    }
+                    const next = Binding{ .name = let_in.name.lexeme, .parent = scope };
+                    try self.format(let_in.body, writer, &next);
+                },
+                .selection => |selection| {
+                    try writer.print("if ", .{});
+                    try self.format(selection.condition, writer, scope);
+                    try writer.print(" then ", .{});
+                    try self.format(selection.consequent, writer, scope);
+                    try writer.print(" else ", .{});
+                    try self.format(selection.alternate, writer, scope);
+                },
+            }
+        }
+    };
 
     pub fn equal(self: Value, other: Value) bool {
         if (self.tag() != other.tag()) {

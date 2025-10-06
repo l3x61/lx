@@ -291,21 +291,17 @@ pub const Node = union(Tag) {
                 try writer.print("{s}", .{operand.lexeme});
             },
             .unary => |unary| {
-                try writer.print("({s}", .{unary.operator.lexeme});
+                try writer.print("{s}", .{unary.operator.lexeme});
                 try unary.operand.format(writer);
-                try writer.print(")", .{});
             },
             .binary => |binary| {
-                try writer.print("(", .{});
                 try binary.left.format(writer);
                 try writer.print(" {s} ", .{binary.operator.lexeme});
                 try binary.right.format(writer);
-                try writer.print(")", .{});
             },
             .function => |function| {
-                try writer.print("(λ{s}. ", .{function.parameter.lexeme});
+                try writer.print("λ{s}. ", .{function.parameter.lexeme});
                 try function.body.format(writer);
-                try writer.print(")", .{});
             },
             .application => |application| {
                 try application.function.format(writer);

@@ -128,7 +128,7 @@ pub fn run(self: *Repl) !void {
         log.info("executing {s}\n", .{try formatElapsedTime(&stdout_buffer, exec_duration)});
         log.info("total     {s}\n", .{try formatElapsedTime(&stdout_buffer, parse_duration + exec_duration)});
 
-        try stdout.print(ansi.bold ++ "{f}\n\n" ++ ansi.reset, .{result});
+        try stdout.print("{f}\n\n" ++ ansi.reset, .{result});
         try stdout.flush();
     }
 }

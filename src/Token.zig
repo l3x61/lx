@@ -104,3 +104,34 @@ pub fn isOneOf(self: Token, expected: []const Tag) bool {
     }
     return false;
 }
+
+pub fn color(self: Token) []const u8 {
+    const ansi = @import("ansi.zig");
+
+    return switch (self.tag) {
+        .lambda,
+        .dot,
+        .let,
+        .in,
+        .@"if",
+        .then,
+        .@"else",
+        => ansi.red,
+
+        // types (not implemented yet) => ansi.magenta
+
+        .number,
+        .string,
+        .string_open,
+        => ansi.blue,
+
+        .true,
+        .false,
+        => ansi.cyan,
+
+        .comment,
+        => ansi.dim,
+
+        else => ansi.reset,
+    };
+}

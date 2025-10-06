@@ -237,35 +237,6 @@ fn readBytes(buffer: []u8) ![]const u8 {
     }
 }
 
-fn colorMap(tag: Token.Tag) []const u8 {
-    return switch (tag) {
-        .lambda,
-        .dot,
-        .let,
-        .in,
-        .@"if",
-        .then,
-        .@"else",
-        => ansi.red,
-
-        // types (not implemented yet) => ansi.magenta
-
-        .number,
-        .string,
-        .string_open,
-        => ansi.blue,
-
-        .true,
-        .false,
-        => ansi.cyan,
-
-        .comment,
-        => ansi.dim,
-
-        else => ansi.reset,
-    };
-}
-
 fn writeColored(out: *Writer, source: []const u8) !void {
     var lexer = try Lexer.init(source);
     var prev_token_index: usize = 0;
@@ -279,8 +250,7 @@ fn writeColored(out: *Writer, source: []const u8) !void {
             try out.writeAll(source[prev_token_index..token_index]);
         }
 
-        const color = colorMap(token.tag);
-        try out.writeAll(color);
+        try out.writeAll(token.color());
         try out.writeAll(token.lexeme);
         try out.writeAll(ansi.reset);
 
