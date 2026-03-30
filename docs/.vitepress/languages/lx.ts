@@ -11,18 +11,6 @@ export const lx: LanguageRegistration = {
         { include: "#comments" },
     ],
     repository: {
-        bind: {
-            patterns: [
-                {
-                    match: "\\b([A-Za-z_][A-Za-z0-9_-]*)\\b([ \\t\\r\\n]*)(=)",
-                    captures: {
-                        1: { name: "variable.parameter.lx" },
-                        3: { name: "keyword.operator.assignment.lx" },
-                    },
-                },
-            ],
-        },
-
         binding: {
             patterns: [
                 {
@@ -31,15 +19,16 @@ export const lx: LanguageRegistration = {
                     beginCaptures: {
                         0: { name: "keyword.declaration.let.lx" },
                     },
-                    end: "\\bin\\b",
-                    endCaptures: {
-                        0: { name: "keyword.declaration.in.lx" },
-                    },
+                    end: "(?=;|$)",
                     patterns: [
-                        { include: "#bind" },
+                        {
+                            match: "\\b([A-Za-z_][A-Za-z0-9_]*)\\b(?=\\s*=)",
+                            name: "variable.other.definition.lx",
+                        },
                         { include: "#literals" },
                         { include: "#operators" },
                         { include: "#keywords" },
+                        { include: "#comments" },
                     ],
                 },
             ],
@@ -47,11 +36,10 @@ export const lx: LanguageRegistration = {
 
         keywords: {
             patterns: [
-                { name: "keyword.operator.assignment.lx", match: "λ" },
-                { name: "keyword.operator.assignment.lx", match: "\\\\" },
-                { name: "keyword.control.conditional.lx", match: "\\bif\\b" },
-                { name: "keyword.control.conditional.lx", match: "\\bthen\\b" },
-                { name: "keyword.control.conditional.lx", match: "\\belse\\b" },
+                { name: "keyword.declaration.let.lx", match: "\\blet\\b" },
+                { name: "constant.language.boolean.true.lx", match: "\\btrue\\b" },
+                { name: "constant.language.boolean.false.lx", match: "\\bfalse\\b" },
+                { name: "variable.language.wildcard.lx", match: "\\b_\\b" },
             ],
         },
 
@@ -103,12 +91,27 @@ export const lx: LanguageRegistration = {
 
         operators: {
             patterns: [
-                { name: "keyword.operator.assignment.lx", match: "\\." },
                 { name: "keyword.operator.assignment.lx", match: "=" },
+                { name: "keyword.operator.assignment.lx", match: "=>" },
+                { name: "keyword.operator.assignment.lx", match: "\\?" },
+                { name: "keyword.operator.assignment.lx", match: "\\.\\.\\." },
+                { name: "keyword.operator.assignment.lx", match: "\\.\\." },
                 { name: "keyword.operator.arithmetic.lx", match: "\\+" },
                 { name: "keyword.operator.arithmetic.lx", match: "-" },
                 { name: "keyword.operator.arithmetic.lx", match: "\\*" },
                 { name: "keyword.operator.arithmetic.lx", match: "/" },
+                { name: "keyword.operator.arithmetic.lx", match: "%" },
+                { name: "keyword.operator.arithmetic.lx", match: "\\+\\+" },
+                { name: "keyword.operator.comparison.lx", match: "==" },
+                { name: "keyword.operator.comparison.lx", match: "!=" },
+                { name: "keyword.operator.comparison.lx", match: "<=" },
+                { name: "keyword.operator.comparison.lx", match: ">=" },
+                { name: "keyword.operator.comparison.lx", match: "<" },
+                { name: "keyword.operator.comparison.lx", match: ">" },
+                { name: "punctuation.separator.sequence.lx", match: ";" },
+                { name: "punctuation.separator.arguments.lx", match: "," },
+                { name: "punctuation.section.group.begin.lx", match: "[\\[\\(\\{]" },
+                { name: "punctuation.section.group.end.lx", match: "[\\]\\)\\}]" },
             ],
         },
 

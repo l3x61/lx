@@ -28,6 +28,17 @@ export const wsn: LanguageRegistration = {
         strings: {
             patterns: [
                 {
+                    name: "string.quoted.single.wsn",
+                    begin: "'",
+                    end: "'",
+                    patterns: [
+                        {
+                            name: "constant.character.escape.wsn",
+                            match: "\\\\.",
+                        },
+                    ],
+                },
+                {
                     name: "string.quoted.double.wsn",
                     begin: '"',
                     end: '"',

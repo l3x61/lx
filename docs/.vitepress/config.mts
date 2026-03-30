@@ -4,8 +4,8 @@ import { wsn } from "./languages/wsn";
 
 export default defineConfig({
     lang: "en-US",
-    title: "Lx Reference",
-    description: "Lambda Expression Language",
+    title: "Lx",
+    description: "Reference and specification for the Lx language",
     base: "/lx",
 
     markdown: {
@@ -18,8 +18,7 @@ export default defineConfig({
 
     themeConfig: {
         nav: [
-            { text: "Home", link: "/" },
-            { text: "Reference", link: "/lxref" },
+            { text: "Specification", link: "/" },
         ],
         search: {
             provider: "local",
