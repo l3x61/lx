@@ -1,8 +1,0 @@
-# Recursive binding is only needed for self-referential functions.
-# These are plain (non-recursive) function values and applications.
-
-let inc = λx. x + 1 in     # a simple increment function
-let apply = λf. λy. f y in # apply takes a function and returns a λ that applies it
-let incOnce = apply inc in # same as increment
-
-incOnce 3 #= 4

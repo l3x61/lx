@@ -51,6 +51,10 @@ pub fn deinit(self: *ReadLine) void {
 }
 
 pub fn readLine(self: *ReadLine, prompt: []const u8) ![]u8 {
+    return self.readLineWithHistory(prompt, true);
+}
+
+pub fn readLineWithHistory(self: *ReadLine, prompt: []const u8, save_history: bool) ![]u8 {
     try self.out.writeAll(prompt);
     try self.out.flush();
 
@@ -78,10 +82,7 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) ![]u8 {
             0x04...0x0C => continue,
 
             @intFromEnum(KeyCode.enter) => {
-                var saved: String = .empty;
-                errdefer saved.deinit(self.gpa);
-                try saved.appendSlice(self.gpa, line.items);
-                try self.history.append(self.gpa, saved);
+                if (save_history) try self.appendHistory(line.items);
 
                 history_index = -1;
                 scratch.clearRetainingCapacity();
@@ -170,6 +171,13 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) ![]u8 {
     return line.toOwnedSlice(self.gpa);
 }
 
+pub fn appendHistory(self: *ReadLine, source: []const u8) !void {
+    var saved: String = .empty;
+    errdefer saved.deinit(self.gpa);
+    try saved.appendSlice(self.gpa, source);
+    try self.history.append(self.gpa, saved);
+}
+
 fn utf8CountCodepoints(bytes: []const u8) usize {
     var n: usize = 0;
     var i: usize = 0;
@@ -231,6 +239,11 @@ fn readBytes(buffer: []u8) ![]const u8 {
 }
 
 fn writeColored(out: *Writer, source: []const u8) !void {
+    if (isCommandLine(source)) {
+        try writeCommandColored(out, source);
+        return;
+    }
+
     var lexer = try Lexer.init(source);
     var prev_token_index: usize = 0;
 
@@ -253,6 +266,52 @@ fn writeColored(out: *Writer, source: []const u8) !void {
     if (prev_token_index < source.len) {
         try out.writeAll(source[prev_token_index..source.len]);
     }
+}
+
+fn isCommandLine(source: []const u8) bool {
+    const trimmed_left = mem.trimLeft(u8, source, " \t");
+    if (trimmed_left.len == 0) return false;
+    return trimmed_left[0] == '.' or trimmed_left[0] == ':';
+}
+
+fn writeCommandColored(out: *Writer, source: []const u8) !void {
+    const leading_len = source.len - mem.trimLeft(u8, source, " \t").len;
+    if (leading_len != 0) try out.writeAll(source[0..leading_len]);
+
+    const rest = source[leading_len..];
+    const command_end = mem.indexOfAny(u8, rest, " \t") orelse rest.len;
+    const command = rest[0..command_end];
+    try out.writeAll(ansi.bold ++ ansi.cyan);
+    try out.writeAll(command);
+    try out.writeAll(ansi.reset);
+
+    var tail = rest[command_end..];
+    while (tail.len != 0) {
+        const ws_len = tail.len - mem.trimLeft(u8, tail, " \t").len;
+        if (ws_len != 0) {
+            try out.writeAll(tail[0..ws_len]);
+            tail = tail[ws_len..];
+            continue;
+        }
+
+        const token_end = mem.indexOfAny(u8, tail, " \t") orelse tail.len;
+        const token = tail[0..token_end];
+        try out.writeAll(colorForCommandToken(command, token));
+        try out.writeAll(token);
+        try out.writeAll(ansi.reset);
+        tail = tail[token_end..];
+    }
+}
+
+fn colorForCommandToken(command: []const u8, token: []const u8) []const u8 {
+    if (mem.eql(u8, command, ".ast") or mem.eql(u8, command, ":ast")) {
+        if (mem.eql(u8, token, "tree")) return ansi.magenta;
+        if (mem.eql(u8, token, "source")) return ansi.green;
+        if (mem.eql(u8, token, "off")) return ansi.dim;
+        return ansi.red;
+    }
+
+    return ansi.yellow;
 }
 
 fn uncook() !termios {

@@ -1,0 +1,5 @@
+{
+    let square = (x) { x * x };
+    let y = 4;
+    square(y)
+}

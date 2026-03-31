@@ -1,379 +1,680 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const FormatOptions = std.fmt.FormatOptions;
-const print = std.debug.print;
-const testing = std.testing;
-
-const ansi = @import("ansi.zig");
-const Lexer = @import("Lexer.zig");
 const Token = @import("Token.zig");
-
-const String = std.ArrayList(u8);
+const ansi = @import("ansi.zig");
 
 pub const Tag = enum {
     program,
-    primary,
+    identifier,
+    literal,
     unary,
     binary,
+    call,
+    list,
+    range,
+    block,
     function,
-    application,
     binding,
-    selection,
+    sequence,
+};
 
-    pub fn format(
-        self: Tag,
-        writer: anytype,
-    ) !void {
-        try writer.print("{s}", .{@tagName(self)});
-    }
+pub const PatternTag = enum {
+    wildcard,
+    identifier,
+    literal,
+    list,
+    group,
+};
+
+pub const FunctionBodyTag = enum {
+    expression,
+    branches,
 };
 
 pub const Node = union(Tag) {
     program: Program,
-    primary: Primary,
+    identifier: Token,
+    literal: Token,
     unary: Unary,
     binary: Binary,
+    call: Call,
+    list: List,
+    range: Range,
+    block: Block,
     function: Function,
-    application: Application,
     binding: Binding,
-    selection: Selection,
-
-    pub fn tag(self: Node) Tag {
-        return @as(Tag, self);
-    }
+    sequence: Sequence,
 
     pub const Program = struct {
-        expression: ?*Node,
-
-        pub fn init(ator: Allocator, expression: ?*Node) !*Node {
-            const node = try ator.create(Node);
-            node.* = Node{ .program = .{ .expression = expression } };
-            return node;
-        }
-
-        fn deinit(self: *Program, ator: Allocator) void {
-            if (self.expression) |expression| {
-                expression.deinit(ator);
-            }
-            ator.destroy(@as(*Node, @fieldParentPtr("program", self)));
-        }
-
-        fn clone(self: *Program, ator: Allocator) !*Node {
-            const expression = if (self.expression) |expression|
-                try expression.clone(ator)
-            else
-                null;
-
-            return try Program.init(ator, expression);
-        }
-    };
-
-    pub const Primary = struct {
-        operand: Token,
-
-        pub fn init(ator: Allocator, operand: Token) !*Node {
-            const node = try ator.create(Node);
-            node.* = Node{
-                .primary = .{ .operand = operand },
-            };
-            return node;
-        }
-
-        fn deinit(self: *Primary, ator: Allocator) void {
-            ator.destroy(@as(*Node, @fieldParentPtr("primary", self)));
-        }
-
-        fn clone(self: *Primary, ator: Allocator) !*Node {
-            return try Primary.init(ator, self.operand);
-        }
+        expression: *Node,
     };
 
     pub const Unary = struct {
         operator: Token,
         operand: *Node,
-
-        pub fn init(ator: Allocator, operator: Token, operand: *Node) !*Node {
-            const node = try ator.create(Node);
-            node.* = Node{
-                .unary = .{ .operator = operator, .operand = operand },
-            };
-            return node;
-        }
-
-        fn deinit(self: *Unary, ator: Allocator) void {
-            self.operand.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("unary", self)));
-        }
-
-        fn clone(self: *Unary, ator: Allocator) !*Node {
-            const operand = try self.operand.clone(ator);
-            return try Unary.init(ator, self.operator, operand);
-        }
-    };
-
-    pub const Binding = struct {
-        name: Token,
-        value: *Node,
-        body: *Node,
-
-        pub fn init(ator: Allocator, name: Token, value: *Node, body: *Node) !*Node {
-            const node = try ator.create(Node);
-            node.* = Node{ .binding = .{ .name = name, .value = value, .body = body } };
-            return node;
-        }
-
-        pub fn deinit(self: *Binding, ator: Allocator) void {
-            self.value.deinit(ator);
-            self.body.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("binding", self)));
-        }
-
-        pub fn clone(self: *Binding, ator: Allocator) !*Node {
-            const value = try self.value.clone(ator);
-            const body = try self.body.clone(ator);
-            return try Binding.init(ator, self.name, value, body);
-        }
-    };
-
-    pub const Selection = struct {
-        condition: *Node,
-        consequent: *Node,
-        alternate: *Node,
-
-        pub fn init(
-            ator: Allocator,
-            condition: *Node,
-            consequent: *Node,
-            alternate: *Node,
-        ) !*Node {
-            const node = try ator.create(Node);
-            node.* = Node{ .selection = .{
-                .condition = condition,
-                .consequent = consequent,
-                .alternate = alternate,
-            } };
-            return node;
-        }
-
-        pub fn deinit(self: *Selection, ator: Allocator) void {
-            self.condition.deinit(ator);
-            self.consequent.deinit(ator);
-            self.alternate.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("selection", self)));
-        }
-
-        pub fn clone(self: *Selection, ator: Allocator) !*Node {
-            const condition = try self.condition.clone(ator);
-            const consequent = try self.consequent.clone(ator);
-            const alternate = try self.alternate.clone(ator);
-            return try Selection.init(ator, condition, consequent, alternate);
-        }
-    };
-
-    pub const Function = struct {
-        parameter: Token,
-        body: *Node,
-
-        pub fn init(ator: Allocator, parameter: Token, body: *Node) !*Node {
-            const node = try ator.create(Node);
-            node.* = Node{
-                .function = .{ .parameter = parameter, .body = body },
-            };
-            return node;
-        }
-
-        fn deinit(self: *Function, ator: Allocator) void {
-            self.body.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("function", self)));
-        }
-
-        pub fn clone(self: *Function, ator: Allocator) !*Node {
-            const body = try self.body.clone(ator);
-            return try Function.init(ator, self.parameter, body);
-        }
-    };
-
-    pub const Application = struct {
-        function: *Node,
-        argument: *Node,
-
-        pub fn init(
-            ator: Allocator,
-            function: *Node,
-            argument: *Node,
-        ) !*Node {
-            const node = try ator.create(Node);
-            node.* = Node{
-                .application = .{
-                    .function = function,
-                    .argument = argument,
-                },
-            };
-            return node;
-        }
-
-        pub fn deinit(self: *Application, ator: Allocator) void {
-            self.function.deinit(ator);
-            self.argument.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("application", self)));
-        }
-
-        pub fn clone(self: *Application, ator: Allocator) !*Node {
-            const function = try self.function.clone(ator);
-            const argument = try self.argument.clone(ator);
-            return try Application.init(ator, function, argument);
-        }
     };
 
     pub const Binary = struct {
         left: *Node,
         operator: Token,
         right: *Node,
-
-        pub fn init(ator: Allocator, left: *Node, operator: Token, right: *Node) !*Node {
-            const node = try ator.create(Node);
-            node.* = Node{ .binary = .{
-                .left = left,
-                .operator = operator,
-                .right = right,
-            } };
-            return node;
-        }
-
-        pub fn deinit(self: *Binary, ator: Allocator) void {
-            self.left.deinit(ator);
-            self.right.deinit(ator);
-            ator.destroy(@as(*Node, @fieldParentPtr("binary", self)));
-        }
-
-        pub fn clone(self: *Binary, ator: Allocator) !*Node {
-            const left = try self.left.clone(ator);
-            const right = try self.right.clone(ator);
-            return try Binary.init(ator, left, self.operator, right);
-        }
     };
+
+    pub const Call = struct {
+        callee: *Node,
+        arguments: []*Node,
+    };
+
+    pub const List = struct {
+        items: []*Node,
+        spread: ?*Node,
+    };
+
+    pub const Range = struct {
+        start: *Node,
+        end: *Node,
+    };
+
+    pub const Block = struct {
+        expression: *Node,
+    };
+
+    pub const Function = struct {
+        parameters: []Token,
+        body: FunctionBody,
+    };
+
+    pub const Binding = struct {
+        pattern: *Pattern,
+        value: *Node,
+        body: *Node,
+    };
+
+    pub const Sequence = struct {
+        first: *Node,
+        second: *Node,
+    };
+
+    pub fn create(ator: Allocator, node: Node) !*Node {
+        const ptr = try ator.create(Node);
+        ptr.* = node;
+        return ptr;
+    }
 
     pub fn deinit(self: *Node, ator: Allocator) void {
         switch (self.*) {
-            .program => |*program| program.deinit(ator),
-            .primary => |*primary| primary.deinit(ator),
-            .unary => |*unary| unary.deinit(ator),
-            .binary => |*binary| binary.deinit(ator),
-            .function => |*function| function.deinit(ator),
-            .application => |*application| application.deinit(ator),
-            .binding => |*binding| binding.deinit(ator),
-            .selection => |*selection| selection.deinit(ator),
+            .program => |program| program.expression.deinit(ator),
+            .identifier, .literal => {},
+            .unary => |unary| unary.operand.deinit(ator),
+            .binary => |binary| {
+                binary.left.deinit(ator);
+                binary.right.deinit(ator);
+            },
+            .call => |call| {
+                call.callee.deinit(ator);
+                for (call.arguments) |argument| argument.deinit(ator);
+                ator.free(call.arguments);
+            },
+            .list => |list| {
+                for (list.items) |item| item.deinit(ator);
+                ator.free(list.items);
+                if (list.spread) |spread| spread.deinit(ator);
+            },
+            .range => |range| {
+                range.start.deinit(ator);
+                range.end.deinit(ator);
+            },
+            .block => |block| block.expression.deinit(ator),
+            .function => |*function| {
+                ator.free(function.parameters);
+                function.body.deinit(ator);
+            },
+            .binding => |binding| {
+                binding.pattern.deinit(ator);
+                binding.value.deinit(ator);
+                binding.body.deinit(ator);
+            },
+            .sequence => |sequence| {
+                sequence.first.deinit(ator);
+                sequence.second.deinit(ator);
+            },
+        }
+        ator.destroy(self);
+    }
+
+    pub fn writeSource(self: *const Node, writer: anytype) anyerror!void {
+        try self.writeSourceIndented(writer, 0);
+    }
+
+    pub fn writeTree(self: *const Node, writer: anytype) anyerror!void {
+        try self.writeTreeIndented(writer, 0, null, .plain);
+    }
+
+    pub fn writeTreeColored(self: *const Node, writer: anytype) anyerror!void {
+        try self.writeTreeIndented(writer, 0, null, .color);
+    }
+
+    fn writeSourceIndented(self: *const Node, writer: anytype, indent: usize) anyerror!void {
+        switch (self.*) {
+            .program => |program| try program.expression.writeSourceIndented(writer, indent),
+            .binding => |binding| {
+                try writeIndent(writer, indent);
+                try writer.writeAll("let ");
+                try writePatternSource(binding.pattern, writer);
+                try writer.writeAll(" = ");
+                try binding.value.writeInline(writer, 0, .none);
+                try writer.writeAll(";\n");
+                try binding.body.writeSourceIndented(writer, indent);
+            },
+            .sequence => |sequence| {
+                try sequence.first.writeSourceIndented(writer, indent);
+                try writer.writeAll(";\n");
+                try sequence.second.writeSourceIndented(writer, indent);
+            },
+            else => {
+                try writeIndent(writer, indent);
+                try self.writeInline(writer, 0, .none);
+            },
         }
     }
 
-    pub fn clone(self: *Node, ator: Allocator) anyerror!*Node {
+    const AssocSide = enum {
+        none,
+        left,
+        right,
+    };
+
+    const TreeStyle = enum {
+        plain,
+        color,
+    };
+
+    fn writeInline(self: *const Node, writer: anytype, parent_prec: u8, side: AssocSide) anyerror!void {
+        const my_prec = self.precedence();
+        const need_parens = my_prec != 0 and needsParens(self, parent_prec, side);
+
+        if (need_parens) try writer.writeByte('(');
+        defer if (need_parens) writer.writeByte(')') catch {};
+
+        switch (self.*) {
+            .program => |program| try program.expression.writeInline(writer, parent_prec, side),
+            .identifier, .literal => |token| try writer.writeAll(token.lexeme),
+            .unary => |unary| {
+                try writer.writeAll(unary.operator.lexeme);
+                try unary.operand.writeInline(writer, my_prec, .right);
+            },
+            .binary => |binary| {
+                try binary.left.writeInline(writer, my_prec, .left);
+                try writer.print(" {s} ", .{binary.operator.lexeme});
+                try binary.right.writeInline(writer, my_prec, .right);
+            },
+            .call => |call| {
+                try call.callee.writeInline(writer, my_prec, .left);
+                try writer.writeByte('(');
+                for (call.arguments, 0..) |argument, index| {
+                    if (index != 0) try writer.writeAll(", ");
+                    try argument.writeInline(writer, 0, .none);
+                }
+                try writer.writeByte(')');
+            },
+            .list => |list| {
+                try writer.writeByte('[');
+                for (list.items, 0..) |item, index| {
+                    if (index != 0) try writer.writeAll(", ");
+                    try item.writeInline(writer, 0, .none);
+                }
+                if (list.spread) |spread| {
+                    if (list.items.len != 0) try writer.writeAll(", ");
+                    try writer.writeAll("...");
+                    try spread.writeInline(writer, 0, .none);
+                }
+                try writer.writeByte(']');
+            },
+            .range => |range| {
+                try writer.writeByte('[');
+                try range.start.writeInline(writer, 0, .none);
+                try writer.writeAll("..");
+                try range.end.writeInline(writer, 0, .none);
+                try writer.writeByte(']');
+            },
+            .block => |block| {
+                try writer.writeAll("{\n");
+                try block.expression.writeSourceIndented(writer, 4);
+                try writer.writeByte('\n');
+                try writeIndent(writer, 0);
+                try writer.writeByte('}');
+            },
+            .function => |function| {
+                try writeParameters(writer, function.parameters);
+                switch (function.body) {
+                    .expression => |body_expression| {
+                        if (body_expression.isCompactExpression()) {
+                            try writer.writeAll(" { ");
+                            try body_expression.writeInline(writer, 0, .none);
+                            try writer.writeAll(" }");
+                        } else {
+                            try writer.writeAll(" {\n");
+                            try body_expression.writeSourceIndented(writer, 4);
+                            try writer.writeByte('\n');
+                            try writeIndent(writer, 0);
+                            try writer.writeByte('}');
+                        }
+                    },
+                    .branches => |branches| {
+                        try writer.writeAll(" {\n");
+                        for (branches, 0..) |branch, index| {
+                            if (index != 0) try writer.writeByte('\n');
+                            try writeIndent(writer, 4);
+                            try writeBranchSource(branch, writer, 4);
+                        }
+                        try writer.writeByte('\n');
+                        try writeIndent(writer, 0);
+                        try writer.writeByte('}');
+                    },
+                }
+            },
+            .binding, .sequence => {
+                try writer.writeAll("{\n");
+                try self.writeSourceIndented(writer, 4);
+                try writer.writeByte('\n');
+                try writeIndent(writer, 0);
+                try writer.writeByte('}');
+            },
+        }
+    }
+
+    fn writeTreeIndented(self: *const Node, writer: anytype, indent: usize, label: ?[]const u8, style: TreeStyle) anyerror!void {
+        try writeIndent(writer, indent);
+        if (label) |value| try writeTreeLabel(writer, value, style);
+
+        switch (self.*) {
+            .program => {
+                try writeTreeKind(writer, "program", style);
+                try self.program.expression.writeTreeIndented(writer, indent + 4, null, style);
+            },
+            .identifier => |token| try writeTreeTokenLine(writer, "identifier", token, style),
+            .literal => |token| try writeTreeTokenLine(writer, "literal", token, style),
+            .unary => |unary| {
+                try writeTreeKindWithToken(writer, "unary", unary.operator, style);
+                try unary.operand.writeTreeIndented(writer, indent + 4, "operand", style);
+            },
+            .binary => |binary| {
+                try writeTreeKindWithToken(writer, "binary", binary.operator, style);
+                try binary.left.writeTreeIndented(writer, indent + 4, "left", style);
+                try binary.right.writeTreeIndented(writer, indent + 4, "right", style);
+            },
+            .call => |call| {
+                try writeTreeKind(writer, "call", style);
+                try call.callee.writeTreeIndented(writer, indent + 4, "callee", style);
+                for (call.arguments, 0..) |argument, index| {
+                    var label_buffer: [32]u8 = undefined;
+                    const item_label = try std.fmt.bufPrint(&label_buffer, "arg[{d}]", .{index});
+                    try argument.writeTreeIndented(writer, indent + 4, item_label, style);
+                }
+            },
+            .list => |list| {
+                try writeTreeKind(writer, "list", style);
+                for (list.items, 0..) |item, index| {
+                    var label_buffer: [32]u8 = undefined;
+                    const item_label = try std.fmt.bufPrint(&label_buffer, "item[{d}]", .{index});
+                    try item.writeTreeIndented(writer, indent + 4, item_label, style);
+                }
+                if (list.spread) |spread| try spread.writeTreeIndented(writer, indent + 4, "spread", style);
+            },
+            .range => |range| {
+                try writeTreeKind(writer, "range", style);
+                try range.start.writeTreeIndented(writer, indent + 4, "start", style);
+                try range.end.writeTreeIndented(writer, indent + 4, "end", style);
+            },
+            .block => |block| {
+                try writeTreeKind(writer, "block", style);
+                try block.expression.writeTreeIndented(writer, indent + 4, "expression", style);
+            },
+            .function => |function| {
+                try writeTreeKind(writer, "function", style);
+                try writeIndent(writer, indent + 4);
+                try writeTreeWord(writer, "parameters", style, ansi.cyan);
+                if (function.parameters.len == 0) {
+                    try writer.writeByte('\n');
+                } else {
+                    try writer.writeAll(colorForStyle(style, ansi.dim));
+                    try writer.writeByte(':');
+                    try writer.writeAll(resetForStyle(style));
+                    for (function.parameters) |parameter| {
+                        try writer.writeByte(' ');
+                        try writer.writeAll(colorForStyle(style, parameter.color()));
+                        try writer.writeAll(parameter.lexeme);
+                        try writer.writeAll(resetForStyle(style));
+                    }
+                    try writer.writeByte('\n');
+                }
+                switch (function.body) {
+                    .expression => |body_expression| try body_expression.writeTreeIndented(writer, indent + 4, "body", style),
+                    .branches => |branches| {
+                        try writeIndent(writer, indent + 4);
+                        try writeTreeWord(writer, "branches", style, ansi.magenta);
+                        try writer.writeByte('\n');
+                        for (branches, 0..) |branch, index| {
+                            var label_buffer: [32]u8 = undefined;
+                            const branch_label = try std.fmt.bufPrint(&label_buffer, "branch[{d}]", .{index});
+                            try writeBranchTree(branch, writer, indent + 8, branch_label, style);
+                        }
+                    },
+                }
+            },
+            .binding => |binding| {
+                try writeTreeKind(writer, "binding", style);
+                try writePatternTree(binding.pattern, writer, indent + 4, "pattern", style);
+                try binding.value.writeTreeIndented(writer, indent + 4, "value", style);
+                try binding.body.writeTreeIndented(writer, indent + 4, "body", style);
+            },
+            .sequence => |sequence| {
+                try writeTreeKind(writer, "sequence", style);
+                try sequence.first.writeTreeIndented(writer, indent + 4, "first", style);
+                try sequence.second.writeTreeIndented(writer, indent + 4, "second", style);
+            },
+        }
+    }
+
+    fn precedence(self: *const Node) u8 {
         return switch (self.*) {
-            .program => |*program| try program.clone(ator),
-            .primary => |*primary| try primary.clone(ator),
-            .unary => |*unary| try unary.clone(ator),
-            .binary => |*binary| try binary.clone(ator),
-            .function => |*function| try function.clone(ator),
-            .application => |*application| try application.clone(ator),
-            .binding => |*let_in| try let_in.clone(ator),
-            .selection => |*selection| try selection.clone(ator),
+            .identifier, .literal, .list, .range, .block, .function => 9,
+            .call => 8,
+            .unary => 7,
+            .binary => |binary| binaryPrecedence(binary.operator.tag),
+            .program, .binding, .sequence => 0,
         };
     }
 
-    pub fn format(
-        self: *Node,
-        writer: anytype,
-    ) !void {
-        switch (self.*) {
-            .program => |program| if (program.expression) |expression|
-                try expression.format(writer),
-            .primary => |primary| {
-                const operand = primary.operand;
-                try writer.print("{s}", .{operand.lexeme});
-            },
-            .unary => |unary| {
-                try writer.print("{s}", .{unary.operator.lexeme});
-                try unary.operand.format(writer);
-            },
-            .binary => |binary| {
-                try binary.left.format(writer);
-                try writer.print(" {s} ", .{binary.operator.lexeme});
-                try binary.right.format(writer);
-            },
-            .function => |function| {
-                try writer.print("λ{s}. ", .{function.parameter.lexeme});
-                try function.body.format(writer);
-            },
-            .application => |application| {
-                try application.function.format(writer);
-                try writer.print(" ", .{});
-                try application.argument.format(writer);
-            },
-            .binding => |let_in| {
-                try writer.print("\nlet ", .{});
-                try let_in.name.format(writer);
-                try writer.print(" = ", .{});
-                try let_in.value.format(writer);
-                try writer.print(" in ", .{});
-                if (let_in.body.tag() != .binding) {
-                    try writer.print("\n  ", .{});
-                }
-                try let_in.body.format(writer);
-            },
-            .selection => |selection| {
-                try writer.print("if ", .{});
-                try selection.condition.format(writer);
-                try writer.print(" then ", .{});
-                try selection.consequent.format(writer);
-                try writer.print(" else ", .{});
-                try selection.alternate.format(writer);
-            },
-        }
+    fn isCompactExpression(self: *const Node) bool {
+        return switch (self.*) {
+            .binding, .sequence, .block, .function => false,
+            else => true,
+        };
     }
 
-    pub fn equal(node_a: *Node, node_b: *Node) bool {
-        if (node_a.tag() != node_b.tag()) {
-            return false;
-        }
-        return switch (node_a.*) {
-            .program => |a| {
-                const b = node_b.program;
-                if (a.expression == null or b.expression == null)
-                    return a.expression == b.expression;
-                return a.expression.?.equal(b.expression.?);
-            },
-            .primary => |a| {
-                const b = node_b.primary;
-                return a.operand.equal(b.operand);
-            },
-            .unary => |a| {
-                const b = node_b.unary;
-                return a.operator.equal(b.operator) and
-                    a.operand.equal(b.operand);
-            },
-            .binary => |a| {
-                const b = node_b.binary;
-                return a.left.equal(b.left) and
-                    a.operator.equal(b.operator) and
-                    a.right.equal(b.right);
-            },
-            .function => |a| {
-                const b = node_b.function;
-                return a.parameter.equal(b.parameter) and a.body.equal(b.body);
-            },
-            .application => |a| {
-                const b = node_b.application;
-                return a.function.equal(b.function) and a.argument.equal(b.argument);
-            },
-            .binding => |a| {
-                const b = node_b.binding;
-                return a.name.equal(b.name) and a.value.equal(b.value) and a.body.equal(b.body);
-            },
-            .selection => |a| {
-                const b = node_b.selection;
-                return a.condition.equal(b.condition) and
-                    a.consequent.equal(b.consequent) and
-                    a.alternate.equal(b.alternate);
-            },
+    fn writeTreeKind(writer: anytype, name: []const u8, style: TreeStyle) !void {
+        try writeTreeWord(writer, name, style, ansi.magenta);
+        try writer.writeByte('\n');
+    }
+
+    fn writeTreeTokenLine(writer: anytype, kind: []const u8, token: Token, style: TreeStyle) !void {
+        try writeTreeWord(writer, kind, style, ansi.magenta);
+        try writer.writeByte(' ');
+        try writer.writeAll(colorForStyle(style, token.color()));
+        try writer.writeAll(token.lexeme);
+        try writer.writeAll(resetForStyle(style));
+        try writer.writeByte('\n');
+    }
+
+    fn writeTreeKindWithToken(writer: anytype, kind: []const u8, token: Token, style: TreeStyle) !void {
+        try writeTreeWord(writer, kind, style, ansi.magenta);
+        try writer.writeByte(' ');
+        try writer.writeAll(colorForStyle(style, token.color()));
+        try writer.writeAll(token.lexeme);
+        try writer.writeAll(resetForStyle(style));
+        try writer.writeByte('\n');
+    }
+
+    fn writeTreeLabel(writer: anytype, label: []const u8, style: TreeStyle) !void {
+        try writer.writeAll(colorForStyle(style, ansi.dim));
+        try writer.writeAll(label);
+        try writer.writeAll(": ");
+        try writer.writeAll(resetForStyle(style));
+    }
+
+    fn writeTreeWord(writer: anytype, value: []const u8, style: TreeStyle, color: []const u8) !void {
+        try writer.writeAll(colorForStyle(style, color));
+        try writer.writeAll(value);
+        try writer.writeAll(resetForStyle(style));
+    }
+
+    fn colorForStyle(style: TreeStyle, color: []const u8) []const u8 {
+        return switch (style) {
+            .plain => "",
+            .color => color,
+        };
+    }
+
+    fn resetForStyle(style: TreeStyle) []const u8 {
+        return switch (style) {
+            .plain => "",
+            .color => ansi.reset,
         };
     }
 };
+
+pub const FunctionBody = union(FunctionBodyTag) {
+    expression: *Node,
+    branches: []*Branch,
+
+    pub fn deinit(self: *FunctionBody, ator: Allocator) void {
+        switch (self.*) {
+            .expression => |expression| expression.deinit(ator),
+            .branches => |branches| {
+                for (branches) |branch| branch.deinit(ator);
+                ator.free(branches);
+            },
+        }
+    }
+};
+
+pub const Branch = struct {
+    patterns: ?[]*Pattern,
+    guard: ?*Node,
+    result: *Node,
+
+    pub fn create(
+        ator: Allocator,
+        patterns: ?[]*Pattern,
+        guard: ?*Node,
+        result: *Node,
+    ) !*Branch {
+        const ptr = try ator.create(Branch);
+        ptr.* = .{
+            .patterns = patterns,
+            .guard = guard,
+            .result = result,
+        };
+        return ptr;
+    }
+
+    pub fn deinit(self: *Branch, ator: Allocator) void {
+        if (self.patterns) |patterns| {
+            for (patterns) |pattern| pattern.deinit(ator);
+            ator.free(patterns);
+        }
+        if (self.guard) |guard| guard.deinit(ator);
+        self.result.deinit(ator);
+        ator.destroy(self);
+    }
+};
+
+pub const Pattern = union(PatternTag) {
+    wildcard: void,
+    identifier: Token,
+    literal: Token,
+    list: ListPattern,
+    group: *Pattern,
+
+    pub const ListPattern = struct {
+        items: []*Pattern,
+        spread: ?*Pattern,
+    };
+
+    pub fn create(ator: Allocator, pattern: Pattern) !*Pattern {
+        const ptr = try ator.create(Pattern);
+        ptr.* = pattern;
+        return ptr;
+    }
+
+    pub fn deinit(self: *Pattern, ator: Allocator) void {
+        switch (self.*) {
+            .wildcard, .identifier, .literal => {},
+            .group => |inner| inner.deinit(ator),
+            .list => |list| {
+                for (list.items) |item| item.deinit(ator);
+                ator.free(list.items);
+                if (list.spread) |spread| spread.deinit(ator);
+            },
+        }
+        ator.destroy(self);
+    }
+};
+
+fn writeParameters(writer: anytype, parameters: []const Token) !void {
+    try writer.writeByte('(');
+    for (parameters, 0..) |parameter, index| {
+        if (index != 0) try writer.writeAll(", ");
+        try writer.writeAll(parameter.lexeme);
+    }
+    try writer.writeByte(')');
+}
+
+fn writeBranchSource(branch: *const Branch, writer: anytype, indent: usize) !void {
+    if (branch.patterns) |patterns| {
+        for (patterns, 0..) |pattern, index| {
+            if (index != 0) try writer.writeAll(", ");
+            try writePatternSource(pattern, writer);
+        }
+        if (branch.guard) |guard| {
+            try writer.writeAll(" ? ");
+            try guard.writeSource(writer);
+        }
+    } else if (branch.guard) |guard| {
+        try writer.writeAll("? ");
+        try guard.writeSource(writer);
+    }
+
+    if (branch.patterns == null and branch.guard == null) {
+        try writer.writeAll("=> ");
+    } else {
+        try writer.writeAll(" => ");
+    }
+
+    switch (branch.result.*) {
+        .block => |block| {
+            try writer.writeAll("{\n");
+            try block.expression.writeSourceIndented(writer, indent + 4);
+            try writer.writeByte('\n');
+            try writeIndent(writer, indent);
+            try writer.writeByte('}');
+        },
+        else => try branch.result.writeSource(writer),
+    }
+}
+
+fn writeBranchTree(branch: *const Branch, writer: anytype, indent: usize, label: []const u8, style: Node.TreeStyle) !void {
+    try writeIndent(writer, indent);
+    try Node.writeTreeLabel(writer, label, style);
+    try Node.writeTreeWord(writer, "branch", style, ansi.magenta);
+    try writer.writeByte('\n');
+
+    if (branch.patterns) |patterns| {
+        for (patterns, 0..) |pattern, index| {
+            var label_buffer: [32]u8 = undefined;
+            const item_label = try std.fmt.bufPrint(&label_buffer, "pattern[{d}]", .{index});
+            try writePatternTree(pattern, writer, indent + 4, item_label, style);
+        }
+    } else {
+        try writeIndent(writer, indent + 4);
+        try Node.writeTreeLabel(writer, "patterns", style);
+        try Node.writeTreeWord(writer, "implicit-parameters", style, ansi.dim);
+        try writer.writeByte('\n');
+    }
+
+    if (branch.guard) |guard| {
+        try guard.writeTreeIndented(writer, indent + 4, "guard", style);
+    } else {
+        try writeIndent(writer, indent + 4);
+        try Node.writeTreeLabel(writer, "guard", style);
+        try Node.writeTreeWord(writer, "none", style, ansi.dim);
+        try writer.writeByte('\n');
+    }
+
+    try branch.result.writeTreeIndented(writer, indent + 4, "result", style);
+}
+
+fn writePatternSource(pattern: *const Pattern, writer: anytype) !void {
+    switch (pattern.*) {
+        .wildcard => try writer.writeByte('_'),
+        .identifier, .literal => |token| try writer.writeAll(token.lexeme),
+        .group => |inner| {
+            try writer.writeByte('(');
+            try writePatternSource(inner, writer);
+            try writer.writeByte(')');
+        },
+        .list => |list| {
+            try writer.writeByte('[');
+            for (list.items, 0..) |item, index| {
+                if (index != 0) try writer.writeAll(", ");
+                try writePatternSource(item, writer);
+            }
+            if (list.spread) |spread| {
+                if (list.items.len != 0) try writer.writeAll(", ");
+                try writer.writeAll("...");
+                try writePatternSource(spread, writer);
+            }
+            try writer.writeByte(']');
+        },
+    }
+}
+
+fn writePatternTree(pattern: *const Pattern, writer: anytype, indent: usize, label: []const u8, style: Node.TreeStyle) !void {
+    try writeIndent(writer, indent);
+    try Node.writeTreeLabel(writer, label, style);
+    switch (pattern.*) {
+        .wildcard => {
+            try Node.writeTreeWord(writer, "wildcard", style, ansi.magenta);
+            try writer.writeByte('\n');
+        },
+        .identifier => |token| try Node.writeTreeTokenLine(writer, "identifier", token, style),
+        .literal => |token| try Node.writeTreeTokenLine(writer, "literal", token, style),
+        .group => |inner| {
+            try Node.writeTreeKind(writer, "group", style);
+            try writePatternTree(inner, writer, indent + 4, "inner", style);
+        },
+        .list => |list| {
+            try Node.writeTreeKind(writer, "list", style);
+            for (list.items, 0..) |item, index| {
+                var label_buffer: [32]u8 = undefined;
+                const item_label = try std.fmt.bufPrint(&label_buffer, "item[{d}]", .{index});
+                try writePatternTree(item, writer, indent + 4, item_label, style);
+            }
+            if (list.spread) |spread| try writePatternTree(spread, writer, indent + 4, "spread", style);
+        },
+    }
+}
+
+
+fn writeIndent(writer: anytype, indent: usize) !void {
+    var remaining = indent;
+    while (remaining != 0) : (remaining -= 1) try writer.writeByte(' ');
+}
+
+fn binaryPrecedence(tag: Token.Tag) u8 {
+    return switch (tag) {
+        .or_or => 1,
+        .and_and => 2,
+        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 3,
+        .concat => 4,
+        .plus, .minus => 5,
+        .star, .slash, .percent => 6,
+        else => 0,
+    };
+}
+
+fn needsParens(self: *const Node, parent_prec: u8, side: Node.AssocSide) bool {
+    const my_prec = self.precedence();
+    if (my_prec == 0 or parent_prec == 0) return false;
+    if (my_prec < parent_prec) return true;
+    if (my_prec > parent_prec) return false;
+
+    return switch (self.*) {
+        .binary => |binary| switch (binary.operator.tag) {
+            .concat => side == .left,
+            else => side == .right,
+        },
+        else => false,
+    };
+}

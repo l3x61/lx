@@ -1,872 +1,1055 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const print = std.debug.print;
 const testing = std.testing;
+const fs = std.fs;
 
 const log = std.log.scoped(.parser);
 
-const expect = testing.expect;
-const expectError = testing.expectError;
-
-const ansi = @import("ansi.zig");
 const Lexer = @import("Lexer.zig");
-const Node = @import("node.zig").Node;
+const Node = @import("node.zig");
 const Token = @import("Token.zig");
 
 const Parser = @This();
 
-gpa: Allocator,
-lexer: Lexer,
-token: Token,
+const ExprContext = struct {
+    stop_at_newline: bool = false,
+    stop_at_fat_arrow: bool = false,
+    stop_at_rparen: bool = false,
+    stop_at_rbracket: bool = false,
+    stop_at_rbrace: bool = false,
+    stop_at_comma: bool = false,
+    stop_at_range: bool = false,
+};
 
-pub fn init(ator: Allocator, input: []const u8) !Parser {
-    var lexer = try Lexer.init(input);
+allocator: Allocator,
+tokens: []Token,
+index: usize,
 
-    var token = lexer.nextToken();
-    while (token.tag == .comment) token = lexer.nextToken();
+pub fn init(allocator: Allocator, source: []const u8) !Parser {
+    var lexer = try Lexer.init(source);
+    var tokens: std.ArrayList(Token) = .empty;
+    errdefer tokens.deinit(allocator);
 
-    return Parser{
-        .gpa = ator,
-        .lexer = lexer,
-        .token = token,
+    while (true) {
+        const token = lexer.nextToken();
+        if (token.tag != .comment) try tokens.append(allocator, token);
+        if (token.tag == .eof) break;
+    }
+
+    return .{
+        .allocator = allocator,
+        .tokens = try tokens.toOwnedSlice(allocator),
+        .index = 0,
     };
 }
 
-pub fn parse(self: *Parser) !*Node {
-    return self.program();
+pub fn deinit(self: *Parser) void {
+    self.allocator.free(self.tokens);
 }
 
-fn nextToken(self: *Parser, expected: []const Token.Tag) !Token {
-    const token = self.token;
-    self.token = self.lexer.nextToken();
+// ```
+// program = expression EOF .
+// ```
+pub fn parse(self: *Parser) !*Node.Node {
+    self.skipNewlines();
+    const expression = try self.parseExpression(.{});
+    errdefer expression.deinit(self.allocator);
+    self.skipNewlines();
+    _ = try self.expect(.eof);
+    return Node.Node.create(self.allocator, .{
+        .program = .{ .expression = expression },
+    });
+}
 
-    while (self.token.tag == .comment) self.token = self.lexer.nextToken();
+fn current(self: *const Parser) Token {
+    return self.tokens[self.index];
+}
 
-    if (!token.isOneOf(expected)) {
-        log.warn("expected {any} but got {f}\n", .{ expected, token.tag });
-        return error.SyntaxError;
-    }
+fn peek(self: *const Parser, offset: usize) Token {
+    const next = self.index + offset;
+    if (next >= self.tokens.len) return self.tokens[self.tokens.len - 1];
+    return self.tokens[next];
+}
+
+fn advance(self: *Parser) Token {
+    const token = self.current();
+    if (self.index + 1 < self.tokens.len) self.index += 1;
     return token;
 }
 
-/// ```
-/// program
-///     = [ expression ]
-///     .
-/// ```
-fn program(self: *Parser) !*Node {
-    const node = try Node.Program.init(self.gpa, null);
-    errdefer node.deinit(self.gpa);
-
-    if (self.token.tag != .eof) {
-        node.program.expression = try self.expression();
+fn expect(self: *Parser, tag: Token.Tag) !Token {
+    const token = self.current();
+    if (token.tag != tag) {
+        log.debug("expected {f} but got {f}\n", .{ tag, token.tag });
+        return error.SyntaxError;
     }
-    _ = try self.nextToken(&[_]Token.Tag{.eof});
-    return node;
+    return self.advance();
 }
 
-/// ```
-/// expression
-///     = binding
-///     | selection
-///     | binary
-///     .
-/// ```
-fn expression(self: *Parser) anyerror!*Node {
-    return switch (self.token.tag) {
-        .let => self.binding(),
-        .@"if" => self.selection(),
-        else => self.binary(Precedence.lowest),
-    };
+fn match(self: *Parser, tag: Token.Tag) bool {
+    if (self.current().tag != tag) return false;
+    _ = self.advance();
+    return true;
 }
 
-/// ```
-/// binding
-///     = "let" IDENTIFIER "=" expression "in" expression
-///     .
-/// ```
-// TODO: multiple bindings per let
-//       eg: let I=E_1 { and I=E_N } in E_n+1
-fn binding(self: *Parser) !*Node {
-    _ = try self.nextToken(&[_]Token.Tag{.let});
-
-    const name = try self.nextToken(&[_]Token.Tag{.identifier});
-
-    _ = try self.nextToken(&[_]Token.Tag{.assign});
-    const value = try self.expression();
-    errdefer value.deinit(self.gpa);
-
-    _ = try self.nextToken(&[_]Token.Tag{.in});
-    const body = try self.expression();
-    errdefer body.deinit(self.gpa);
-
-    return Node.Binding.init(self.gpa, name, value, body);
+fn skipNewlines(self: *Parser) void {
+    while (self.current().tag == .newline) _ = self.advance();
 }
 
-/// ```
-/// selection
-///     = "if" expression "then" expression "else" expression
-///     .
-/// ```
-fn selection(self: *Parser) !*Node {
-    _ = try self.nextToken(&[_]Token.Tag{.@"if"});
-    const condition = try self.expression();
-    errdefer condition.deinit(self.gpa);
-
-    _ = try self.nextToken(&[_]Token.Tag{.then});
-    const consequent = try self.expression();
-    errdefer consequent.deinit(self.gpa);
-
-    _ = try self.nextToken(&[_]Token.Tag{.@"else"});
-    const alternate = try self.expression();
-    errdefer alternate.deinit(self.gpa);
-
-    return Node.Selection.init(self.gpa, condition, consequent, alternate);
+fn skipInlineWhitespace(self: *Parser, context: ExprContext) void {
+    if (!context.stop_at_newline) self.skipNewlines();
 }
 
-const Precedence = struct {
-    const lowest: u8 = 0;
-    const equality: u8 = 1;
-    const comparison: u8 = 2;
-    const term: u8 = 3;
-    const factor: u8 = 4;
-    const unary: u8 = 5;
-};
+// ```
+// expression
+//     = let-binding ";" expression
+//     | non-binding [ ";" expression ]
+//     .
+// ```
+fn parseExpression(self: *Parser, context: ExprContext) anyerror!*Node.Node {
+    self.skipInlineWhitespace(context);
 
-fn infix(tag: Token.Tag) ?u8 {
-    return switch (tag) {
-        .equal, .not_equal => Precedence.equality,
-        .greater, .greater_equal, .less, .less_equal => Precedence.comparison,
-        .plus, .minus => Precedence.term,
-        .star, .slash => Precedence.factor,
-        else => null,
-    };
+    if (self.current().tag == .let) {
+        return self.parseBindingExpression(context);
+    }
+
+    const first = try self.parseNonBinding(context);
+    errdefer first.deinit(self.allocator);
+
+    self.skipInlineWhitespace(context);
+    if (!self.match(.semicolon)) return first;
+
+    self.skipNewlines();
+    const second = try self.parseExpression(context);
+    errdefer second.deinit(self.allocator);
+    return Node.Node.create(self.allocator, .{
+        .sequence = .{
+            .first = first,
+            .second = second,
+        },
+    });
 }
 
-/// binary
-///     = unary ("==" | "!=") binary
-///     | unary (">") binary
-///     | unary ("<") binary
-///     | unary (">=") binary
-///     | unary ("<=") binary
-///     | unary ("+" | "-") binary
-///     | unary ("*" | "/") binary
-///     | unary
-///     .
-fn binary(self: *Parser, precedence: u8) !*Node {
-    var left = try self.unary();
-    errdefer left.deinit(self.gpa);
+// ```
+// let-binding = "let" pattern "=" non-binding .
+// ```
+fn parseBindingExpression(self: *Parser, context: ExprContext) anyerror!*Node.Node {
+    _ = try self.expect(.let);
+    const pattern = try self.parsePattern();
+    errdefer pattern.deinit(self.allocator);
+
+    self.skipInlineWhitespace(context);
+    _ = try self.expect(.assign);
+    const value = try self.parseNonBinding(context);
+    errdefer value.deinit(self.allocator);
+
+    self.skipInlineWhitespace(context);
+    _ = try self.expect(.semicolon);
+    self.skipNewlines();
+    const body = try self.parseExpression(context);
+    errdefer body.deinit(self.allocator);
+
+    return Node.Node.create(self.allocator, .{
+        .binding = .{
+            .pattern = pattern,
+            .value = value,
+            .body = body,
+        },
+    });
+}
+
+// ```
+// non-binding
+//     = function
+//     | block
+//     | binary
+//     .
+// ```
+fn parseNonBinding(self: *Parser, context: ExprContext) anyerror!*Node.Node {
+    return self.parseBinary(context, 1);
+}
+
+// ```
+// binary = disjunction .
+// disjunction = conjunction { "||" conjunction } .
+// conjunction = comparison { "&&" comparison } .
+// comparison = concat { ("==" | "!=" | "<" | ">" | "<=" | ">=") concat } .
+// concat = addition [ "++" concat ] .
+// addition = multiplication { ("+" | "-") multiplication } .
+// multiplication = unary { ("*" | "/" | "%") unary } .
+// ```
+fn parseBinary(self: *Parser, context: ExprContext, min_precedence: u8) anyerror!*Node.Node {
+    var left = try self.parseUnary(context);
+    errdefer left.deinit(self.allocator);
 
     while (true) {
-        const operator_tag = self.token.tag;
-        const operator_precedence = infix(operator_tag) orelse break;
+        self.skipInlineWhitespace(context);
+        if (self.atExpressionBoundary(context)) break;
 
-        if (operator_precedence < precedence) break;
+        const operator = self.current();
+        const precedence = infixPrecedence(operator.tag) orelse break;
+        if (precedence < min_precedence) break;
 
-        const operator = try self.nextToken(&[_]Token.Tag{operator_tag});
-        const next_precedence = operator_precedence + 1;
-        const right = try self.binary(next_precedence);
-        errdefer right.deinit(self.gpa);
+        _ = self.advance();
+        const next_min = if (operator.tag == .concat) precedence else precedence + 1;
+        left = blk: {
+            const right = try self.parseBinary(context, next_min);
+            errdefer right.deinit(self.allocator);
 
-        left = try Node.Binary.init(self.gpa, left, operator, right);
+            break :blk try Node.Node.create(self.allocator, .{
+                .binary = .{
+                    .left = left,
+                    .operator = operator,
+                    .right = right,
+                },
+            });
+        };
     }
 
     return left;
 }
 
-fn prefix(tag: Token.Tag) ?u8 {
-    return switch (tag) {
-        .minus => Precedence.unary,
-        else => null,
+// ```
+// unary = [ "-" | "!" ] application .
+// ```
+fn parseUnary(self: *Parser, context: ExprContext) anyerror!*Node.Node {
+    self.skipInlineWhitespace(context);
+    return switch (self.current().tag) {
+        .minus, .not => blk: {
+            const operator = self.advance();
+            const operand = try self.parseUnary(context);
+            errdefer operand.deinit(self.allocator);
+            break :blk try Node.Node.create(self.allocator, .{
+                .unary = .{
+                    .operator = operator,
+                    .operand = operand,
+                },
+            });
+        },
+        else => self.parseApplication(context),
     };
 }
 
-/// unary
-///     = ("-") unary
-///     | application
-///     .
-fn unary(self: *Parser) !*Node {
-    if (prefix(self.token.tag)) |_| {
-        const operator = try self.nextToken(&[_]Token.Tag{self.token.tag});
-        const operand = try self.unary();
-        errdefer operand.deinit(self.gpa);
-        return try Node.Unary.init(self.gpa, operator, operand);
-    }
-    return try self.application();
-}
-
-/// ```
-/// application
-///     = primary { primary }
-///     .
-/// ```
-fn application(self: *Parser) !*Node {
-    var left = try self.primary();
-    errdefer left.deinit(self.gpa);
+// ```
+// application = primary { "(" [ arguments ] ")" } .
+// ```
+fn parseApplication(self: *Parser, context: ExprContext) anyerror!*Node.Node {
+    var callee = try self.parsePrimary(context);
+    errdefer callee.deinit(self.allocator);
 
     while (true) {
-        switch (self.token.tag) {
-            .true, .false, .number, .string, .identifier, .lambda, .lparen => {
-                const right = try self.primary();
-                errdefer right.deinit(self.gpa);
-                left = try Node.Application.init(self.gpa, left, right);
-            },
-            else => break,
+        self.skipInlineWhitespace(context);
+        if (self.current().tag != .lparen) break;
+
+        callee = blk: {
+            const arguments = try self.parseArguments();
+            errdefer deinitNodeSlice(self.allocator, arguments);
+
+            break :blk try Node.Node.create(self.allocator, .{
+                .call = .{
+                    .callee = callee,
+                    .arguments = arguments,
+                },
+            });
+        };
+    }
+
+    return callee;
+}
+
+// ```
+// primary
+//     = literal
+//     | identifier
+//     | list
+//     | range
+//     | block
+//     | function
+//     | "(" expression ")"
+//     .
+// ```
+fn parsePrimary(self: *Parser, context: ExprContext) anyerror!*Node.Node {
+    self.skipInlineWhitespace(context);
+    const token = self.current();
+
+    return switch (token.tag) {
+        .identifier => blk: {
+            _ = self.advance();
+            break :blk try Node.Node.create(self.allocator, .{ .identifier = token });
+        },
+        .number, .string, .true, .false => blk: {
+            _ = self.advance();
+            break :blk try Node.Node.create(self.allocator, .{ .literal = token });
+        },
+        .lparen => if (self.isFunctionStart()) self.parseFunction() else blk: {
+            _ = self.advance();
+            const expression = try self.parseExpression(.{ .stop_at_rparen = true });
+            errdefer expression.deinit(self.allocator);
+            _ = try self.expect(.rparen);
+            break :blk expression;
+        },
+        .lbrace => self.parseBlock(),
+        .lbracket => if (self.isRangeStart()) self.parseRange() else self.parseList(),
+        else => {
+            log.debug("unexpected token {f}\n", .{token.tag});
+            return error.SyntaxError;
+        },
+    };
+}
+
+// ```
+// function = "(" [ parameters ] ")" "{" function-body "}" .
+// parameters = identifier { "," identifier } .
+// function-body = expression | branches .
+// ```
+fn parseFunction(self: *Parser) anyerror!*Node.Node {
+    _ = try self.expect(.lparen);
+
+    var parameters: std.ArrayList(Token) = .empty;
+    defer parameters.deinit(self.allocator);
+
+    self.skipNewlines();
+    if (self.current().tag != .rparen) {
+        while (true) {
+            try parameters.append(self.allocator, try self.expect(.identifier));
+            self.skipNewlines();
+            if (!self.match(.comma)) break;
+            self.skipNewlines();
         }
     }
-    return left;
+    _ = try self.expect(.rparen);
+    self.skipNewlines();
+    _ = try self.expect(.lbrace);
+    self.skipNewlines();
+
+    if (self.current().tag == .rbrace) return error.SyntaxError;
+
+    const body: Node.FunctionBody = if (self.startsBranch())
+        .{ .branches = try self.parseBranches() }
+    else
+        .{ .expression = try self.parseExpression(.{ .stop_at_rbrace = true }) };
+    errdefer {
+        var owned_body = body;
+        owned_body.deinit(self.allocator);
+    }
+
+    self.skipNewlines();
+    _ = try self.expect(.rbrace);
+    const owned_parameters = try parameters.toOwnedSlice(self.allocator);
+    errdefer self.allocator.free(owned_parameters);
+
+    return Node.Node.create(self.allocator, .{
+        .function = .{
+            .parameters = owned_parameters,
+            .body = body,
+        },
+    });
 }
 
-/// ```
-/// primary
-///     | "true"
-///     | "false"
-///     | NUMBER
-///     | STRING
-///     | IDENTIFIER
-///     | function
-///     | "(" expression ")"
-///     .
-/// ```
-const primary_tags = &[_]Token.Tag{ .true, .false, .number, .string, .identifier, .lambda, .lparen };
+// ```
+// branches = branch { newline branch } .
+// ```
+fn parseBranches(self: *Parser) anyerror![]*Node.Branch {
+    var branches: std.ArrayList(*Node.Branch) = .empty;
+    errdefer {
+        for (branches.items) |branch| branch.deinit(self.allocator);
+        branches.deinit(self.allocator);
+    }
 
-fn primary(self: *Parser) !*Node {
-    return switch (self.token.tag) {
-        else => {
-            const token = try self.nextToken(primary_tags);
-            return Node.Primary.init(self.gpa, token);
+    while (true) {
+        try branches.append(self.allocator, try self.parseBranch());
+
+        if (self.current().tag == .rbrace) break;
+        if (self.current().tag != .newline) return error.SyntaxError;
+
+        self.skipNewlines();
+        if (self.current().tag == .rbrace) break;
+    }
+
+    return try branches.toOwnedSlice(self.allocator);
+}
+
+// ```
+// branch
+//     = patterns [ "?" expression ] "=>" expression
+//     | "?" expression "=>" expression
+//     | "=>" expression
+//     .
+// ```
+fn parseBranch(self: *Parser) anyerror!*Node.Branch {
+    if (self.match(.question)) {
+        const guard = try self.parseExpression(.{
+            .stop_at_newline = true,
+            .stop_at_fat_arrow = true,
+        });
+        errdefer guard.deinit(self.allocator);
+
+        _ = try self.expect(.fat_arrow);
+        const result = try self.parseExpression(.{
+            .stop_at_newline = true,
+            .stop_at_rbrace = true,
+        });
+        errdefer result.deinit(self.allocator);
+        return try Node.Branch.create(self.allocator, null, guard, result);
+    }
+
+    if (self.match(.fat_arrow)) {
+        const result = try self.parseExpression(.{
+            .stop_at_newline = true,
+            .stop_at_rbrace = true,
+        });
+        errdefer result.deinit(self.allocator);
+        return try Node.Branch.create(self.allocator, null, null, result);
+    }
+
+    const patterns = try self.parsePatterns();
+    errdefer {
+        for (patterns) |pattern| pattern.deinit(self.allocator);
+        self.allocator.free(patterns);
+    }
+
+    var guard: ?*Node.Node = null;
+    errdefer if (guard) |owned_guard| owned_guard.deinit(self.allocator);
+    if (self.match(.question)) {
+        guard = try self.parseExpression(.{
+            .stop_at_newline = true,
+            .stop_at_fat_arrow = true,
+        });
+    }
+
+    _ = try self.expect(.fat_arrow);
+    const result = try self.parseExpression(.{
+        .stop_at_newline = true,
+        .stop_at_rbrace = true,
+    });
+    errdefer result.deinit(self.allocator);
+
+    return try Node.Branch.create(self.allocator, patterns, guard, result);
+}
+
+// ```
+// patterns = pattern { "," pattern } .
+// ```
+fn parsePatterns(self: *Parser) anyerror![]*Node.Pattern {
+    var patterns: std.ArrayList(*Node.Pattern) = .empty;
+    errdefer {
+        for (patterns.items) |pattern| pattern.deinit(self.allocator);
+        patterns.deinit(self.allocator);
+    }
+
+    try patterns.append(self.allocator, try self.parsePattern());
+    while (true) {
+        self.skipNewlines();
+        if (!self.match(.comma)) break;
+        self.skipNewlines();
+        try patterns.append(self.allocator, try self.parsePattern());
+    }
+
+    return try patterns.toOwnedSlice(self.allocator);
+}
+
+// ```
+// pattern
+//     = "_"
+//     | literal
+//     | identifier
+//     | "[" [ pattern-items ] "]"
+//     | "(" pattern ")"
+//     .
+// ```
+fn parsePattern(self: *Parser) anyerror!*Node.Pattern {
+    self.skipNewlines();
+    const token = self.current();
+
+    return switch (token.tag) {
+        .underscore => blk: {
+            _ = self.advance();
+            break :blk try Node.Pattern.create(self.allocator, .{ .wildcard = {} });
         },
-        .lambda => {
-            return self.function();
+        .identifier => blk: {
+            _ = self.advance();
+            break :blk try Node.Pattern.create(self.allocator, .{ .identifier = token });
         },
-        .lparen => {
-            _ = try self.nextToken(&[_]Token.Tag{.lparen});
-            const node = try self.expression();
-            errdefer node.deinit(self.gpa);
-            _ = try self.nextToken(&[_]Token.Tag{.rparen});
-            return node;
+        .number, .string, .true, .false => blk: {
+            _ = self.advance();
+            break :blk try Node.Pattern.create(self.allocator, .{ .literal = token });
         },
+        .lparen => blk: {
+            _ = self.advance();
+            const inner = try self.parsePattern();
+            errdefer inner.deinit(self.allocator);
+            _ = try self.expect(.rparen);
+            break :blk try Node.Pattern.create(self.allocator, .{ .group = inner });
+        },
+        .lbracket => self.parseListPattern(),
+        else => error.SyntaxError,
     };
 }
 
-/// ```
-/// function
-///     = ("\\" | "λ") IDENTIFIER "." expression
-///     .
-/// ```
-// TODO: allow multiple parameters
-//       eg: \ { I . } E
-fn function(self: *Parser) !*Node {
-    _ = try self.nextToken(&[_]Token.Tag{.lambda});
-    const parameter = try self.nextToken(&[_]Token.Tag{.identifier});
-    _ = try self.nextToken(&[_]Token.Tag{.dot});
-    const body = try self.expression();
-    errdefer body.deinit(self.gpa);
+// ```
+// pattern-items = spread-pattern | pattern { "," pattern } [ "," spread-pattern ] .
+// spread-pattern = "..." pattern .
+// ```
+fn parseListPattern(self: *Parser) anyerror!*Node.Pattern {
+    _ = try self.expect(.lbracket);
+    self.skipNewlines();
 
-    return Node.Function.init(self.gpa, parameter, body);
+    var items: std.ArrayList(*Node.Pattern) = .empty;
+    errdefer {
+        for (items.items) |item| item.deinit(self.allocator);
+        items.deinit(self.allocator);
+    }
+
+    var spread: ?*Node.Pattern = null;
+    errdefer if (spread) |owned_spread| owned_spread.deinit(self.allocator);
+
+    if (self.current().tag != .rbracket) {
+        if (self.match(.spread)) {
+            spread = try self.parsePattern();
+        } else {
+            try items.append(self.allocator, try self.parsePattern());
+            while (true) {
+                self.skipNewlines();
+                if (!self.match(.comma)) break;
+                self.skipNewlines();
+                if (self.match(.spread)) {
+                    spread = try self.parsePattern();
+                    break;
+                }
+                try items.append(self.allocator, try self.parsePattern());
+            }
+        }
+    }
+
+    self.skipNewlines();
+    _ = try self.expect(.rbracket);
+    const owned_items = try items.toOwnedSlice(self.allocator);
+    errdefer self.allocator.free(owned_items);
+
+    return try Node.Pattern.create(self.allocator, .{
+        .list = .{
+            .items = owned_items,
+            .spread = spread,
+        },
+    });
 }
 
-fn runTest(input: []const u8, expected: *Node) !void {
-    const ator = testing.allocator;
-    defer expected.deinit(ator);
+// ```
+// arguments = expression { "," expression } .
+// ```
+fn parseArguments(self: *Parser) anyerror![]*Node.Node {
+    _ = try self.expect(.lparen);
+    self.skipNewlines();
 
-    var parser = try Parser.init(ator, input);
+    var arguments: std.ArrayList(*Node.Node) = .empty;
+    errdefer {
+        for (arguments.items) |argument| argument.deinit(self.allocator);
+        arguments.deinit(self.allocator);
+    }
 
-    var actual = try parser.parse();
-    defer actual.deinit(ator);
+    if (self.current().tag != .rparen) {
+        while (true) {
+            try arguments.append(self.allocator, try self.parseExpression(.{
+                .stop_at_rparen = true,
+                .stop_at_comma = true,
+            }));
+            self.skipNewlines();
+            if (!self.match(.comma)) break;
+            self.skipNewlines();
+        }
+    }
 
-    expect(actual.equal(expected)) catch {
-        print("{s}error:{s} expected: {f} but got {f}\n", .{ ansi.red, ansi.reset, expected, actual });
-        return error.TestFailed;
+    _ = try self.expect(.rparen);
+    return try arguments.toOwnedSlice(self.allocator);
+}
+
+// ```
+// list = "[" [ list-items ] "]" .
+// list-items = spread | expression { "," expression } [ "," spread ] .
+// spread = "..." expression .
+// ```
+fn parseList(self: *Parser) anyerror!*Node.Node {
+    _ = try self.expect(.lbracket);
+    self.skipNewlines();
+
+    var items: std.ArrayList(*Node.Node) = .empty;
+    errdefer {
+        for (items.items) |item| item.deinit(self.allocator);
+        items.deinit(self.allocator);
+    }
+
+    var spread: ?*Node.Node = null;
+    errdefer if (spread) |owned_spread| owned_spread.deinit(self.allocator);
+
+    if (self.current().tag != .rbracket) {
+        if (self.match(.spread)) {
+            spread = try self.parseExpression(.{ .stop_at_rbracket = true });
+        } else {
+            try items.append(self.allocator, try self.parseExpression(.{
+                .stop_at_comma = true,
+                .stop_at_rbracket = true,
+            }));
+            while (true) {
+                self.skipNewlines();
+                if (!self.match(.comma)) break;
+                self.skipNewlines();
+                if (self.match(.spread)) {
+                    spread = try self.parseExpression(.{ .stop_at_rbracket = true });
+                    break;
+                }
+                try items.append(self.allocator, try self.parseExpression(.{
+                    .stop_at_comma = true,
+                    .stop_at_rbracket = true,
+                }));
+            }
+        }
+    }
+
+    self.skipNewlines();
+    _ = try self.expect(.rbracket);
+    const owned_items = try items.toOwnedSlice(self.allocator);
+    errdefer self.allocator.free(owned_items);
+
+    return try Node.Node.create(self.allocator, .{
+        .list = .{
+            .items = owned_items,
+            .spread = spread,
+        },
+    });
+}
+
+// ```
+// range = "[" expression ".." expression "]" .
+// ```
+fn parseRange(self: *Parser) anyerror!*Node.Node {
+    _ = try self.expect(.lbracket);
+    self.skipNewlines();
+
+    const start = try self.parseExpression(.{ .stop_at_range = true });
+    errdefer start.deinit(self.allocator);
+
+    _ = try self.expect(.range);
+    const end = try self.parseExpression(.{ .stop_at_rbracket = true });
+    errdefer end.deinit(self.allocator);
+
+    _ = try self.expect(.rbracket);
+    return try Node.Node.create(self.allocator, .{
+        .range = .{
+            .start = start,
+            .end = end,
+        },
+    });
+}
+
+// ```
+// block = "{" expression "}" .
+// ```
+fn parseBlock(self: *Parser) anyerror!*Node.Node {
+    _ = try self.expect(.lbrace);
+    self.skipNewlines();
+    const expression = try self.parseExpression(.{ .stop_at_rbrace = true });
+    errdefer expression.deinit(self.allocator);
+    self.skipNewlines();
+    _ = try self.expect(.rbrace);
+    return try Node.Node.create(self.allocator, .{
+        .block = .{ .expression = expression },
+    });
+}
+
+fn deinitNodeSlice(allocator: Allocator, items: []*Node.Node) void {
+    for (items) |item| item.deinit(allocator);
+    allocator.free(items);
+}
+
+fn atExpressionBoundary(self: *Parser, context: ExprContext) bool {
+    const tag = self.current().tag;
+    return tag == .eof or
+        tag == .semicolon or
+        (context.stop_at_newline and tag == .newline) or
+        (context.stop_at_fat_arrow and tag == .fat_arrow) or
+        (context.stop_at_comma and tag == .comma) or
+        (context.stop_at_range and tag == .range) or
+        (context.stop_at_rparen and tag == .rparen) or
+        (context.stop_at_rbracket and tag == .rbracket) or
+        (context.stop_at_rbrace and tag == .rbrace);
+}
+
+fn infixPrecedence(tag: Token.Tag) ?u8 {
+    return switch (tag) {
+        .or_or => 1,
+        .and_and => 2,
+        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 3,
+        .concat => 4,
+        .plus, .minus => 5,
+        .star, .slash, .percent => 6,
+        else => null,
     };
 }
 
-test "empty" {
-    const input = "";
-    const expected = try Node.Program.init(testing.allocator, null);
-    try runTest(input, expected);
+fn isFunctionStart(self: *const Parser) bool {
+    if (self.current().tag != .lparen) return false;
+
+    var index = self.index + 1;
+    if (index >= self.tokens.len) return false;
+
+    if (self.tokens[index].tag == .rparen) {
+        index += 1;
+        return index < self.tokens.len and self.tokens[index].tag == .lbrace;
+    }
+
+    while (true) {
+        if (index >= self.tokens.len or self.tokens[index].tag != .identifier) return false;
+        index += 1;
+        if (index >= self.tokens.len) return false;
+
+        switch (self.tokens[index].tag) {
+            .comma => index += 1,
+            .rparen => {
+                index += 1;
+                return index < self.tokens.len and self.tokens[index].tag == .lbrace;
+            },
+            else => return false,
+        }
+    }
 }
 
-test "parenthesis" {
-    const input = "(()()(()))";
+fn isRangeStart(self: *const Parser) bool {
+    if (self.current().tag != .lbracket) return false;
+
+    var paren_depth: usize = 0;
+    var brace_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var index = self.index + 1;
+
+    while (index < self.tokens.len) : (index += 1) {
+        const tag = self.tokens[index].tag;
+        switch (tag) {
+            .lparen => paren_depth += 1,
+            .rparen => {
+                if (paren_depth != 0) paren_depth -= 1;
+            },
+            .lbrace => brace_depth += 1,
+            .rbrace => {
+                if (brace_depth != 0) brace_depth -= 1;
+            },
+            .lbracket => bracket_depth += 1,
+            .rbracket => {
+                if (bracket_depth == 0 and paren_depth == 0 and brace_depth == 0) return false;
+                if (bracket_depth != 0) bracket_depth -= 1;
+            },
+            .comma, .spread => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return false,
+            .range => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return true,
+            else => {},
+        }
+    }
+
+    return false;
+}
+
+fn startsBranch(self: *const Parser) bool {
+    const start = self.current().tag;
+    if (start == .question or start == .fat_arrow) return true;
+    if (!isPatternStart(start)) return false;
+
+    var paren_depth: usize = 0;
+    var brace_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var index = self.index;
+
+    while (index < self.tokens.len) : (index += 1) {
+        const tag = self.tokens[index].tag;
+        switch (tag) {
+            .lparen => paren_depth += 1,
+            .rparen => {
+                if (paren_depth != 0) paren_depth -= 1;
+            },
+            .lbrace => brace_depth += 1,
+            .rbrace => {
+                if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return false;
+                if (brace_depth != 0) brace_depth -= 1;
+            },
+            .lbracket => bracket_depth += 1,
+            .rbracket => {
+                if (bracket_depth != 0) bracket_depth -= 1;
+            },
+            .newline => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return false,
+            .fat_arrow => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return true,
+            else => {},
+        }
+    }
+
+    return false;
+}
+
+fn isPatternStart(tag: Token.Tag) bool {
+    return switch (tag) {
+        .underscore, .identifier, .number, .string, .true, .false, .lbracket, .lparen => true,
+        else => false,
+    };
+}
+
+fn expectParsesToSource(input: []const u8, expected: []const u8) !void {
     var parser = try Parser.init(testing.allocator, input);
-    try expectError(error.SyntaxError, parser.parse());
+    defer parser.deinit();
+
+    const node = try parser.parse();
+    defer node.deinit(testing.allocator);
+
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(testing.allocator);
+    try node.writeSource(buffer.writer(testing.allocator));
+    try testing.expectEqualStrings(expected, buffer.items);
 }
 
-test "open parenthesis" {
-    const input = "((())";
+fn expectParsesToTree(input: []const u8, expected: []const u8) !void {
     var parser = try Parser.init(testing.allocator, input);
-    try expectError(error.SyntaxError, parser.parse());
+    defer parser.deinit();
+
+    const node = try parser.parse();
+    defer node.deinit(testing.allocator);
+
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(testing.allocator);
+    try node.writeTree(buffer.writer(testing.allocator));
+    try testing.expectEqualStrings(expected, buffer.items);
 }
 
-test "closing parenthesis" {
-    const input = "((())))";
-    var parser = try Parser.init(testing.allocator, input);
-    try expectError(error.SyntaxError, parser.parse());
+test "literal program" {
+    try expectParsesToSource("42", "42");
 }
 
-test "number" {
-    const input = "123";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Primary.init(testing.allocator, Token.init(.number, input, "123")),
+test "binding sequence" {
+    try expectParsesToSource(
+        \\let answer = 42;
+        \\answer
+    ,
+        \\let answer = 42;
+        \\answer
     );
-    try runTest(input, expected);
 }
 
-test "function" {
-    const input = "λx. x";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Function.init(
-            testing.allocator,
-            Token.init(.identifier, input, "x"),
-            try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
-        ),
+test "function with single expression body" {
+    try expectParsesToSource(
+        \\let add = (x, y) { x + y };
+        \\add(1, 2)
+    ,
+        \\let add = (x, y) { x + y };
+        \\add(1, 2)
     );
-    try runTest(input, expected);
 }
 
-test "nested lambdas" {
-    const input = "λx. λy. x";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Function.init(
-            testing.allocator,
-            Token.init(.identifier, input, "x"),
-            try Node.Function.init(
-                testing.allocator,
-                Token.init(.identifier, input, "y"),
-                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
-            ),
-        ),
+test "function with branches" {
+    try expectParsesToSource(
+        \\let abs = (n) {
+        \\    ? n >= 0 => n
+        \\    => -n
+        \\};
+        \\
+        \\abs(-5)
+    ,
+        \\let abs = (n) {
+        \\    ? n >= 0 => n
+        \\    => -n
+        \\};
+        \\abs(-5)
     );
-    try runTest(input, expected);
 }
 
-test "incomplete function 1" {
-    const input = "λ";
-    var parser = try Parser.init(testing.allocator, input);
-    try expectError(error.SyntaxError, parser.parse());
-}
-
-test "incomplete function 2" {
-    const input = "λx";
-    var parser = try Parser.init(testing.allocator, input);
-    try expectError(error.SyntaxError, parser.parse());
-}
-
-test "incomplete function 3" {
-    const input = "λx.";
-    var parser = try Parser.init(testing.allocator, input);
-    try expectError(error.SyntaxError, parser.parse());
-}
-
-test "application" {
-    const input = "(λx. x) 123";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Application.init(
-            testing.allocator,
-            try Node.Function.init(
-                testing.allocator,
-                Token.init(.identifier, input, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
-            ),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "123")),
-        ),
+test "overview example from spec" {
+    try expectParsesToSource(
+        \\let fizzbuzz = (n) {
+        \\    ? n % 15 == 0 => print("FizzBuzz")
+        \\    ? n % 3 == 0 => print("Fizz")
+        \\    ? n % 5 == 0 => print("Buzz")
+        \\    => print(n)
+        \\};
+        \\
+        \\let loop = (i, max) {
+        \\    i, max ? i > max => print("Done.")
+        \\    => {
+        \\        fizzbuzz(i);
+        \\        loop(i + 1, max)
+        \\    }
+        \\};
+        \\
+        \\loop(1, 15)
+    ,
+        \\let fizzbuzz = (n) {
+        \\    ? n % 15 == 0 => print("FizzBuzz")
+        \\    ? n % 3 == 0 => print("Fizz")
+        \\    ? n % 5 == 0 => print("Buzz")
+        \\    => print(n)
+        \\};
+        \\let loop = (i, max) {
+        \\    i, max ? i > max => print("Done.")
+        \\    => {
+        \\        fizzbuzz(i);
+        \\        loop(i + 1, max)
+        \\    }
+        \\};
+        \\loop(1, 15)
     );
-    try runTest(input, expected);
 }
 
-test "applications" {
-    const input = "(λx. x) 1 2 3";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Application.init(
-            testing.allocator,
-            try Node.Application.init(
-                testing.allocator,
-                try Node.Application.init(
-                    testing.allocator,
-                    try Node.Function.init(
-                        testing.allocator,
-                        Token.init(.identifier, input, "x"),
-                        try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
-                    ),
-                    try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-                ),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            ),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-        ),
+test "patterns lists and spread" {
+    try expectParsesToSource(
+        \\let head = (xs) {
+        \\    [x, ..._] => x
+        \\    [] => "empty"
+        \\};
+        \\head([10, 20, 30])
+    ,
+        \\let head = (xs) {
+        \\    [x, ..._] => x
+        \\    [] => "empty"
+        \\};
+        \\head([10, 20, 30])
     );
-    try runTest(input, expected);
 }
 
-test "binding" {
-    const input = "let one = 1 in one";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binding.init(
-            testing.allocator,
-            Token.init(.identifier, input, "one"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "one")),
-        ),
+test "operators precedence" {
+    try expectParsesToSource(
+        "1 + 2 * 3 || 4 && 5 ++ 6 ++ 7",
+        "1 + 2 * 3 || 4 && 5 ++ 6 ++ 7",
     );
-    try runTest(input, expected);
 }
 
-test "equal" {
-    const input = "1 == 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.equal, input, "=="),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-        ),
+test "operators example from spec" {
+    try expectParsesToSource(
+        \\let classify = (n) {
+        \\    ? n > 0 && n != 10 => "positive"
+        \\    ? n < 0 || n == -10 => "negative"
+        \\    => "zero"
+        \\};
+        \\
+        \\classify(-3)
+    ,
+        \\let classify = (n) {
+        \\    ? n > 0 && n != 10 => "positive"
+        \\    ? n < 0 || n == -10 => "negative"
+        \\    => "zero"
+        \\};
+        \\classify(-3)
     );
-    try runTest(input, expected);
 }
 
-test "not equal" {
-    const input = "1 != 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.not_equal, input, "!="),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-        ),
+test "block and range" {
+    try expectParsesToSource(
+        \\{
+        \\    let xs = [1..5];
+        \\    [0, ...xs]
+        \\}
+    ,
+        \\{
+        \\    let xs = [1..5];
+        \\    [0, ...xs]
+        \\}
     );
-    try runTest(input, expected);
 }
 
-test "greater" {
-    const input = "1 > 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.greater, input, ">"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-        ),
+test "block example from spec" {
+    try expectParsesToSource(
+        \\{
+        \\    let square = (x) { x * x };
+        \\    let y = 4;
+        \\    square(y)
+        \\}
+    ,
+        \\{
+        \\    let square = (x) { x * x };
+        \\    let y = 4;
+        \\    square(y)
+        \\}
     );
-    try runTest(input, expected);
 }
 
-test "less" {
-    const input = "1 < 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.less, input, "<"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-        ),
+test "empty parameter function" {
+    try expectParsesToSource(
+        \\let constant = () { 1 + 2 };
+        \\constant()
+    ,
+        \\let constant = () { 1 + 2 };
+        \\constant()
     );
-    try runTest(input, expected);
 }
 
-test "greater equal" {
-    const input = "1 >= 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.greater_equal, input, ">="),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-        ),
+test "grouped pattern and literal forms" {
+    try expectParsesToSource(
+        \\let classify = (value) {
+        \\    ("ok") => true
+        \\    3.14 => false
+        \\    _ => false
+        \\};
+        \\classify("ok")
+    ,
+        \\let classify = (value) {
+        \\    ("ok") => true
+        \\    3.14 => false
+        \\    _ => false
+        \\};
+        \\classify("ok")
     );
-    try runTest(input, expected);
 }
 
-test "less equal" {
-    const input = "1 <= 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.less_equal, input, "<="),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-        ),
+test "tree output" {
+    try expectParsesToTree(
+        \\let answer = 42;
+        \\answer
+    ,
+        \\program
+        \\    binding
+        \\        pattern: identifier answer
+        \\        value: literal 42
+        \\        body: identifier answer
+        \\
     );
-    try runTest(input, expected);
 }
 
-test "comparison precedence" {
-    const input = "1 < 2 == 3";
-    const expected = try Node.Program.init(
+test "let requires continuation" {
+    var parser = try Parser.init(testing.allocator, "let answer = 42");
+    defer parser.deinit();
+    try testing.expectError(error.SyntaxError, parser.parse());
+}
+
+test "missing branch separator is an error" {
+    var parser = try Parser.init(
         testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-                Token.init(.less, input, "<"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            ),
-            Token.init(.equal, input, "=="),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-        ),
+        \\(x) {
+        \\    ? x > 0 => x => -x
+        \\}
     );
-    try runTest(input, expected);
+    defer parser.deinit();
+    try testing.expectError(error.SyntaxError, parser.parse());
 }
 
-test "term tighter than comparison" {
-    const input = "1 + 2 > 3";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-                Token.init(.plus, input, "+"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            ),
-            Token.init(.greater, input, ">"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-        ),
+test "comments and newlines are ignored outside branch separation" {
+    try expectParsesToSource(
+        \\# leading
+        \\let answer = 42;
+        \\# trailing
+        \\answer
+    ,
+        \\let answer = 42;
+        \\answer
     );
-    try runTest(input, expected);
 }
 
-test "comparison tighter than equality" {
-    const input = "1 > 2 == false";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-                Token.init(.greater, input, ">"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            ),
-            Token.init(.equal, input, "=="),
-            try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
-        ),
-    );
-    try runTest(input, expected);
-}
+test "parse all current examples" {
+    var dir = try fs.cwd().openDir("examples", .{ .iterate = true });
+    defer dir.close();
 
-test "nested binding" {
-    const input =
-        \\let one = 1 in
-        \\let two = 2 in
-        \\  one two
-    ;
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binding.init(
-            testing.allocator,
-            Token.init(.identifier, input, "one"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            try Node.Binding.init(
-                testing.allocator,
-                Token.init(.identifier, input, "two"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-                try Node.Application.init(
-                    testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "one")),
-                    try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "two")),
-                ),
-            ),
-        ),
-    );
-    try runTest(input, expected);
-}
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".lx")) continue;
 
-test "let without in is error" {
-    const input = "let one = 1";
-    var parser = try Parser.init(testing.allocator, input);
-    try expectError(error.SyntaxError, parser.parse());
-}
+        const source = try dir.readFileAlloc(testing.allocator, entry.name, 1024 * 1024);
+        defer testing.allocator.free(source);
 
-test "if then else" {
-    const input = "if 1 then 2 else 3";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Selection.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-        ),
-    );
-    try runTest(input, expected);
-}
+        var parser = try Parser.init(testing.allocator, source);
+        defer parser.deinit();
 
-test "fail to apply selection" {
-    // selection has a lower precedence than application
-    // hence EOF will be expected after parsing the function
-    const input = "(\\x. x) if 1 then 2 else 3";
-    var parser = try Parser.init(testing.allocator, input);
-    try expectError(error.SyntaxError, parser.parse());
-}
-
-test "apply to selection" {
-    const input = "(\\x. x) (if 1 then 2 else 3)";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Application.init(
-            testing.allocator,
-            try Node.Function.init(
-                testing.allocator,
-                Token.init(.identifier, input, "x"),
-                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
-            ),
-            try Node.Selection.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-            ),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "literals" {
-    const input = "if true then true else false";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Selection.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
-            try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
-            try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "apply to literals" {
-    const input = "fn true false";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Application.init(
-            testing.allocator,
-            try Node.Application.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "fn")),
-                try Node.Primary.init(testing.allocator, Token.init(.true, input, "true")),
-            ),
-            try Node.Primary.init(testing.allocator, Token.init(.false, input, "false")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "multiplication precedence over addition" {
-    const input = "1 + 2 * 3";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.plus, input, "+"),
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-                Token.init(.star, input, "*"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-            ),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "division precedence over subtraction" {
-    const input = "10 - 6 / 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "10")),
-            Token.init(.minus, input, "-"),
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "6")),
-                Token.init(.slash, input, "/"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            ),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "left associativity of addition" {
-    const input = "1 + 2 + 3";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-                Token.init(.plus, input, "+"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            ),
-            Token.init(.plus, input, "+"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "left associativity of multiplication" {
-    const input = "2 * 3 * 4";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-                Token.init(.star, input, "*"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-            ),
-            Token.init(.star, input, "*"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "4")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "arithmetic expression" {
-    const input = "1 + x * 3 - y / 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-                Token.init(.plus, input, "+"),
-                try Node.Binary.init(
-                    testing.allocator,
-                    try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "x")),
-                    Token.init(.star, input, "*"),
-                    try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-                ),
-            ),
-            Token.init(.minus, input, "-"),
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.identifier, input, "y")),
-                Token.init(.slash, input, "/"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            ),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "parentheses override precedence" {
-    const input = "(1 + 2) * 3";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Binary.init(
-                testing.allocator,
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-                Token.init(.plus, input, "+"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-            ),
-            Token.init(.star, input, "*"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "comment" {
-    const input = "# comment\n1 + 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "1")),
-            Token.init(.plus, input, "+"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "unary minus" {
-    const input = "-5";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Unary.init(
-            testing.allocator,
-            Token.init(.minus, input, "-"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "unary minus with binary operation" {
-    const input = "-5 + 3";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Unary.init(
-                testing.allocator,
-                Token.init(.minus, input, "-"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
-            ),
-            Token.init(.plus, input, "+"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "3")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "unary minus precedence" {
-    const input = "-5 * 2";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Binary.init(
-            testing.allocator,
-            try Node.Unary.init(
-                testing.allocator,
-                Token.init(.minus, input, "-"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
-            ),
-            Token.init(.star, input, "*"),
-            try Node.Primary.init(testing.allocator, Token.init(.number, input, "2")),
-        ),
-    );
-    try runTest(input, expected);
-}
-
-test "double unary minus" {
-    const input = "--5";
-    const expected = try Node.Program.init(
-        testing.allocator,
-        try Node.Unary.init(
-            testing.allocator,
-            Token.init(.minus, input, "-"),
-            try Node.Unary.init(
-                testing.allocator,
-                Token.init(.minus, input, "-"),
-                try Node.Primary.init(testing.allocator, Token.init(.number, input, "5")),
-            ),
-        ),
-    );
-    try runTest(input, expected);
+        const node = try parser.parse();
+        defer node.deinit(testing.allocator);
+    }
 }

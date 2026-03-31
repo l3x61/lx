@@ -1,0 +1,7 @@
+let classify = (n) {
+    ? n > 0 && n != 10 => "positive"
+    ? n < 0 || n == -10 => "negative"
+    => "zero"
+};
+
+classify(-3)

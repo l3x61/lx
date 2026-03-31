@@ -1,6 +1,5 @@
 const std = @import("std");
 const Level = std.log.Level;
-const Allocator = std.mem.Allocator;
 const DebugAllocator = std.heap.DebugAllocator;
 
 const log = std.log.scoped(.main);
@@ -43,7 +42,26 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(gpa);
     defer args.deinit();
     _ = args.next();
-    const file_arg = args.next();
+
+    var mode: Repl.AstMode = .source;
+    var file_arg: ?[]const u8 = null;
+
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--ast-tree")) {
+            mode = .tree;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--ast-source")) {
+            mode = .source;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--ast-off")) {
+            mode = .off;
+            continue;
+        }
+        file_arg = arg;
+        break;
+    }
 
     if (file_arg) |file| {
         const source = std.fs.cwd().readFileAlloc(gpa, file, 16 * 1024 * 1024) catch |err| {
@@ -54,8 +72,14 @@ pub fn main() !void {
 
         var stdout_buffer: [4096]u8 = undefined;
         var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-        Repl.dumpTokens(&stdout_writer.interface, source) catch exit(1);
-        stdout_writer.interface.writeAll("\n") catch {};
+        var stderr_buffer: [1024]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+        Repl.render(&stdout_writer.interface, gpa, source, mode) catch |err| {
+            stderr_writer.interface.print("{t}\n", .{err}) catch {};
+            stderr_writer.interface.flush() catch {};
+            exit(1);
+        };
+        stdout_writer.interface.writeByte('\n') catch {};
         stdout_writer.interface.flush() catch {};
         return;
     }
@@ -63,12 +87,13 @@ pub fn main() !void {
     var repl = try Repl.init(gpa);
     defer repl.deinit();
     try repl.run();
-    return;
 }
 
 test "all" {
     _ = @import("Token.zig");
     _ = @import("Lexer.zig");
+    _ = @import("node.zig");
+    _ = @import("Parser.zig");
     _ = @import("readline.zig");
     _ = @import("Repl.zig");
 }
