@@ -1,21 +1,14 @@
 const std = @import("std");
 const Level = std.log.Level;
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const String = std.ArrayList(u8);
 const DebugAllocator = std.heap.DebugAllocator;
 
-const fs = std.fs;
-
 const log = std.log.scoped(.main);
-
-const maxInt = std.math.maxInt;
 
 const exit = std.process.exit;
 
 const ansi = @import("ansi.zig");
 const Repl = @import("Repl.zig");
-const Script = @import("Script.zig");
 
 pub const std_options = std.Options{
     .logFn = struct {
@@ -53,13 +46,17 @@ pub fn main() !void {
     const file_arg = args.next();
 
     if (file_arg) |file| {
-        var script = Script.init(gpa, file) catch |err| {
-            log.err("loading script {s} failed with {t}\n", .{ file, err });
+        const source = std.fs.cwd().readFileAlloc(gpa, file, 16 * 1024 * 1024) catch |err| {
+            log.err("loading source {s} failed with {t}\n", .{ file, err });
             return error.LoadScript;
         };
-        defer script.deinit();
+        defer gpa.free(source);
 
-        _ = script.run(null) catch exit(1);
+        var stdout_buffer: [4096]u8 = undefined;
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        Repl.dumpTokens(&stdout_writer.interface, source) catch exit(1);
+        stdout_writer.interface.writeAll("\n") catch {};
+        stdout_writer.interface.flush() catch {};
         return;
     }
 
@@ -70,10 +67,8 @@ pub fn main() !void {
 }
 
 test "all" {
+    _ = @import("Token.zig");
     _ = @import("Lexer.zig");
-    _ = @import("Parser.zig");
-    _ = @import("Environment.zig");
-    _ = @import("evaluate.zig");
-    _ = @import("Script.zig");
-    _ = @import("Gc.zig");
+    _ = @import("readline.zig");
+    _ = @import("Repl.zig");
 }

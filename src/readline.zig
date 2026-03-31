@@ -29,7 +29,6 @@ const KeyCode = enum(u64) {
     arrow_right = 0x43_5B_1B,
     arrow_up = 0x41_5B_1B,
     arrow_down = 0x42_5B_1B,
-    backslash = 0x5C,
 };
 
 const ReadLine = @This();
@@ -137,12 +136,6 @@ pub fn readLine(self: *ReadLine, prompt: []const u8) ![]u8 {
                 if (line_pos < line.items.len) {
                     line_pos = utf8NextCodepoint(line.items, line_pos);
                 }
-            },
-
-            @intFromEnum(KeyCode.backslash) => {
-                const output = "λ";
-                try line.insertSlice(self.gpa, line_pos, output);
-                line_pos += output.len;
             },
 
             @intFromEnum(KeyCode.backspace) => {

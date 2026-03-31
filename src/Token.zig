@@ -1,6 +1,5 @@
 const std = @import("std");
 const eql = std.mem.eql;
-const FormatOptions = std.fmt.FormatOptions;
 
 const Token = @This();
 
@@ -10,11 +9,13 @@ lexeme: []const u8,
 
 pub const Tag = enum {
     eof,
+    invalid,
     comment,
+    newline,
 
-    lambda,
-    dot,
     assign,
+    fat_arrow,
+    question,
     equal,
     not,
     not_equal,
@@ -24,36 +25,43 @@ pub const Tag = enum {
     less_equal,
     lparen,
     rparen,
+    lbrace,
+    rbrace,
+    lbracket,
+    rbracket,
+    comma,
+    semicolon,
     plus,
     concat,
     minus,
     star,
     slash,
+    percent,
+    and_and,
+    or_or,
+    spread,
+    range,
 
     let,
-    in,
-    @"if",
-    then,
-    @"else",
     true,
     false,
 
+    underscore,
     number,
     string,
     string_open,
     identifier,
 
-    pub fn format(
-        self: Tag,
-        writer: anytype,
-    ) !void {
+    pub fn format(self: Tag, writer: anytype) !void {
         const name = switch (self) {
             .eof => "END OF FILE",
+            .invalid => "INVALID",
             .comment => "COMMENT",
+            .newline => "NEWLINE",
 
-            .lambda => "\\ or λ",
-            .dot => ".",
             .assign => "=",
+            .fat_arrow => "=>",
+            .question => "?",
             .equal => "==",
             .not => "!",
             .not_equal => "!=",
@@ -63,21 +71,28 @@ pub const Tag = enum {
             .less_equal => "<=",
             .lparen => "(",
             .rparen => ")",
+            .lbrace => "{",
+            .rbrace => "}",
+            .lbracket => "[",
+            .rbracket => "]",
+            .comma => ",",
+            .semicolon => ";",
             .plus => "+",
             .concat => "++",
             .minus => "-",
             .star => "*",
             .slash => "/",
+            .percent => "%",
+            .and_and => "&&",
+            .or_or => "||",
+            .spread => "...",
+            .range => "..",
 
             .let => "let",
-            .in => "in",
-            .@"if" => "if",
-            .then => "then",
-            .@"else" => "else",
-
             .true => "true",
             .false => "false",
 
+            .underscore => "_",
             .number => "NUMBER",
             .string => "STRING",
             .string_open => "OPEN STRING",
@@ -102,13 +117,9 @@ pub fn format(self: Token, writer: anytype) !void {
     }
 }
 
-// TODO: pretty print token shown in line
-
 pub fn isOneOf(self: Token, expected: []const Tag) bool {
     for (expected) |tag| {
-        if (self.tag == tag) {
-            return true;
-        }
+        if (self.tag == tag) return true;
     }
     return false;
 }
@@ -117,28 +128,44 @@ pub fn color(self: Token) []const u8 {
     const ansi = @import("ansi.zig");
 
     return switch (self.tag) {
-        .lambda,
-        .dot,
-        .let,
-        .in,
-        .@"if",
-        .then,
-        .@"else",
-        => ansi.red,
+        .let => ansi.red,
 
-        // types (not implemented yet) => ansi.magenta
+        .true,
+        .false,
+        => ansi.cyan,
 
         .number,
         .string,
         .string_open,
         => ansi.blue,
 
-        .true,
-        .false,
-        => ansi.cyan,
-
         .comment,
+        .newline,
         => ansi.dim,
+
+        .invalid => ansi.red,
+
+        .assign,
+        .fat_arrow,
+        .question,
+        .equal,
+        .not,
+        .not_equal,
+        .greater,
+        .greater_equal,
+        .less,
+        .less_equal,
+        .plus,
+        .concat,
+        .minus,
+        .star,
+        .slash,
+        .percent,
+        .and_and,
+        .or_or,
+        .spread,
+        .range,
+        => ansi.yellow,
 
         else => ansi.reset,
     };
