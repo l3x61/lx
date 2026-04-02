@@ -8,6 +8,7 @@ const ansi = @import("ansi.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const ReadLine = @import("readline.zig");
+const Runtime = @import("Runtime.zig");
 const Token = @import("Token.zig");
 
 const Repl = @This();
@@ -39,6 +40,7 @@ pub const AstMode = enum {
 gpa: Allocator,
 rl: ReadLine,
 ast_mode: AstMode,
+runtime: Runtime,
 
 var stdout_buffer: [max_path_bytes]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -52,11 +54,13 @@ pub fn init(gpa: Allocator) !Repl {
     return .{
         .gpa = gpa,
         .rl = ReadLine.init(gpa, stdout),
-        .ast_mode = .tree,
+        .ast_mode = .off,
+        .runtime = try Runtime.init(gpa),
     };
 }
 
 pub fn deinit(self: *Repl) void {
+    self.runtime.deinit();
     self.rl.deinit();
 }
 
@@ -77,14 +81,31 @@ pub fn run(self: *Repl) !void {
         };
         if (handled) continue;
 
-        render(stdout, self.gpa, line, self.ast_mode) catch |err| {
+        self.renderLine(stdout, line) catch |err| {
             try stderr.print("{t}\n", .{err});
             try stderr.flush();
             continue;
         };
-        try stdout.writeByte('\n');
-        try stdout.flush();
     }
+}
+
+fn renderLine(self: *Repl, out: anytype, source: []const u8) !void {
+    if (self.ast_mode == .off) {
+        const value = try self.runtime.evaluateSource(source);
+        switch (value) {
+            .unit => {},
+            else => {
+                try value.write(out);
+                try out.writeByte('\n');
+                try out.flush();
+            },
+        }
+        return;
+    }
+
+    try render(out, self.gpa, source, self.ast_mode);
+    try out.writeByte('\n');
+    try out.flush();
 }
 
 fn readInput(self: *Repl) ![]u8 {
@@ -161,12 +182,12 @@ fn handleCommand(self: *Repl, line: []const u8) !bool {
 }
 
 fn welcomeMessage() !void {
-    try stderr.print("{s}lx{s} parser {s}\n", .{
+    try stderr.print("{s}lx{s} runtime {s}\n", .{
         ansi.bold ++ ansi.red,
         ansi.reset,
         build_options.version,
     });
-    try stderr.print("ast mode: tree\n", .{});
+    try stderr.print("ast mode: off\n", .{});
     try stderr.flush();
 }
 

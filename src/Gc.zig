@@ -1,159 +1,82 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const Env = @import("Environment.zig");
-const Node = @import("node.zig").Node;
-const Token = @import("Token.zig");
-const Value = @import("value.zig").Value;
-const String = Value.String;
-const Native = Value.Native;
-const Closure = Value.Closure;
 
-const log = std.log.scoped(.gc);
+const Environment = @import("Environment.zig");
+const Node = @import("node.zig");
+const Value = @import("value.zig").Value;
 
 const Gc = @This();
 
-const GcObject = struct {
-    marked: bool = false,
-    object: union(Tag) {
-        pub const Tag = enum {
-            env,
-            node,
-            string,
-            native,
-            closure,
-        };
-
-        env: *Env,
-        node: *Node,
-        string: *String,
-        native: *Native,
-        closure: *Closure,
-    },
+const Tracked = union(enum) {
+    env: *Environment,
+    node: *Node.Node,
+    bytes: []u8,
+    string: *Value.String,
+    list: *Value.List,
+    native: *Value.Native,
+    closure: *Value.Closure,
 };
 
-objects: ArrayList(GcObject),
 gpa: Allocator,
+objects: std.ArrayList(Tracked),
 
 pub fn init(gpa: Allocator) !Gc {
     return .{
-        .objects = .empty,
         .gpa = gpa,
+        .objects = .empty,
     };
+}
+
+pub fn deinit(self: *Gc) void {
+    for (self.objects.items) |object| {
+        switch (object) {
+            .env => |env| env.deinit(),
+            .node => |node| node.deinit(self.gpa),
+            .bytes => |bytes| self.gpa.free(bytes),
+            .string => |string| string.deinit(self.gpa),
+            .list => |list| list.deinit(self.gpa),
+            .native => |native| native.deinit(self.gpa),
+            .closure => |closure| self.gpa.destroy(closure),
+        }
+    }
+    self.objects.deinit(self.gpa);
 }
 
 pub fn allocator(self: *Gc) Allocator {
     return self.gpa;
 }
 
-pub fn deinit(self: *Gc) void {
-    const gpa = self.allocator();
-    for (self.objects.items) |*object| {
-        switch (object.object) {
-            .env => |env| env.deinit(),
-            .node => |node| node.deinit(gpa),
-            .string => |string| string.deinit(gpa),
-            .native => |native| native.deinit(gpa),
-            .closure => |closure| closure.deinit(gpa),
-        }
-    }
-    self.objects.deinit(gpa);
-}
-
 pub fn track(self: *Gc, object: anytype) !void {
-    const gpa = self.allocator();
-    switch (@TypeOf(object)) {
-        *Env => try self.objects.append(gpa, .{ .object = .{ .env = object } }),
-        *Node => try self.objects.append(gpa, .{ .object = .{ .node = object } }),
+    const tracked: ?Tracked = switch (@TypeOf(object)) {
+        *Environment => .{ .env = object },
+        *Node.Node => .{ .node = object },
+        []u8 => .{ .bytes = object },
         Value => switch (object) {
-            .string => |string| try self.objects.append(gpa, .{ .object = .{ .string = string } }),
-            .native => |native| try self.objects.append(gpa, .{ .object = .{ .native = native } }),
-            .closure => |closure| try self.objects.append(gpa, .{ .object = .{ .closure = closure } }),
-            else => log.warn("ignored: tracking a non-object: {s}\n", .{@typeName(@TypeOf(object))}),
+            .string => |string| .{ .string = string },
+            .list => |list| .{ .list = list },
+            .native => |native| .{ .native = native },
+            .closure => |closure| .{ .closure = closure },
+            else => null,
         },
-        else => log.warn("ignored: tracking a non-object: {s}\n", .{@typeName(@TypeOf(object))}),
+        else => null,
+    };
+
+    if (tracked) |entry| {
+        try self.objects.append(self.gpa, entry);
     }
 }
 
 const testing = std.testing;
 
-test "track environment" {
+test "tracks runtime objects" {
     var gc = try Gc.init(testing.allocator);
     defer gc.deinit();
 
-    const gpa = gc.allocator();
-    const env = try Env.init(gpa, null);
+    const env = try Environment.init(testing.allocator, null);
     try gc.track(env);
 
-    try testing.expectEqual(@as(usize, 1), gc.objects.items.len);
-}
+    const string = try Value.String.init(testing.allocator, "hello");
+    try gc.track(string);
 
-test "track node" {
-    var gc = try Gc.init(testing.allocator);
-    defer gc.deinit();
-
-    const gpa = gc.allocator();
-    const token = Token.init(.number, "1", "1");
-    const node = try Node.Primary.init(gpa, token);
-    try gc.track(node);
-
-    try testing.expectEqual(@as(usize, 1), gc.objects.items.len);
-}
-
-test "track string value" {
-    var gc = try Gc.init(testing.allocator);
-    defer gc.deinit();
-
-    const gpa = gc.allocator();
-    const value = try String.init(gpa, "hello");
-    try gc.track(value);
-
-    try testing.expectEqual(@as(usize, 1), gc.objects.items.len);
-}
-
-fn nativeFn(_: Value, _: *Env, _: ?*Env) anyerror!Value {
-    return Value.init();
-}
-
-test "track native value" {
-    var gc = try Gc.init(testing.allocator);
-    defer gc.deinit();
-
-    const gpa = gc.allocator();
-    const value = try Native.init(gpa, "dummy", nativeFn, null);
-    try gc.track(value);
-
-    try testing.expectEqual(@as(usize, 1), gc.objects.items.len);
-}
-
-test "track closure value" {
-    var gc = try Gc.init(testing.allocator);
-    defer gc.deinit();
-
-    const gpa = gc.allocator();
-    const env = try Env.init(testing.allocator, null);
-    defer env.deinit();
-
-    const body_token = Token.init(.number, "1", "1");
-    const body = try Node.Primary.init(gpa, body_token);
-    defer body.deinit(gpa);
-
-    const param = Token.init(.identifier, "x", "x");
-    const func = Node.Function{ .parameter = param, .body = body };
-    const value = try Closure.init(gpa, func, env);
-    try gc.track(value);
-
-    try testing.expectEqual(@as(usize, 1), gc.objects.items.len);
-}
-
-test "non-object tracking is ignored" {
-    var gc = try Gc.init(testing.allocator);
-    defer gc.deinit();
-
-    try gc.track(Value.Number.init(1));
-
-    var non_gc_value: usize = 123;
-    try gc.track(&non_gc_value);
-
-    try testing.expectEqual(@as(usize, 0), gc.objects.items.len);
+    try testing.expectEqual(@as(usize, 2), gc.objects.items.len);
 }

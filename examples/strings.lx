@@ -1,0 +1,5 @@
+let greet = (name) {
+    "Hello, " ++ name ++ "!"
+};
+
+greet("world")

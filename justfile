@@ -11,7 +11,7 @@ test:
 
 examples:
     zig build
-    for file in examples/*.lx; do printf '\n== %s ==\n' "$file"; ./zig-out/bin/lx --ast-tree "$file"; done
+    for file in examples/*.lx; do printf '\n== %s ==\n' "$file"; ./zig-out/bin/lx "$file"; done
 
 run *args:
     zig build run -- {{ args }}

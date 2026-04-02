@@ -8,6 +8,7 @@ const exit = std.process.exit;
 
 const ansi = @import("ansi.zig");
 const Repl = @import("Repl.zig");
+const Runtime = @import("Runtime.zig");
 
 pub const std_options = std.Options{
     .logFn = struct {
@@ -43,7 +44,7 @@ pub fn main() !void {
     defer args.deinit();
     _ = args.next();
 
-    var mode: Repl.AstMode = .source;
+    var mode: Repl.AstMode = .off;
     var file_arg: ?[]const u8 = null;
 
     while (args.next()) |arg| {
@@ -74,13 +75,31 @@ pub fn main() !void {
         var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
         var stderr_buffer: [1024]u8 = undefined;
         var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-        Repl.render(&stdout_writer.interface, gpa, source, mode) catch |err| {
-            stderr_writer.interface.print("{t}\n", .{err}) catch {};
-            stderr_writer.interface.flush() catch {};
-            exit(1);
-        };
-        stdout_writer.interface.writeByte('\n') catch {};
-        stdout_writer.interface.flush() catch {};
+        if (mode == .off) {
+            var runtime = try Runtime.init(gpa);
+            defer runtime.deinit();
+            const value = runtime.evaluateSource(source) catch |err| {
+                stderr_writer.interface.print("{t}\n", .{err}) catch {};
+                stderr_writer.interface.flush() catch {};
+                exit(1);
+            };
+            switch (value) {
+                .unit => {},
+                else => {
+                    value.write(&stdout_writer.interface) catch {};
+                    stdout_writer.interface.writeByte('\n') catch {};
+                    stdout_writer.interface.flush() catch {};
+                },
+            }
+        } else {
+            Repl.render(&stdout_writer.interface, gpa, source, mode) catch |err| {
+                stderr_writer.interface.print("{t}\n", .{err}) catch {};
+                stderr_writer.interface.flush() catch {};
+                exit(1);
+            };
+            stdout_writer.interface.writeByte('\n') catch {};
+            stdout_writer.interface.flush() catch {};
+        }
         return;
     }
 
@@ -94,6 +113,13 @@ test "all" {
     _ = @import("Lexer.zig");
     _ = @import("node.zig");
     _ = @import("Parser.zig");
+    _ = @import("Environment.zig");
+    _ = @import("value.zig");
+    _ = @import("Gc.zig");
+    _ = @import("builtins.zig");
+    _ = @import("evaluate.zig");
+    _ = @import("Runtime.zig");
+    _ = @import("Script.zig");
     _ = @import("readline.zig");
     _ = @import("Repl.zig");
 }

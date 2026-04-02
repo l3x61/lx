@@ -1034,6 +1034,410 @@ test "comments and newlines are ignored outside branch separation" {
     );
 }
 
+test "unary negation" {
+    try expectParsesToSource("-42", "-42");
+}
+
+test "unary not" {
+    try expectParsesToSource("!true", "!true");
+}
+
+test "double unary" {
+    try expectParsesToSource("--x", "--x");
+}
+
+test "unary in binary expression" {
+    try expectParsesToSource("-a + b", "-a + b");
+}
+
+test "string concatenation" {
+    try expectParsesToSource(
+        \\"hello" ++ " " ++ "world"
+    ,
+        \\"hello" ++ " " ++ "world"
+    );
+}
+
+test "right associativity of concat" {
+    try expectParsesToTree(
+        \\"a" ++ "b" ++ "c"
+    ,
+        \\program
+        \\    binary ++
+        \\        left: literal "a"
+        \\        right: binary ++
+        \\            left: literal "b"
+        \\            right: literal "c"
+        \\
+    );
+}
+
+test "nested function calls" {
+    try expectParsesToSource("f(g(x))", "f(g(x))");
+}
+
+test "chained function calls" {
+    try expectParsesToSource("f(1)(2)(3)", "f(1)(2)(3)");
+}
+
+test "call with no arguments" {
+    try expectParsesToSource("f()", "f()");
+}
+
+test "multiple bindings" {
+    try expectParsesToSource(
+        \\let a = 1;
+        \\let b = 2;
+        \\let c = 3;
+        \\a + b + c
+    ,
+        \\let a = 1;
+        \\let b = 2;
+        \\let c = 3;
+        \\a + b + c
+    );
+}
+
+test "sequence without binding" {
+    try expectParsesToSource(
+        \\print("hello");
+        \\print("world")
+    ,
+        \\print("hello");
+        \\print("world")
+    );
+}
+
+test "nested blocks" {
+    try expectParsesToSource(
+        \\{
+        \\    let x = {
+        \\        let a = 1;
+        \\        a + 1
+        \\    };
+        \\    x * 2
+        \\}
+    ,
+        \\{
+        \\    let x = {
+        \\    let a = 1;
+        \\    a + 1
+        \\};
+        \\    x * 2
+        \\}
+    );
+}
+
+test "empty list" {
+    try expectParsesToSource("[]", "[]");
+}
+
+test "list with spread only" {
+    try expectParsesToSource("[...xs]", "[...xs]");
+}
+
+test "list with items and spread" {
+    try expectParsesToSource("[1, 2, ...rest]", "[1, 2, ...rest]");
+}
+
+test "range with expressions" {
+    try expectParsesToSource("[1 + 0..2 * 5]", "[1 + 0..2 * 5]");
+}
+
+test "parenthesized expression" {
+    try expectParsesToSource("(1 + 2) * 3", "(1 + 2) * 3");
+}
+
+test "parenthesized expression tree" {
+    try expectParsesToTree("(1 + 2) * 3",
+        \\program
+        \\    binary *
+        \\        left: binary +
+        \\            left: literal 1
+        \\            right: literal 2
+        \\        right: literal 3
+        \\
+    );
+}
+
+test "pattern matching with boolean literals" {
+    try expectParsesToSource(
+        \\(x) {
+        \\    true => "yes"
+        \\    false => "no"
+        \\}
+    ,
+        \\(x) {
+        \\    true => "yes"
+        \\    false => "no"
+        \\}
+    );
+}
+
+test "pattern matching with multiple parameters" {
+    try expectParsesToSource(
+        \\(a, b) {
+        \\    0, 0 => "origin"
+        \\    _, _ => "elsewhere"
+        \\}
+    ,
+        \\(a, b) {
+        \\    0, 0 => "origin"
+        \\    _, _ => "elsewhere"
+        \\}
+    );
+}
+
+test "pattern with guard and value match" {
+    try expectParsesToSource(
+        \\(x) {
+        \\    0 => "zero"
+        \\    n ? n > 0 => "positive"
+        \\    => "negative"
+        \\}
+    ,
+        \\(x) {
+        \\    0 => "zero"
+        \\    n ? n > 0 => "positive"
+        \\    => "negative"
+        \\}
+    );
+}
+
+test "nested list patterns" {
+    try expectParsesToSource(
+        \\(xs) {
+        \\    [[a, b], ...rest] => a
+        \\    _ => 0
+        \\}
+    ,
+        \\(xs) {
+        \\    [[a, b], ...rest] => a
+        \\    _ => 0
+        \\}
+    );
+}
+
+test "higher order function" {
+    try expectParsesToSource(
+        \\let apply = (f, x) { f(x) };
+        \\let double = (n) { n * 2 };
+        \\apply(double, 5)
+    ,
+        \\let apply = (f, x) { f(x) };
+        \\let double = (n) { n * 2 };
+        \\apply(double, 5)
+    );
+}
+
+test "closure returning function" {
+    try expectParsesToSource(
+        \\let make = (n) {
+        \\    (x) { x + n }
+        \\};
+        \\make(5)(10)
+    ,
+        \\let make = (n) {
+        \\    (x) { x + n }
+        \\};
+        \\make(5)(10)
+    );
+}
+
+test "all comparison operators" {
+    try expectParsesToSource("a == b", "a == b");
+    try expectParsesToSource("a != b", "a != b");
+    try expectParsesToSource("a < b", "a < b");
+    try expectParsesToSource("a > b", "a > b");
+    try expectParsesToSource("a <= b", "a <= b");
+    try expectParsesToSource("a >= b", "a >= b");
+}
+
+test "all arithmetic operators" {
+    try expectParsesToSource("a + b", "a + b");
+    try expectParsesToSource("a - b", "a - b");
+    try expectParsesToSource("a * b", "a * b");
+    try expectParsesToSource("a / b", "a / b");
+    try expectParsesToSource("a % b", "a % b");
+}
+
+test "operator precedence tree" {
+    try expectParsesToTree("1 + 2 * 3",
+        \\program
+        \\    binary +
+        \\        left: literal 1
+        \\        right: binary *
+        \\            left: literal 2
+        \\            right: literal 3
+        \\
+    );
+}
+
+test "logical operator precedence" {
+    try expectParsesToTree("a || b && c",
+        \\program
+        \\    binary ||
+        \\        left: identifier a
+        \\        right: binary &&
+        \\            left: identifier b
+        \\            right: identifier c
+        \\
+    );
+}
+
+test "comparison does not chain" {
+    try expectParsesToTree("a < b == c",
+        \\program
+        \\    binary ==
+        \\        left: binary <
+        \\            left: identifier a
+        \\            right: identifier b
+        \\        right: identifier c
+        \\
+    );
+}
+
+test "block as function argument" {
+    try expectParsesToSource(
+        \\f({
+        \\    let x = 1;
+        \\    x + 2
+        \\})
+    ,
+        \\f({
+        \\    let x = 1;
+        \\    x + 2
+        \\})
+    );
+}
+
+test "function in list" {
+    try expectParsesToSource(
+        \\[(x) { x }, (y) { y * 2 }]
+    ,
+        \\[(x) { x }, (y) { y * 2 }]
+    );
+}
+
+test "empty body function is error" {
+    var parser = try Parser.init(testing.allocator, "() {}");
+    defer parser.deinit();
+    try testing.expectError(error.SyntaxError, parser.parse());
+}
+
+test "unexpected token at top level is error" {
+    var parser = try Parser.init(testing.allocator, "=>");
+    defer parser.deinit();
+    try testing.expectError(error.SyntaxError, parser.parse());
+}
+
+test "unclosed paren is error" {
+    var parser = try Parser.init(testing.allocator, "(1 + 2");
+    defer parser.deinit();
+    try testing.expectError(error.SyntaxError, parser.parse());
+}
+
+test "unclosed bracket is error" {
+    var parser = try Parser.init(testing.allocator, "[1, 2");
+    defer parser.deinit();
+    try testing.expectError(error.SyntaxError, parser.parse());
+}
+
+test "unclosed brace is error" {
+    var parser = try Parser.init(testing.allocator, "{ 1 + 2");
+    defer parser.deinit();
+    try testing.expectError(error.SyntaxError, parser.parse());
+}
+
+test "let without value is error" {
+    var parser = try Parser.init(testing.allocator, "let x;");
+    defer parser.deinit();
+    try testing.expectError(error.SyntaxError, parser.parse());
+}
+
+test "string literal" {
+    try expectParsesToSource(
+        \\"hello world"
+    ,
+        \\"hello world"
+    );
+}
+
+test "boolean literals" {
+    try expectParsesToSource("true", "true");
+    try expectParsesToSource("false", "false");
+}
+
+test "float literal" {
+    try expectParsesToSource("3.14", "3.14");
+}
+
+test "recursive pattern matching" {
+    try expectParsesToSource(
+        \\let len = (xs) {
+        \\    [] => 0
+        \\    [_, ...rest] => 1 + len(rest)
+        \\};
+        \\len([1, 2, 3])
+    ,
+        \\let len = (xs) {
+        \\    [] => 0
+        \\    [_, ...rest] => 1 + len(rest)
+        \\};
+        \\len([1, 2, 3])
+    );
+}
+
+test "branch result with block" {
+    try expectParsesToSource(
+        \\(x) {
+        \\    0 => {
+        \\        let msg = "zero";
+        \\        print(msg)
+        \\    }
+        \\    => x
+        \\}
+    ,
+        \\(x) {
+        \\    0 => {
+        \\        let msg = "zero";
+        \\        print(msg)
+        \\    }
+        \\    => x
+        \\}
+    );
+}
+
+test "complex expression as range bounds" {
+    try expectParsesToSource("[f(1)..g(2)]", "[f(1)..g(2)]");
+}
+
+test "spread pattern at start of list" {
+    try expectParsesToSource(
+        \\(xs) {
+        \\    [...rest] => rest
+        \\}
+    ,
+        \\(xs) {
+        \\    [...rest] => rest
+        \\}
+    );
+}
+
+test "empty list pattern" {
+    try expectParsesToSource(
+        \\(xs) {
+        \\    [] => true
+        \\    _ => false
+        \\}
+    ,
+        \\(xs) {
+        \\    [] => true
+        \\    _ => false
+        \\}
+    );
+}
+
 test "parse all current examples" {
     var dir = try fs.cwd().openDir("examples", .{ .iterate = true });
     defer dir.close();

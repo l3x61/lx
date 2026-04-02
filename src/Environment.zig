@@ -4,8 +4,6 @@ const HashMap = std.StringArrayHashMap;
 
 const ansi = @import("ansi.zig");
 const Value = @import("value.zig").Value;
-
-const log = std.log.scoped(.env);
 const Environment = @This();
 
 gpa: Allocator,
@@ -44,7 +42,6 @@ pub fn bind(self: *Environment, key: []const u8, value: ?Value) !void {
 
     const entry = try self.bindings.getOrPut(new_key);
     if (entry.found_existing) {
-        log.warn("{s} is already bound\n", .{key});
         return error.AlreadyDefined;
     }
     entry.value_ptr.* = value;
@@ -60,20 +57,17 @@ pub fn set(self: *Environment, key: []const u8, value: Value) !void {
         return try parent.set(key, value);
     }
 
-    log.warn("{s} is not bound\n", .{key});
     return error.NotDefined;
 }
 
 pub fn get(self: *Environment, key: []const u8) !Value {
     if (self.bindings.get(key)) |maybe_value| {
         if (maybe_value) |value| return value;
-        log.warn("{s} is not bound\n", .{key});
         return error.NotDefined;
     }
     if (self.parent) |parent| {
         return parent.get(key);
     }
-    log.warn("{s} is not bound\n", .{key});
     return error.NotDefined;
 }
 
