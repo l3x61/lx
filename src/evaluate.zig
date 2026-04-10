@@ -58,24 +58,6 @@ fn evalUnary(unary: Node.Node.Unary, gc: *Gc, env: *Environment) anyerror!Value 
 }
 
 fn evalBinary(binary: Node.Node.Binary, gc: *Gc, env: *Environment) anyerror!Value {
-    switch (binary.operator.tag) {
-        .and_and => {
-            const left = try evalNode(binary.left, gc, env);
-            const left_bool = left.asBoolean() orelse return error.TypeError;
-            if (!left_bool) return .{ .boolean = false };
-            const right = try evalNode(binary.right, gc, env);
-            return .{ .boolean = right.asBoolean() orelse return error.TypeError };
-        },
-        .or_or => {
-            const left = try evalNode(binary.left, gc, env);
-            const left_bool = left.asBoolean() orelse return error.TypeError;
-            if (left_bool) return .{ .boolean = true };
-            const right = try evalNode(binary.right, gc, env);
-            return .{ .boolean = right.asBoolean() orelse return error.TypeError };
-        },
-        else => {},
-    }
-
     const left = try evalNode(binary.left, gc, env);
     const right = try evalNode(binary.right, gc, env);
 
@@ -357,18 +339,35 @@ fn arithmetic(left: Value, right: Value, operation: Arithmetic) anyerror!Value {
 }
 
 fn concatValues(left: Value, right: Value, gc: *Gc) anyerror!Value {
-    const lhs = left.asList() orelse return error.TypeError;
-    const rhs = right.asList() orelse return error.TypeError;
+    if (left.asList()) |lhs| {
+        const rhs = right.asList() orelse return error.TypeError;
 
-    var items = try gc.allocator().alloc(Value, lhs.items.len + rhs.items.len);
-    errdefer gc.allocator().free(items);
+        var items = try gc.allocator().alloc(Value, lhs.items.len + rhs.items.len);
+        errdefer gc.allocator().free(items);
 
-    @memcpy(items[0..lhs.items.len], lhs.items);
-    @memcpy(items[lhs.items.len..], rhs.items);
+        @memcpy(items[0..lhs.items.len], lhs.items);
+        @memcpy(items[lhs.items.len..], rhs.items);
 
-    const value = try Value.List.initOwned(gc.allocator(), items);
-    try gc.track(value);
-    return value;
+        const value = try Value.List.initOwned(gc.allocator(), items);
+        try gc.track(value);
+        return value;
+    }
+
+    if (left.asString()) |lhs| {
+        const rhs = right.asString() orelse return error.TypeError;
+
+        const bytes = try gc.allocator().alloc(u8, lhs.len + rhs.len);
+        errdefer gc.allocator().free(bytes);
+
+        @memcpy(bytes[0..lhs.len], lhs);
+        @memcpy(bytes[lhs.len..], rhs);
+
+        const value = try Value.String.initOwned(gc.allocator(), bytes);
+        try gc.track(value);
+        return value;
+    }
+
+    return error.TypeError;
 }
 
 fn literalMatches(token: Token, value: Value, gpa: Allocator) anyerror!bool {
@@ -441,13 +440,40 @@ fn expectEvaluatesTo(input: []const u8, expected: Value) !void {
     try testing.expect(value.equal(expected));
 }
 
+fn expectEvaluationError(input: []const u8, expected: anyerror) !void {
+    var gc = try Gc.init(testing.allocator);
+    defer gc.deinit();
+
+    const env = try Environment.init(testing.allocator, null);
+    defer env.deinit();
+    try @import("builtins.zig").install(&gc, env);
+
+    const owned_input = try testing.allocator.dupe(u8, input);
+    defer testing.allocator.free(owned_input);
+    var parser = try @import("Parser.zig").init(testing.allocator, owned_input);
+    defer parser.deinit();
+    const ast = try parser.parse();
+    defer ast.deinit(testing.allocator);
+
+    try testing.expectError(expected, evaluate(ast, &gc, env));
+}
+
 test "evaluates arithmetic" {
     try expectEvaluatesTo("1 + 2 * 3", .{ .number = 7 });
 }
 
-test "evaluates short circuit boolean logic" {
-    try expectEvaluatesTo("false && missing", .{ .boolean = false });
-    try expectEvaluatesTo("true || missing", .{ .boolean = true });
+test "evaluates unary boolean negation" {
+    try expectEvaluatesTo("!false", .{ .boolean = true });
+}
+
+test "evaluates string concatenation" {
+    const expected = try Value.String.init(testing.allocator, "ab");
+    defer expected.deinit(testing.allocator);
+    try expectEvaluatesTo("\"a\" ++ \"b\"", expected);
+}
+
+test "concat rejects mixed types" {
+    try expectEvaluationError("\"a\" ++ [1]", error.TypeError);
 }
 
 test "evaluates simple function application" {

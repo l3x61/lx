@@ -128,9 +128,7 @@ branch
     .
 patterns = pattern { "," pattern } .
 
-binary = disjunction .
-disjunction = conjunction { "||" conjunction } .
-conjunction = comparison { "&&" comparison } .
+binary = comparison .
 comparison = concat { ("==" | "!=" | "<" | ">" | "<=" | ">=") concat } .
 concat = addition [ "++" concat ] .
 addition = multiplication { ("+" | "-") multiplication } .
@@ -377,8 +375,6 @@ suffix of the input list.
 ## Operators
 
 ```wsn
-disjunction = conjunction { "||" conjunction } .
-conjunction = comparison { "&&" comparison } .
 comparison = concat { ("==" | "!=" | "<" | ">" | "<=" | ">=") concat } .
 concat = addition [ "++" concat ] .
 addition = multiplication { ("+" | "-") multiplication } .
@@ -398,56 +394,46 @@ Operator precedence from high to low is:
     </thead>
     <tbody>
         <tr>
-            <td>8</td>
+            <td>6</td>
             <td><code>f(...)</code></td>
             <td>left to right</td>
         </tr>
         <tr>
-            <td>7</td>
+            <td>5</td>
             <td><code>!</code>, <code>-</code> (unary)</td>
             <td>right to left</td>
         </tr>
         <tr>
-            <td>6</td>
+            <td>4</td>
             <td><code>*</code>, <code>/</code>, <code>%</code></td>
             <td>left to right</td>
         </tr>
         <tr>
-            <td>5</td>
+            <td>3</td>
             <td><code>+</code>, <code>-</code></td>
             <td>left to right</td>
         </tr>
         <tr>
-            <td>4</td>
+            <td>2</td>
             <td><code>++</code></td>
             <td>right to left</td>
         </tr>
         <tr>
-            <td>3</td>
-            <td><code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>&lt;=</code>, <code>&gt;=</code></td>
-            <td>left to right</td>
-        </tr>
-        <tr>
-            <td>2</td>
-            <td><code>&amp;&amp;</code></td>
-            <td>left to right</td>
-        </tr>
-        <tr>
             <td>1</td>
-            <td><code>||</code></td>
+            <td><code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>&lt;=</code>, <code>&gt;=</code></td>
             <td>left to right</td>
         </tr>
     </tbody>
 </table>
 
-The operator `++` concatenates lists. Boolean conjunction `&&` and disjunction
-`||` short-circuit from left to right.
+The operator `++` concatenates lists and strings. Both operands must have the
+same runtime type.
 
 ::: info Example
 ```lx
 let classify = (n) {
-    ? n > 0 && n != 10 => "positive"
-    ? n < 0 || n == -10 => "negative"
+    ? n > 0 => "positive"
+    ? n < 0 => "negative"
     => "zero"
 };
 

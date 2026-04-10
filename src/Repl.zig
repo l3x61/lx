@@ -254,8 +254,6 @@ fn inputIsComplete(source: []const u8) !bool {
         .star,
         .slash,
         .percent,
-        .and_and,
-        .or_or,
         .equal,
         .not_equal,
         .greater,

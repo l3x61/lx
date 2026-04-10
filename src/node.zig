@@ -654,12 +654,10 @@ fn writeIndent(writer: anytype, indent: usize) !void {
 
 fn binaryPrecedence(tag: Token.Tag) u8 {
     return switch (tag) {
-        .or_or => 1,
-        .and_and => 2,
-        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 3,
-        .concat => 4,
-        .plus, .minus => 5,
-        .star, .slash, .percent => 6,
+        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 1,
+        .concat => 2,
+        .plus, .minus => 3,
+        .star, .slash, .percent => 4,
         else => 0,
     };
 }

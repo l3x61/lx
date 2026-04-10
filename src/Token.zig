@@ -37,8 +37,6 @@ pub const Tag = enum {
     star,
     slash,
     percent,
-    and_and,
-    or_or,
     spread,
     range,
 
@@ -83,8 +81,6 @@ pub const Tag = enum {
             .star => "*",
             .slash => "/",
             .percent => "%",
-            .and_and => "&&",
-            .or_or => "||",
             .spread => "...",
             .range => "..",
 
@@ -161,8 +157,6 @@ pub fn color(self: Token) []const u8 {
         .star,
         .slash,
         .percent,
-        .and_and,
-        .or_or,
         .spread,
         .range,
         => ansi.yellow,

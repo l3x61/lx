@@ -170,9 +170,7 @@ fn parseNonBinding(self: *Parser, context: ExprContext) anyerror!*Node.Node {
 }
 
 // ```
-// binary = disjunction .
-// disjunction = conjunction { "||" conjunction } .
-// conjunction = comparison { "&&" comparison } .
+// binary = comparison .
 // comparison = concat { ("==" | "!=" | "<" | ">" | "<=" | ">=") concat } .
 // concat = addition [ "++" concat ] .
 // addition = multiplication { ("+" | "-") multiplication } .
@@ -676,12 +674,10 @@ fn atExpressionBoundary(self: *Parser, context: ExprContext) bool {
 
 fn infixPrecedence(tag: Token.Tag) ?u8 {
     return switch (tag) {
-        .or_or => 1,
-        .and_and => 2,
-        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 3,
-        .concat => 4,
-        .plus, .minus => 5,
-        .star, .slash, .percent => 6,
+        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 1,
+        .concat => 2,
+        .plus, .minus => 3,
+        .star, .slash, .percent => 4,
         else => null,
     };
 }
@@ -909,24 +905,24 @@ test "patterns lists and spread" {
 
 test "operators precedence" {
     try expectParsesToSource(
-        "1 + 2 * 3 || 4 && 5 ++ 6 ++ 7",
-        "1 + 2 * 3 || 4 && 5 ++ 6 ++ 7",
+        "1 + 2 * 3 == 7",
+        "1 + 2 * 3 == 7",
     );
 }
 
 test "operators example from spec" {
     try expectParsesToSource(
         \\let classify = (n) {
-        \\    ? n > 0 && n != 10 => "positive"
-        \\    ? n < 0 || n == -10 => "negative"
+        \\    ? n > 0 => "positive"
+        \\    ? n < 0 => "negative"
         \\    => "zero"
         \\};
         \\
         \\classify(-3)
     ,
         \\let classify = (n) {
-        \\    ? n > 0 && n != 10 => "positive"
-        \\    ? n < 0 || n == -10 => "negative"
+        \\    ? n > 0 => "positive"
+        \\    ? n < 0 => "negative"
         \\    => "zero"
         \\};
         \\classify(-3)
@@ -1269,18 +1265,6 @@ test "operator precedence tree" {
         \\        right: binary *
         \\            left: literal 2
         \\            right: literal 3
-        \\
-    );
-}
-
-test "logical operator precedence" {
-    try expectParsesToTree("a || b && c",
-        \\program
-        \\    binary ||
-        \\        left: identifier a
-        \\        right: binary &&
-        \\            left: identifier b
-        \\            right: identifier c
         \\
     );
 }

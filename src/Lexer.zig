@@ -41,8 +41,6 @@ pub fn nextToken(self: *Lexer) Token {
         greater,
         less,
         plus,
-        ampersand,
-        pipe,
         dot,
         number,
         fraction,
@@ -141,11 +139,11 @@ pub fn nextToken(self: *Lexer) Token {
             },
             '&' => {
                 tag = .invalid;
-                continue :state .ampersand;
+                break :state;
             },
             '|' => {
                 tag = .invalid;
-                continue :state .pipe;
+                break :state;
             },
             '.' => {
                 tag = .invalid;
@@ -257,34 +255,6 @@ pub fn nextToken(self: *Lexer) Token {
             switch (iterator.nextCodepoint() orelse break :state) {
                 '+' => {
                     tag = .concat;
-                    break :state;
-                },
-                else => {
-                    iterator.i = previous;
-                    break :state;
-                },
-            }
-        },
-
-        .ampersand => {
-            const previous = iterator.i;
-            switch (iterator.nextCodepoint() orelse break :state) {
-                '&' => {
-                    tag = .and_and;
-                    break :state;
-                },
-                else => {
-                    iterator.i = previous;
-                    break :state;
-                },
-            }
-        },
-
-        .pipe => {
-            const previous = iterator.i;
-            switch (iterator.nextCodepoint() orelse break :state) {
-                '|' => {
-                    tag = .or_or;
                     break :state;
                 },
                 else => {
@@ -486,7 +456,7 @@ test "delimiters" {
 }
 
 test "operators" {
-    const input = "= => ? == ! != > >= < <= + ++ - * / % && || .. ...";
+    const input = "= => ? == ! != > >= < <= + ++ - * / % .. ...";
     const tokens = [_]Token{
         Token.init(.assign, input, "="),
         Token.init(.fat_arrow, input, "=>"),
@@ -504,8 +474,6 @@ test "operators" {
         Token.init(.star, input, "*"),
         Token.init(.slash, input, "/"),
         Token.init(.percent, input, "%"),
-        Token.init(.and_and, input, "&&"),
-        Token.init(.or_or, input, "||"),
         Token.init(.range, input, ".."),
         Token.init(.spread, input, "..."),
         Token.init(.eof, input, ""),
