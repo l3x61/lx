@@ -1,6 +1,6 @@
 let classify = (n) {
-    ? n > 0 => "positive"
-    ? n < 0 => "negative"
+    ? n > 0 => "positive",
+    ? n < 0 => "negative",
     => "zero"
 };
 

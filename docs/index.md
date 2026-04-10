@@ -17,14 +17,14 @@ expresses control through ordered pattern branches and recursion.
 ::: info Example
 ```lx
 let fizzbuzz = (n) {
-    ? n % 15 == 0 => print("FizzBuzz")
-    ? n % 3 == 0 => print("Fizz")
-    ? n % 5 == 0 => print("Buzz")
+    ? n % 15 == 0 => print("FizzBuzz"),
+    ? n % 3 == 0 => print("Fizz"),
+    ? n % 5 == 0 => print("Buzz"),
     => print(n)
 };
 
 let loop = (i, max) {
-    i, max ? i > max => print("Done.")
+    i, max ? i > max => print("Done."),
     => {
         fizzbuzz(i);
         loop(i + 1, max)
@@ -105,22 +105,16 @@ program = expression EOF .
 
 expression
     = let-binding ";" expression
-    | non-binding [ ";" expression ]
+    | binary [ ";" expression ]
     .
 
-non-binding
-    = function
-    | block
-    | binary
-    .
-
-let-binding = "let" pattern "=" non-binding .
+let-binding = "let" pattern "=" binary .
 
 function = "(" [ parameters ] ")" "{" function-body "}" .
 parameters = identifier { "," identifier } .
 function-body = expression | branches .
 
-branches = branch { newline branch } .
+branches = branch { "," branch } [ "," ] .
 branch
     = patterns [ "?" expression ] "=>" expression
     | "?" expression "=>" expression
@@ -149,8 +143,7 @@ primary
     .
 
 list = "[" [ list-items ] "]" .
-list-items = spread | expression { "," expression } [ "," spread ] .
-spread = "..." expression .
+list-items = "..." expression | expression { "," expression } [ "," "..." expression ] .
 
 range = "[" expression ".." expression "]" .
 block = "{" expression "}" .
@@ -163,8 +156,7 @@ pattern
     | "(" pattern ")"
     .
 
-pattern-items = spread-pattern | pattern { "," pattern } [ "," spread-pattern ] .
-spread-pattern = "..." pattern .
+pattern-items = "..." pattern | pattern { "," pattern } [ "," "..." pattern ] .
 
 literal = number | string | boolean .
 boolean = "true" | "false" .
@@ -189,22 +181,16 @@ associates to the right.
 ```wsn
 expression
     = let-binding ";" expression
-    | non-binding [ ";" expression ]
-    .
-
-non-binding
-    = function
-    | block
-    | binary
+    | binary [ ";" expression ]
     .
 ```
 
-This form expresses sequencing by chaining bindings and non-binding expressions.
+This form expresses sequencing by chaining bindings and ordinary expressions.
 
 ## Bindings
 
 ```wsn
-let-binding = "let" pattern "=" non-binding .
+let-binding = "let" pattern "=" binary .
 ```
 
 A binding evaluates the right-hand side, matches the result against the
@@ -229,8 +215,12 @@ function-body = expression | branches .
 Function values are anonymous. A named function is introduced by binding a
 function value. Applications always use parentheses.
 
-In a function body, branches are separated by line breaks. A function body may
-also consist of a single expression instead of a branch list.
+In a function body, branches are separated by commas. Newlines are treated as
+whitespace, so branch lists may still be formatted across multiple lines. A
+function body may also consist of a single expression instead of a branch list.
+The parser resolves `function-body = expression | branches` by lookahead: if
+the body begins with a branch head, it is parsed as a branch list; otherwise it
+is parsed as a single expression.
 
 ::: info Example
 ```lx
@@ -257,7 +247,7 @@ behaves like:
 ## Branches
 
 ```wsn
-branches = branch { newline branch } .
+branches = branch { "," branch } [ "," ] .
 branch
     = patterns [ "?" expression ] "=>" expression
     | "?" expression "=>" expression
@@ -284,7 +274,7 @@ with a runtime error.
 ::: info Example
 ```lx
 let abs = (n) {
-    ? n >= 0 => n
+    ? n >= 0 => n,
     => -n
 };
 
@@ -302,6 +292,8 @@ pattern
     | "[" [ pattern-items ] "]"
     | "(" pattern ")"
     .
+
+pattern-items = "..." pattern | pattern { "," pattern } [ "," "..." pattern ] .
 ```
 
 Patterns are used in bindings and branches.
@@ -315,7 +307,7 @@ Patterns are used in bindings and branches.
 ::: info Example
 ```lx
 let head = (xs) {
-    [x, ..._] => x
+    [x, ..._] => x,
     [] => "empty"
 };
 
@@ -432,8 +424,8 @@ same runtime type.
 ::: info Example
 ```lx
 let classify = (n) {
-    ? n > 0 => "positive"
-    ? n < 0 => "negative"
+    ? n > 0 => "positive",
+    ? n < 0 => "negative",
     => "zero"
 };
 
@@ -527,8 +519,8 @@ int main(void) {
 ```lx
 let number = 5;
 let describe = (n) {
-    n ? n > 0 => print("positive")
-    n ? n < 0 => print("negative")
+    n ? n > 0 => print("positive"),
+    n ? n < 0 => print("negative"),
     _ => print("zero")
 };
 
@@ -562,14 +554,14 @@ int main(void) {
 
 ```lx
 let fizzbuzz = (n) {
-    ? n % 15 == 0 => print("FizzBuzz")
-    ? n % 3 == 0 => print("Fizz")
-    ? n % 5 == 0 => print("Buzz")
+    ? n % 15 == 0 => print("FizzBuzz"),
+    ? n % 3 == 0 => print("Fizz"),
+    ? n % 5 == 0 => print("Buzz"),
     => print(n)
 };
 
 let loop = (i, max) {
-    i, max ? i > max => print("Done.")
+    i, max ? i > max => print("Done."),
     _, _ => {
         fizzbuzz(i);
         loop(i + 1, max)
@@ -600,7 +592,7 @@ int main(void) {
 
 ```lx
 let sum = (xs) {
-    [] => 0
+    [] => 0,
     [head, ...tail] => head + sum(tail)
 };
 

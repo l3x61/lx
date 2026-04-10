@@ -103,7 +103,7 @@ fn skipInlineWhitespace(self: *Parser, context: ExprContext) void {
 // ```
 // expression
 //     = let-binding ";" expression
-//     | non-binding [ ";" expression ]
+//     | binary [ ";" expression ]
 //     .
 // ```
 fn parseExpression(self: *Parser, context: ExprContext) anyerror!*Node.Node {
@@ -113,7 +113,7 @@ fn parseExpression(self: *Parser, context: ExprContext) anyerror!*Node.Node {
         return self.parseBindingExpression(context);
     }
 
-    const first = try self.parseNonBinding(context);
+    const first = try self.parseBinary(context, 1);
     errdefer first.deinit(self.allocator);
 
     self.skipInlineWhitespace(context);
@@ -131,7 +131,7 @@ fn parseExpression(self: *Parser, context: ExprContext) anyerror!*Node.Node {
 }
 
 // ```
-// let-binding = "let" pattern "=" non-binding .
+// let-binding = "let" pattern "=" binary .
 // ```
 fn parseBindingExpression(self: *Parser, context: ExprContext) anyerror!*Node.Node {
     _ = try self.expect(.let);
@@ -140,7 +140,7 @@ fn parseBindingExpression(self: *Parser, context: ExprContext) anyerror!*Node.No
 
     self.skipInlineWhitespace(context);
     _ = try self.expect(.assign);
-    const value = try self.parseNonBinding(context);
+    const value = try self.parseBinary(context, 1);
     errdefer value.deinit(self.allocator);
 
     self.skipInlineWhitespace(context);
@@ -156,17 +156,6 @@ fn parseBindingExpression(self: *Parser, context: ExprContext) anyerror!*Node.No
             .body = body,
         },
     });
-}
-
-// ```
-// non-binding
-//     = function
-//     | block
-//     | binary
-//     .
-// ```
-fn parseNonBinding(self: *Parser, context: ExprContext) anyerror!*Node.Node {
-    return self.parseBinary(context, 1);
 }
 
 // ```
@@ -345,7 +334,7 @@ fn parseFunction(self: *Parser) anyerror!*Node.Node {
 }
 
 // ```
-// branches = branch { newline branch } .
+// branches = branch { "," branch } [ "," ] .
 // ```
 fn parseBranches(self: *Parser) anyerror![]*Node.Branch {
     var branches: std.ArrayList(*Node.Branch) = .empty;
@@ -357,8 +346,9 @@ fn parseBranches(self: *Parser) anyerror![]*Node.Branch {
     while (true) {
         try branches.append(self.allocator, try self.parseBranch());
 
+        self.skipNewlines();
         if (self.current().tag == .rbrace) break;
-        if (self.current().tag != .newline) return error.SyntaxError;
+        _ = try self.expect(.comma);
 
         self.skipNewlines();
         if (self.current().tag == .rbrace) break;
@@ -377,14 +367,14 @@ fn parseBranches(self: *Parser) anyerror![]*Node.Branch {
 fn parseBranch(self: *Parser) anyerror!*Node.Branch {
     if (self.match(.question)) {
         const guard = try self.parseExpression(.{
-            .stop_at_newline = true,
+            .stop_at_comma = true,
             .stop_at_fat_arrow = true,
         });
         errdefer guard.deinit(self.allocator);
 
         _ = try self.expect(.fat_arrow);
         const result = try self.parseExpression(.{
-            .stop_at_newline = true,
+            .stop_at_comma = true,
             .stop_at_rbrace = true,
         });
         errdefer result.deinit(self.allocator);
@@ -393,7 +383,7 @@ fn parseBranch(self: *Parser) anyerror!*Node.Branch {
 
     if (self.match(.fat_arrow)) {
         const result = try self.parseExpression(.{
-            .stop_at_newline = true,
+            .stop_at_comma = true,
             .stop_at_rbrace = true,
         });
         errdefer result.deinit(self.allocator);
@@ -410,14 +400,14 @@ fn parseBranch(self: *Parser) anyerror!*Node.Branch {
     errdefer if (guard) |owned_guard| owned_guard.deinit(self.allocator);
     if (self.match(.question)) {
         guard = try self.parseExpression(.{
-            .stop_at_newline = true,
+            .stop_at_comma = true,
             .stop_at_fat_arrow = true,
         });
     }
 
     _ = try self.expect(.fat_arrow);
     const result = try self.parseExpression(.{
-        .stop_at_newline = true,
+        .stop_at_comma = true,
         .stop_at_rbrace = true,
     });
     errdefer result.deinit(self.allocator);
@@ -768,7 +758,6 @@ fn startsBranch(self: *const Parser) bool {
             .rbracket => {
                 if (bracket_depth != 0) bracket_depth -= 1;
             },
-            .newline => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return false,
             .fat_arrow => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return true,
             else => {},
         }
@@ -837,14 +826,14 @@ test "function with single expression body" {
 test "function with branches" {
     try expectParsesToSource(
         \\let abs = (n) {
-        \\    ? n >= 0 => n
+        \\    ? n >= 0 => n,
         \\    => -n
         \\};
         \\
         \\abs(-5)
     ,
         \\let abs = (n) {
-        \\    ? n >= 0 => n
+        \\    ? n >= 0 => n,
         \\    => -n
         \\};
         \\abs(-5)
@@ -854,14 +843,14 @@ test "function with branches" {
 test "overview example from spec" {
     try expectParsesToSource(
         \\let fizzbuzz = (n) {
-        \\    ? n % 15 == 0 => print("FizzBuzz")
-        \\    ? n % 3 == 0 => print("Fizz")
-        \\    ? n % 5 == 0 => print("Buzz")
+        \\    ? n % 15 == 0 => print("FizzBuzz"),
+        \\    ? n % 3 == 0 => print("Fizz"),
+        \\    ? n % 5 == 0 => print("Buzz"),
         \\    => print(n)
         \\};
         \\
         \\let loop = (i, max) {
-        \\    i, max ? i > max => print("Done.")
+        \\    i, max ? i > max => print("Done."),
         \\    => {
         \\        fizzbuzz(i);
         \\        loop(i + 1, max)
@@ -871,13 +860,13 @@ test "overview example from spec" {
         \\loop(1, 15)
     ,
         \\let fizzbuzz = (n) {
-        \\    ? n % 15 == 0 => print("FizzBuzz")
-        \\    ? n % 3 == 0 => print("Fizz")
-        \\    ? n % 5 == 0 => print("Buzz")
+        \\    ? n % 15 == 0 => print("FizzBuzz"),
+        \\    ? n % 3 == 0 => print("Fizz"),
+        \\    ? n % 5 == 0 => print("Buzz"),
         \\    => print(n)
         \\};
         \\let loop = (i, max) {
-        \\    i, max ? i > max => print("Done.")
+        \\    i, max ? i > max => print("Done."),
         \\    => {
         \\        fizzbuzz(i);
         \\        loop(i + 1, max)
@@ -890,13 +879,13 @@ test "overview example from spec" {
 test "patterns lists and spread" {
     try expectParsesToSource(
         \\let head = (xs) {
-        \\    [x, ..._] => x
+        \\    [x, ..._] => x,
         \\    [] => "empty"
         \\};
         \\head([10, 20, 30])
     ,
         \\let head = (xs) {
-        \\    [x, ..._] => x
+        \\    [x, ..._] => x,
         \\    [] => "empty"
         \\};
         \\head([10, 20, 30])
@@ -913,16 +902,16 @@ test "operators precedence" {
 test "operators example from spec" {
     try expectParsesToSource(
         \\let classify = (n) {
-        \\    ? n > 0 => "positive"
-        \\    ? n < 0 => "negative"
+        \\    ? n > 0 => "positive",
+        \\    ? n < 0 => "negative",
         \\    => "zero"
         \\};
         \\
         \\classify(-3)
     ,
         \\let classify = (n) {
-        \\    ? n > 0 => "positive"
-        \\    ? n < 0 => "negative"
+        \\    ? n > 0 => "positive",
+        \\    ? n < 0 => "negative",
         \\    => "zero"
         \\};
         \\classify(-3)
@@ -972,15 +961,15 @@ test "empty parameter function" {
 test "grouped pattern and literal forms" {
     try expectParsesToSource(
         \\let classify = (value) {
-        \\    ("ok") => true
-        \\    3.14 => false
+        \\    ("ok") => true,
+        \\    3.14 => false,
         \\    _ => false
         \\};
         \\classify("ok")
     ,
         \\let classify = (value) {
-        \\    ("ok") => true
-        \\    3.14 => false
+        \\    ("ok") => true,
+        \\    3.14 => false,
         \\    _ => false
         \\};
         \\classify("ok")
@@ -1007,18 +996,19 @@ test "let requires continuation" {
     try testing.expectError(error.SyntaxError, parser.parse());
 }
 
-test "missing branch separator is an error" {
+test "missing branch comma is an error" {
     var parser = try Parser.init(
         testing.allocator,
         \\(x) {
-        \\    ? x > 0 => x => -x
+        \\    ? x > 0 => x
+        \\    => -x
         \\}
     );
     defer parser.deinit();
     try testing.expectError(error.SyntaxError, parser.parse());
 }
 
-test "comments and newlines are ignored outside branch separation" {
+test "comments and newlines are ignored as whitespace" {
     try expectParsesToSource(
         \\# leading
         \\let answer = 42;
@@ -1159,12 +1149,12 @@ test "parenthesized expression tree" {
 test "pattern matching with boolean literals" {
     try expectParsesToSource(
         \\(x) {
-        \\    true => "yes"
+        \\    true => "yes",
         \\    false => "no"
         \\}
     ,
         \\(x) {
-        \\    true => "yes"
+        \\    true => "yes",
         \\    false => "no"
         \\}
     );
@@ -1173,12 +1163,12 @@ test "pattern matching with boolean literals" {
 test "pattern matching with multiple parameters" {
     try expectParsesToSource(
         \\(a, b) {
-        \\    0, 0 => "origin"
+        \\    0, 0 => "origin",
         \\    _, _ => "elsewhere"
         \\}
     ,
         \\(a, b) {
-        \\    0, 0 => "origin"
+        \\    0, 0 => "origin",
         \\    _, _ => "elsewhere"
         \\}
     );
@@ -1187,14 +1177,14 @@ test "pattern matching with multiple parameters" {
 test "pattern with guard and value match" {
     try expectParsesToSource(
         \\(x) {
-        \\    0 => "zero"
-        \\    n ? n > 0 => "positive"
+        \\    0 => "zero",
+        \\    n ? n > 0 => "positive",
         \\    => "negative"
         \\}
     ,
         \\(x) {
-        \\    0 => "zero"
-        \\    n ? n > 0 => "positive"
+        \\    0 => "zero",
+        \\    n ? n > 0 => "positive",
         \\    => "negative"
         \\}
     );
@@ -1203,12 +1193,12 @@ test "pattern with guard and value match" {
 test "nested list patterns" {
     try expectParsesToSource(
         \\(xs) {
-        \\    [[a, b], ...rest] => a
+        \\    [[a, b], ...rest] => a,
         \\    _ => 0
         \\}
     ,
         \\(xs) {
-        \\    [[a, b], ...rest] => a
+        \\    [[a, b], ...rest] => a,
         \\    _ => 0
         \\}
     );
@@ -1359,13 +1349,13 @@ test "float literal" {
 test "recursive pattern matching" {
     try expectParsesToSource(
         \\let len = (xs) {
-        \\    [] => 0
+        \\    [] => 0,
         \\    [_, ...rest] => 1 + len(rest)
         \\};
         \\len([1, 2, 3])
     ,
         \\let len = (xs) {
-        \\    [] => 0
+        \\    [] => 0,
         \\    [_, ...rest] => 1 + len(rest)
         \\};
         \\len([1, 2, 3])
@@ -1378,7 +1368,7 @@ test "branch result with block" {
         \\    0 => {
         \\        let msg = "zero";
         \\        print(msg)
-        \\    }
+        \\    },
         \\    => x
         \\}
     ,
@@ -1386,7 +1376,7 @@ test "branch result with block" {
         \\    0 => {
         \\        let msg = "zero";
         \\        print(msg)
-        \\    }
+        \\    },
         \\    => x
         \\}
     );
@@ -1411,12 +1401,12 @@ test "spread pattern at start of list" {
 test "empty list pattern" {
     try expectParsesToSource(
         \\(xs) {
-        \\    [] => true
+        \\    [] => true,
         \\    _ => false
         \\}
     ,
         \\(xs) {
-        \\    [] => true
+        \\    [] => true,
         \\    _ => false
         \\}
     );

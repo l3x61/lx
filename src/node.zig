@@ -263,11 +263,11 @@ pub const Node = union(Tag) {
                     .branches => |branches| {
                         try writer.writeAll(" {\n");
                         for (branches, 0..) |branch, index| {
-                            if (index != 0) try writer.writeByte('\n');
                             try writeIndent(writer, 4);
                             try writeBranchSource(branch, writer, 4);
+                            if (index + 1 != branches.len) try writer.writeByte(',');
+                            try writer.writeByte('\n');
                         }
-                        try writer.writeByte('\n');
                         try writeIndent(writer, 0);
                         try writer.writeByte('}');
                     },

@@ -1,12 +1,12 @@
 # Pattern matching on values and lists
 let describe = (x) {
-    0 => "zero"
-    1 => "one"
+    0 => "zero",
+    1 => "one",
     _ => "other"
 };
 
 let sum = (xs) {
-    [] => 0
+    [] => 0,
     [x, ...rest] => x + sum(rest)
 };
 

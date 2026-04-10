@@ -486,7 +486,7 @@ test "evaluates simple function application" {
 test "evaluates branch selection" {
     try expectEvaluatesTo(
         \\let abs = (n) {
-        \\    ? n >= 0 => n
+        \\    ? n >= 0 => n,
         \\    => -n
         \\};
         \\abs(-5)
@@ -496,7 +496,7 @@ test "evaluates branch selection" {
 test "evaluates recursive functions" {
     try expectEvaluatesTo(
         \\let sum = (xs) {
-        \\    [] => 0
+        \\    [] => 0,
         \\    [head, ...tail] => head + sum(tail)
         \\};
         \\sum([1..5])
