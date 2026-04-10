@@ -12,8 +12,7 @@ formal notation and section organization.
 Lx is a small expression-oriented functional language centered on unified
 control flow through pattern-based function application. Instead of using
 separate constructs for function definition, branching, and iteration, Lx
-expresses control through ordered pattern branches, immutable bindings,
-recursion, and structural pattern matching.
+expresses control through ordered pattern branches and recursion.
 
 ::: info Example
 ```lx
@@ -182,7 +181,7 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 program = expression EOF .
 ```
 
-A program evaluates a single expression followed by the end of the input.
+A program evaluates a single expression followed by the end of the file.
 
 ## Expressions
 
