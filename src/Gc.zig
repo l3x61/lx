@@ -1,15 +1,16 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 const Environment = @import("Environment.zig");
-const Node = @import("node.zig");
+const Node = @import("node.zig").Node;
 const Value = @import("value.zig").Value;
 
 const Gc = @This();
 
 const Tracked = union(enum) {
     env: *Environment,
-    node: *Node.Node,
+    node: *Node,
     bytes: []u8,
     string: *Value.String,
     list: *Value.List,
@@ -18,11 +19,13 @@ const Tracked = union(enum) {
 };
 
 gpa: Allocator,
+io: Io,
 objects: std.ArrayList(Tracked),
 
-pub fn init(gpa: Allocator) !Gc {
+pub fn init(gpa: Allocator, io: Io) !Gc {
     return .{
         .gpa = gpa,
+        .io = io,
         .objects = .empty,
     };
 }
@@ -49,7 +52,7 @@ pub fn allocator(self: *Gc) Allocator {
 pub fn track(self: *Gc, object: anytype) !void {
     const tracked: ?Tracked = switch (@TypeOf(object)) {
         *Environment => .{ .env = object },
-        *Node.Node => .{ .node = object },
+        *Node => .{ .node = object },
         []u8 => .{ .bytes = object },
         Value => switch (object) {
             .string => |string| .{ .string = string },
@@ -69,7 +72,7 @@ pub fn track(self: *Gc, object: anytype) !void {
 const testing = std.testing;
 
 test "tracks runtime objects" {
-    var gc = try Gc.init(testing.allocator);
+    var gc = try Gc.init(testing.allocator, testing.io);
     defer gc.deinit();
 
     const env = try Environment.init(testing.allocator, null);

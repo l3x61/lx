@@ -1,12 +1,11 @@
 const std = @import("std");
 const Level = std.log.Level;
-const DebugAllocator = std.heap.DebugAllocator;
+const Io = std.Io;
 
 const log = std.log.scoped(.main);
+const fatal = std.process.fatal;
 
-const exit = std.process.exit;
-
-const ansi = @import("ansi.zig");
+const term = @import("term.zig");
 const Repl = @import("Repl.zig");
 const Runtime = @import("Runtime.zig");
 
@@ -14,40 +13,45 @@ pub const std_options = std.Options{
     .logFn = struct {
         fn logFn(
             comptime level: Level,
-            comptime scope: @Type(.enum_literal),
+            comptime scope: @EnumLiteral(),
             comptime format: []const u8,
             args: anytype,
         ) void {
-            const color = comptime switch (level) {
-                .err => ansi.red,
-                .warn => ansi.red,
-                .info => ansi.dim,
-                .debug => ansi.dim,
-            };
-            const name = if (scope == .default) "" else @tagName(scope) ++ ": ";
             var buffer: [256]u8 = undefined;
-            const stderr = std.debug.lockStderrWriter(&buffer);
-            defer std.debug.unlockStderrWriter();
-            nosuspend stderr.print(color ++ name ++ ansi.dim ++ format ++ ansi.reset, args) catch return;
+            const locked = std.debug.lockStderr(&buffer);
+            defer std.debug.unlockStderr();
+            const t = locked.terminal();
+            const color: std.Io.Terminal.Color = switch (level) {
+                .err, .warn => .red,
+                .info, .debug => .dim,
+            };
+            nosuspend {
+                t.setColor(color) catch return;
+                if (scope != .default) {
+                    t.writer.writeAll(@tagName(scope)) catch return;
+                    t.writer.writeAll(": ") catch return;
+                }
+                t.setColor(.dim) catch return;
+                t.writer.print(format, args) catch return;
+                t.setColor(.reset) catch return;
+            }
         }
     }.logFn,
 };
 
-pub fn main() !void {
-    var da: DebugAllocator(.{}) = .init;
-    defer _ = {
-        if (da.deinit() == .leak) log.err("memory leaked\n", .{});
-    };
-    const gpa = da.allocator();
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    const io = init.io;
 
-    var args = try std.process.argsWithAllocator(gpa);
-    defer args.deinit();
-    _ = args.next();
+    const arena = init.arena.allocator();
+    const argv = try init.minimal.args.toSlice(arena);
 
     var mode: Repl.AstMode = .off;
     var file_arg: ?[]const u8 = null;
 
-    while (args.next()) |arg| {
+    var i: usize = 1;
+    while (i < argv.len) : (i += 1) {
+        const arg = argv[i];
         if (std.mem.eql(u8, arg, "--ast-tree")) {
             mode = .tree;
             continue;
@@ -65,45 +69,36 @@ pub fn main() !void {
     }
 
     if (file_arg) |file| {
-        const source = std.fs.cwd().readFileAlloc(gpa, file, 16 * 1024 * 1024) catch |err| {
-            log.err("loading source {s} failed with {t}\n", .{ file, err });
-            return error.LoadScript;
-        };
+        const source = Io.Dir.cwd().readFileAlloc(io, file, gpa, .limited(16 * 1024 * 1024)) catch |err|
+            fatal("loading source {s} failed with {t}", .{ file, err });
         defer gpa.free(source);
 
         var stdout_buffer: [4096]u8 = undefined;
-        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-        var stderr_buffer: [1024]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+        var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
+        const out = &stdout_writer.interface;
         if (mode == .off) {
-            var runtime = try Runtime.init(gpa);
+            var runtime = try Runtime.init(gpa, io);
             defer runtime.deinit();
-            const value = runtime.evaluateSource(source) catch |err| {
-                stderr_writer.interface.print("{t}\n", .{err}) catch {};
-                stderr_writer.interface.flush() catch {};
-                exit(1);
-            };
+            const value = runtime.evaluateSource(source) catch |err|
+                fatal("{t}", .{err});
             switch (value) {
                 .unit => {},
                 else => {
-                    value.write(&stdout_writer.interface) catch {};
-                    stdout_writer.interface.writeByte('\n') catch {};
-                    stdout_writer.interface.flush() catch {};
+                    value.write(out) catch {};
+                    out.writeByte('\n') catch {};
+                    out.flush() catch {};
                 },
             }
         } else {
-            Repl.render(&stdout_writer.interface, gpa, source, mode) catch |err| {
-                stderr_writer.interface.print("{t}\n", .{err}) catch {};
-                stderr_writer.interface.flush() catch {};
-                exit(1);
-            };
-            stdout_writer.interface.writeByte('\n') catch {};
-            stdout_writer.interface.flush() catch {};
+            Repl.render(term.wrap(out), gpa, source, mode) catch |err|
+                fatal("{t}", .{err});
+            out.writeByte('\n') catch {};
+            out.flush() catch {};
         }
         return;
     }
 
-    var repl = try Repl.init(gpa);
+    const repl = try Repl.init(gpa, io);
     defer repl.deinit();
     try repl.run();
 }
@@ -122,4 +117,5 @@ test "all" {
     _ = @import("Script.zig");
     _ = @import("readline.zig");
     _ = @import("Repl.zig");
+    _ = @import("term.zig");
 }

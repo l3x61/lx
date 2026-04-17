@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 const Parser = @import("Parser.zig");
 const Environment = @import("Environment.zig");
@@ -11,11 +12,12 @@ const builtins = @import("builtins.zig");
 const Runtime = @This();
 
 gpa: Allocator,
+io: Io,
 gc: Gc,
 globals: *Environment,
 
-pub fn init(gpa: Allocator) !Runtime {
-    var gc = try Gc.init(gpa);
+pub fn init(gpa: Allocator, io: Io) !Runtime {
+    var gc = try Gc.init(gpa, io);
     errdefer gc.deinit();
 
     const globals = try Environment.init(gc.allocator(), null);
@@ -25,6 +27,7 @@ pub fn init(gpa: Allocator) !Runtime {
 
     var runtime = Runtime{
         .gpa = gpa,
+        .io = io,
         .gc = gc,
         .globals = globals,
     };
@@ -55,7 +58,7 @@ pub fn evaluateSource(self: *Runtime, source: []const u8) !Value {
 const testing = std.testing;
 
 test "evaluate source through runtime" {
-    var runtime = try Runtime.init(testing.allocator);
+    var runtime = try Runtime.init(testing.allocator, testing.io);
     defer runtime.deinit();
 
     const value = try runtime.evaluateSource(

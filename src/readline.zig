@@ -1,6 +1,7 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
+const Terminal = std.Io.Terminal;
 
 const fmt = std.fmt;
 
@@ -13,7 +14,7 @@ const Allocator = mem.Allocator;
 const zeroes = mem.zeroes;
 const bytesToValue = mem.bytesToValue;
 
-const ansi = @import("ansi.zig");
+const term = @import("term.zig");
 const Token = @import("Token.zig");
 const Lexer = @import("Lexer.zig");
 const String = ArrayList(u8);
@@ -43,6 +44,10 @@ pub fn init(gpa: Allocator, out: *Writer) ReadLine {
         .out = out,
         .history = ArrayList(String).empty,
     };
+}
+
+fn terminal(self: *const ReadLine) Terminal {
+    return term.wrap(self.out);
 }
 
 pub fn deinit(self: *ReadLine) void {
@@ -155,9 +160,9 @@ pub fn readLineWithHistory(self: *ReadLine, prompt: []const u8, save_history: bo
         }
 
         try self.out.writeAll("\r");
-        try self.out.writeAll(ansi.erase_to_end);
+        try self.out.writeAll(term.erase_to_end);
         try self.out.writeAll(prompt);
-        try writeColored(self.out, line.items);
+        try writeColored(self.terminal(), line.items);
         try self.out.flush();
 
         const tail_cols = utf8CountCodepoints(line.items[line_pos..]);
@@ -201,7 +206,7 @@ fn utf8PreviousCodepoint(s: []const u8, index: usize) usize {
 }
 
 fn getCursorPosition(out: *Writer) ![2]usize {
-    try out.writeAll(ansi.get_cursor_position);
+    try out.writeAll(term.get_cursor_position);
     try out.flush();
 
     const Buffer = [@sizeOf(u64)]u8;
@@ -238,9 +243,9 @@ fn readBytes(buffer: []u8) ![]const u8 {
     }
 }
 
-fn writeColored(out: *Writer, source: []const u8) !void {
+fn writeColored(t: Terminal, source: []const u8) !void {
     if (isCommandLine(source)) {
-        try writeCommandColored(out, source);
+        try writeCommandColored(t, source);
         return;
     }
 
@@ -253,41 +258,43 @@ fn writeColored(out: *Writer, source: []const u8) !void {
 
         const token_index = @intFromPtr(token.lexeme.ptr) - @intFromPtr(token.source.ptr);
         if (token_index > prev_token_index) {
-            try out.writeAll(source[prev_token_index..token_index]);
+            try t.writer.writeAll(source[prev_token_index..token_index]);
         }
 
-        try out.writeAll(token.color());
-        try out.writeAll(token.lexeme);
-        try out.writeAll(ansi.reset);
+        try t.setColor(token.color());
+        try t.writer.writeAll(token.lexeme);
+        try t.setColor(.reset);
 
         prev_token_index = token_index + token.lexeme.len;
     }
 
     if (prev_token_index < source.len) {
-        try out.writeAll(source[prev_token_index..source.len]);
+        try t.writer.writeAll(source[prev_token_index..source.len]);
     }
 }
 
 fn isCommandLine(source: []const u8) bool {
-    const trimmed_left = mem.trimLeft(u8, source, " \t");
+    const trimmed_left = mem.trimStart(u8, source, " \t");
     if (trimmed_left.len == 0) return false;
     return trimmed_left[0] == '.' or trimmed_left[0] == ':';
 }
 
-fn writeCommandColored(out: *Writer, source: []const u8) !void {
-    const leading_len = source.len - mem.trimLeft(u8, source, " \t").len;
+fn writeCommandColored(t: Terminal, source: []const u8) !void {
+    const out = t.writer;
+    const leading_len = source.len - mem.trimStart(u8, source, " \t").len;
     if (leading_len != 0) try out.writeAll(source[0..leading_len]);
 
     const rest = source[leading_len..];
     const command_end = mem.indexOfAny(u8, rest, " \t") orelse rest.len;
     const command = rest[0..command_end];
-    try out.writeAll(ansi.bold ++ ansi.cyan);
+    try t.setColor(.bold);
+    try t.setColor(.cyan);
     try out.writeAll(command);
-    try out.writeAll(ansi.reset);
+    try t.setColor(.reset);
 
     var tail = rest[command_end..];
     while (tail.len != 0) {
-        const ws_len = tail.len - mem.trimLeft(u8, tail, " \t").len;
+        const ws_len = tail.len - mem.trimStart(u8, tail, " \t").len;
         if (ws_len != 0) {
             try out.writeAll(tail[0..ws_len]);
             tail = tail[ws_len..];
@@ -296,22 +303,22 @@ fn writeCommandColored(out: *Writer, source: []const u8) !void {
 
         const token_end = mem.indexOfAny(u8, tail, " \t") orelse tail.len;
         const token = tail[0..token_end];
-        try out.writeAll(colorForCommandToken(command, token));
+        try t.setColor(colorForCommandToken(command, token));
         try out.writeAll(token);
-        try out.writeAll(ansi.reset);
+        try t.setColor(.reset);
         tail = tail[token_end..];
     }
 }
 
-fn colorForCommandToken(command: []const u8, token: []const u8) []const u8 {
+fn colorForCommandToken(command: []const u8, token: []const u8) Terminal.Color {
     if (mem.eql(u8, command, ".ast") or mem.eql(u8, command, ":ast")) {
-        if (mem.eql(u8, token, "tree")) return ansi.magenta;
-        if (mem.eql(u8, token, "source")) return ansi.green;
-        if (mem.eql(u8, token, "off")) return ansi.dim;
-        return ansi.red;
+        if (mem.eql(u8, token, "tree")) return .magenta;
+        if (mem.eql(u8, token, "source")) return .green;
+        if (mem.eql(u8, token, "off")) return .dim;
+        return .red;
     }
 
-    return ansi.yellow;
+    return .yellow;
 }
 
 fn uncook() !termios {

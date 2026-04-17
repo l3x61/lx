@@ -4,15 +4,17 @@ const parseFloat = std.fmt.parseFloat;
 
 const Environment = @import("Environment.zig");
 const Gc = @import("Gc.zig");
-const Node = @import("node.zig");
+const Node = @import("node.zig").Node;
+const Branch = @import("node.zig").Branch;
+const Pattern = @import("node.zig").Pattern;
 const Token = @import("Token.zig");
 const Value = @import("value.zig").Value;
 
-pub fn evaluate(node: *Node.Node, gc: *Gc, env: *Environment) anyerror!Value {
+pub fn evaluate(node: *Node, gc: *Gc, env: *Environment) anyerror!Value {
     return evalNode(node, gc, env);
 }
 
-fn evalNode(node: *Node.Node, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalNode(node: *Node, gc: *Gc, env: *Environment) anyerror!Value {
     return switch (node.*) {
         .program => |program| evalNode(program.expression, gc, env),
         .identifier => |token| env.get(token.lexeme),
@@ -48,7 +50,7 @@ fn evalLiteral(token: Token, gc: *Gc) anyerror!Value {
     };
 }
 
-fn evalUnary(unary: Node.Node.Unary, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalUnary(unary: Node.Unary, gc: *Gc, env: *Environment) anyerror!Value {
     const operand = try evalNode(unary.operand, gc, env);
     return switch (unary.operator.tag) {
         .minus => .{ .number = -(operand.asNumber() orelse return error.TypeError) },
@@ -57,7 +59,7 @@ fn evalUnary(unary: Node.Node.Unary, gc: *Gc, env: *Environment) anyerror!Value 
     };
 }
 
-fn evalBinary(binary: Node.Node.Binary, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalBinary(binary: Node.Binary, gc: *Gc, env: *Environment) anyerror!Value {
     const left = try evalNode(binary.left, gc, env);
     const right = try evalNode(binary.right, gc, env);
 
@@ -78,7 +80,7 @@ fn evalBinary(binary: Node.Node.Binary, gc: *Gc, env: *Environment) anyerror!Val
     };
 }
 
-fn evalCall(call: Node.Node.Call, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalCall(call: Node.Call, gc: *Gc, env: *Environment) anyerror!Value {
     const callee = try evalNode(call.callee, gc, env);
 
     var arguments = std.ArrayList(Value).empty;
@@ -89,7 +91,7 @@ fn evalCall(call: Node.Node.Call, gc: *Gc, env: *Environment) anyerror!Value {
     }
 
     if (callee.asNative()) |native| {
-        return native.function(arguments.items);
+        return native.function(gc.io, arguments.items);
     }
 
     const closure = callee.asClosure() orelse return error.NotCallable;
@@ -105,7 +107,7 @@ fn evalCall(call: Node.Node.Call, gc: *Gc, env: *Environment) anyerror!Value {
     };
 }
 
-fn evalList(list: Node.Node.List, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalList(list: Node.List, gc: *Gc, env: *Environment) anyerror!Value {
     var items = std.ArrayList(Value).empty;
     errdefer items.deinit(gc.allocator());
 
@@ -126,7 +128,7 @@ fn evalList(list: Node.Node.List, gc: *Gc, env: *Environment) anyerror!Value {
     return value;
 }
 
-fn evalRange(range: Node.Node.Range, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalRange(range: Node.Range, gc: *Gc, env: *Environment) anyerror!Value {
     const start_value = try evalNode(range.start, gc, env);
     const end_value = try evalNode(range.end, gc, env);
 
@@ -155,7 +157,7 @@ fn evalRange(range: Node.Node.Range, gc: *Gc, env: *Environment) anyerror!Value 
     return value;
 }
 
-fn evalBlock(block: Node.Node.Block, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalBlock(block: Node.Block, gc: *Gc, env: *Environment) anyerror!Value {
     const scope = try Environment.init(gc.allocator(), env);
     var keep = false;
     errdefer if (!keep) scope.deinit();
@@ -164,13 +166,13 @@ fn evalBlock(block: Node.Node.Block, gc: *Gc, env: *Environment) anyerror!Value 
     return evalNode(block.expression, gc, scope);
 }
 
-fn evalFunction(function: Node.Node.Function, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalFunction(function: Node.Function, gc: *Gc, env: *Environment) anyerror!Value {
     const value = try Value.Closure.init(gc.allocator(), function.parameters, function.body, env);
     try gc.track(value);
     return value;
 }
 
-fn evalBinding(binding: Node.Node.Binding, gc: *Gc, env: *Environment) anyerror!Value {
+fn evalBinding(binding: Node.Binding, gc: *Gc, env: *Environment) anyerror!Value {
     if (binding.pattern.* == .identifier and binding.value.* == .function) {
         const name = binding.pattern.identifier.lexeme;
         const scope = try Environment.init(gc.allocator(), env);
@@ -200,7 +202,7 @@ fn evalBinding(binding: Node.Node.Binding, gc: *Gc, env: *Environment) anyerror!
 }
 
 fn evalBranches(
-    branches: []*Node.Branch,
+    branches: []*Branch,
     closure: *Value.Closure,
     arguments: []const Value,
     gc: *Gc,
@@ -214,7 +216,7 @@ fn evalBranches(
 }
 
 fn prepareBranchScope(
-    branch: *Node.Branch,
+    branch: *Branch,
     closure: *Value.Closure,
     arguments: []const Value,
     gc: *Gc,
@@ -262,7 +264,7 @@ fn bindParameters(
     return scope;
 }
 
-fn matchPattern(pattern: *Node.Pattern, value: Value, env: *Environment, gc: *Gc) anyerror!bool {
+fn matchPattern(pattern: *Pattern, value: Value, env: *Environment, gc: *Gc) anyerror!bool {
     return switch (pattern.*) {
         .wildcard => true,
         .identifier => |token| blk: {
@@ -279,7 +281,7 @@ fn matchPattern(pattern: *Node.Pattern, value: Value, env: *Environment, gc: *Gc
 }
 
 fn matchListPattern(
-    pattern: Node.Pattern.ListPattern,
+    pattern: Pattern.ListPattern,
     value: Value,
     env: *Environment,
     gc: *Gc,
@@ -422,7 +424,7 @@ fn decodeStringLiteral(gpa: Allocator, lexeme: []const u8) anyerror![]u8 {
 const testing = std.testing;
 
 fn expectEvaluatesTo(input: []const u8, expected: Value) !void {
-    var gc = try Gc.init(testing.allocator);
+    var gc = try Gc.init(testing.allocator, testing.io);
     defer gc.deinit();
 
     const env = try Environment.init(testing.allocator, null);
@@ -441,7 +443,7 @@ fn expectEvaluatesTo(input: []const u8, expected: Value) !void {
 }
 
 fn expectEvaluationError(input: []const u8, expected: anyerror) !void {
-    var gc = try Gc.init(testing.allocator);
+    var gc = try Gc.init(testing.allocator, testing.io);
     defer gc.deinit();
 
     const env = try Environment.init(testing.allocator, null);
@@ -503,6 +505,48 @@ test "evaluates recursive functions" {
     , .{ .number = 15 });
 }
 
+test "evaluates greatest common divisor" {
+    try expectEvaluatesTo(
+        \\let gcd = (a, b) {
+        \\    ? a < 0 => gcd(-a, b),
+        \\    ? b < 0 => gcd(a, -b),
+        \\    a, 0 => a,
+        \\    => gcd(b, a % b)
+        \\};
+        \\gcd(1071, 462)
+    , .{ .number = 21 });
+}
+
+test "evaluates sum and product of a list in one traversal" {
+    var gc = try Gc.init(testing.allocator, testing.io);
+    defer gc.deinit();
+
+    const env = try Environment.init(testing.allocator, null);
+    defer env.deinit();
+    try @import("builtins.zig").install(&gc, env);
+
+    const input =
+        \\let sumAndProduct = (xs) {
+        \\    [] => [0, 1],
+        \\    [x, ...rest] => {
+        \\        let [sum, product] = sumAndProduct(rest);
+        \\        [x + sum, x * product]
+        \\    }
+        \\};
+        \\sumAndProduct([1, 2, 3, 4, 5])
+    ;
+    var parser = try @import("Parser.zig").init(testing.allocator, input);
+    defer parser.deinit();
+    const ast = try parser.parse();
+    defer ast.deinit(testing.allocator);
+    const value = try evaluate(ast, &gc, env);
+
+    const list = value.asList() orelse return error.TestExpectedList;
+    try testing.expectEqual(@as(usize, 2), list.items.len);
+    try testing.expect(list.items[0].equal(.{ .number = 15 }));
+    try testing.expect(list.items[1].equal(.{ .number = 120 }));
+}
+
 test "evaluates pattern binding" {
     try expectEvaluatesTo(
         \\let [head, ..._] = [1, 2, 3];
@@ -511,7 +555,7 @@ test "evaluates pattern binding" {
 }
 
 test "evaluates list spread and range" {
-    var gc = try Gc.init(testing.allocator);
+    var gc = try Gc.init(testing.allocator, testing.io);
     defer gc.deinit();
 
     const env = try Environment.init(testing.allocator, null);
@@ -535,7 +579,7 @@ test "evaluates list spread and range" {
 }
 
 test "binding pattern failure errors" {
-    var gc = try Gc.init(testing.allocator);
+    var gc = try Gc.init(testing.allocator, testing.io);
     defer gc.deinit();
 
     const env = try Environment.init(testing.allocator, null);
@@ -552,7 +596,7 @@ test "binding pattern failure errors" {
 }
 
 test "branch failure errors" {
-    var gc = try Gc.init(testing.allocator);
+    var gc = try Gc.init(testing.allocator, testing.io);
     defer gc.deinit();
 
     const env = try Environment.init(testing.allocator, null);

@@ -1,8 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 const Environment = @import("Environment.zig");
-const Node = @import("node.zig");
+const FunctionBody = @import("node.zig").FunctionBody;
 const Token = @import("Token.zig");
 
 pub const Value = union(Tag) {
@@ -88,12 +89,12 @@ pub const Value = union(Tag) {
 
     pub const Native = struct {
         name: []const u8,
-        function: *const fn (arguments: []const Value) anyerror!Value,
+        function: *const fn (io: Io, arguments: []const Value) anyerror!Value,
 
         pub fn init(
             gpa: Allocator,
             name: []const u8,
-            function: *const fn (arguments: []const Value) anyerror!Value,
+            function: *const fn (io: Io, arguments: []const Value) anyerror!Value,
         ) !Value {
             const ptr = try gpa.create(Native);
             errdefer gpa.destroy(ptr);
@@ -111,13 +112,13 @@ pub const Value = union(Tag) {
 
     pub const Closure = struct {
         parameters: []const Token,
-        body: Node.FunctionBody,
+        body: FunctionBody,
         env: *Environment,
 
         pub fn init(
             gpa: Allocator,
             parameters: []const Token,
-            body: Node.FunctionBody,
+            body: FunctionBody,
             env: *Environment,
         ) !Value {
             const ptr = try gpa.create(Closure);

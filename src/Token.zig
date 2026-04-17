@@ -120,26 +120,24 @@ pub fn isOneOf(self: Token, expected: []const Tag) bool {
     return false;
 }
 
-pub fn color(self: Token) []const u8 {
-    const ansi = @import("ansi.zig");
-
+pub fn color(self: Token) std.Io.Terminal.Color {
     return switch (self.tag) {
-        .let => ansi.red,
+        .let => .red,
 
         .true,
         .false,
-        => ansi.cyan,
+        => .cyan,
 
         .number,
         .string,
         .string_open,
-        => ansi.blue,
+        => .blue,
 
         .comment,
         .newline,
-        => ansi.dim,
+        => .dim,
 
-        .invalid => ansi.red,
+        .invalid => .red,
 
         .assign,
         .fat_arrow,
@@ -159,8 +157,8 @@ pub fn color(self: Token) []const u8 {
         .percent,
         .spread,
         .range,
-        => ansi.yellow,
+        => .yellow,
 
-        else => ansi.reset,
+        else => .reset,
     };
 }

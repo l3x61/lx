@@ -1,3 +1,6 @@
+const std = @import("std");
+const Io = std.Io;
+
 const Environment = @import("Environment.zig");
 const Gc = @import("Gc.zig");
 const Value = @import("value.zig").Value;
@@ -11,7 +14,7 @@ fn buildIn(
     gc: *Gc,
     env: *Environment,
     name: []const u8,
-    function: *const fn (arguments: []const Value) anyerror!Value,
+    function: *const fn (io: Io, arguments: []const Value) anyerror!Value,
 ) !void {
     const value = try Value.Native.init(gc.allocator(), name, function);
     try gc.track(value);

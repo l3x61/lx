@@ -6,7 +6,6 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const hexEscape = std.ascii.hexEscape;
 
-const ansi = @import("ansi.zig");
 const Token = @import("Token.zig");
 
 const Lexer = @This();
@@ -395,8 +394,7 @@ fn runTest(input: []const u8, tokens: []const Token) !void {
         const actual = lexer.nextToken();
 
         expect(expected.equal(actual)) catch |err| {
-            print(ansi.red ++ "error: " ++ ansi.reset, .{});
-            print("at token {d} of {d} in `{s}`\n", .{ i, tokens.len, escaped.data.bytes });
+            print("error: at token {d} of {d} in `{s}`\n", .{ i, tokens.len, escaped.data.bytes });
             print("expected: {f} `{s}`\n", .{ expected.tag, expected.lexeme });
             print("     got: {f} `{s}`\n\n", .{ actual.tag, actual.lexeme });
             return err;

@@ -1,8 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const HashMap = std.StringArrayHashMap;
+const HashMap = std.StringArrayHashMapUnmanaged;
 
-const ansi = @import("ansi.zig");
 const Value = @import("value.zig").Value;
 const Environment = @This();
 
@@ -15,7 +14,7 @@ pub fn init(gpa: Allocator, parent: ?*Environment) !*Environment {
     self.* = Environment{
         .gpa = gpa,
         .parent = parent,
-        .bindings = HashMap(?Value).init(gpa),
+        .bindings = .empty,
     };
     return self;
 }
@@ -25,7 +24,7 @@ pub fn deinit(self: *Environment) void {
     while (it.next()) |entry| {
         self.gpa.free(entry.key_ptr.*);
     }
-    self.bindings.deinit();
+    self.bindings.deinit(self.gpa);
     self.gpa.destroy(self);
 }
 
@@ -40,7 +39,7 @@ pub fn bind(self: *Environment, key: []const u8, value: ?Value) !void {
     const new_key = try self.gpa.dupe(u8, key);
     errdefer self.gpa.free(new_key);
 
-    const entry = try self.bindings.getOrPut(new_key);
+    const entry = try self.bindings.getOrPut(self.gpa, new_key);
     if (entry.found_existing) {
         return error.AlreadyDefined;
     }
@@ -71,29 +70,41 @@ pub fn get(self: *Environment, key: []const u8) !Value {
     return error.NotDefined;
 }
 
-const print = std.debug.print;
-
 const testing = std.testing;
 const expect = testing.expect;
 const expectError = testing.expectError;
 
 pub fn debug(self: *Environment) void {
-    if (self.bindings.unmanaged.entries.len == 0) {
-        print("{s}empty{s}\n", .{ ansi.dim, ansi.reset });
+    var buffer: [1024]u8 = undefined;
+    const locked = std.debug.lockStderr(&buffer);
+    defer std.debug.unlockStderr();
+    const t = locked.terminal();
+
+    if (self.bindings.entries.len == 0) {
+        t.setColor(.dim) catch {};
+        t.writer.writeAll("empty") catch {};
+        t.setColor(.reset) catch {};
+        t.writer.writeByte('\n') catch {};
     }
-    self.dbg(0);
+    self.dbg(t, 0);
 }
 
-fn dbg(self: *Environment, depth: usize) void {
+fn dbg(self: *Environment, t: std.Io.Terminal, depth: usize) void {
+    const w = t.writer;
     var it = self.bindings.iterator();
     while (it.next()) |entry| {
-        if (entry.value_ptr.*) |v|
-            print("[{d}] {s} = {f}\n", .{ depth, entry.key_ptr.*, v })
-        else
-            print("[{d}] {s} = {s}free{s}\n", .{ depth, entry.key_ptr.*, ansi.dim, ansi.reset });
+        if (entry.value_ptr.*) |v| {
+            w.print("[{d}] {s} = {f}\n", .{ depth, entry.key_ptr.*, v }) catch {};
+        } else {
+            w.print("[{d}] {s} = ", .{ depth, entry.key_ptr.* }) catch {};
+            t.setColor(.dim) catch {};
+            w.writeAll("free") catch {};
+            t.setColor(.reset) catch {};
+            w.writeByte('\n') catch {};
+        }
     }
     if (self.parent) |parent| {
-        parent.dbg(depth + 1);
+        parent.dbg(t, depth + 1);
     }
 }
 

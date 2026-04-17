@@ -2,9 +2,11 @@ const std = @import("std");
 const build_options = @import("build_options");
 
 const Allocator = std.mem.Allocator;
-const max_path_bytes = std.fs.max_path_bytes;
+const Io = std.Io;
+const Terminal = Io.Terminal;
+const max_path_bytes = Io.Dir.max_path_bytes;
 
-const ansi = @import("ansi.zig");
+const term = @import("term.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const ReadLine = @import("readline.zig");
@@ -12,8 +14,9 @@ const Runtime = @import("Runtime.zig");
 const Token = @import("Token.zig");
 
 const Repl = @This();
-const prompt = ansi.cyan ++ "> " ++ ansi.reset;
-const continuation_prompt = ansi.dim ++ "| " ++ ansi.reset;
+
+const prompt = term.csi ++ "36m" ++ "> " ++ term.csi ++ "0m";
+const continuation_prompt = term.csi ++ "2m" ++ "| " ++ term.csi ++ "0m";
 
 pub const AstMode = enum {
     off,
@@ -38,34 +41,45 @@ pub const AstMode = enum {
 };
 
 gpa: Allocator,
+io: Io,
+stdout_buffer: [max_path_bytes]u8,
+stderr_buffer: [max_path_bytes]u8,
+stdout_writer: Io.File.Writer,
+stderr_writer: Io.File.Writer,
 rl: ReadLine,
 ast_mode: AstMode,
 runtime: Runtime,
 
-var stdout_buffer: [max_path_bytes]u8 = undefined;
-var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-const stdout = &stdout_writer.interface;
+pub fn init(gpa: Allocator, io: Io) !*Repl {
+    const self = try gpa.create(Repl);
+    errdefer gpa.destroy(self);
 
-var stderr_buffer: [max_path_bytes]u8 = undefined;
-var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-const stderr = &stderr_writer.interface;
-
-pub fn init(gpa: Allocator) !Repl {
-    return .{
+    self.* = .{
         .gpa = gpa,
-        .rl = ReadLine.init(gpa, stdout),
+        .io = io,
+        .stdout_buffer = undefined,
+        .stderr_buffer = undefined,
+        .stdout_writer = undefined,
+        .stderr_writer = undefined,
+        .rl = undefined,
         .ast_mode = .off,
-        .runtime = try Runtime.init(gpa),
+        .runtime = try Runtime.init(gpa, io),
     };
+
+    self.stdout_writer = Io.File.stdout().writer(io, &self.stdout_buffer);
+    self.stderr_writer = Io.File.stderr().writer(io, &self.stderr_buffer);
+    self.rl = ReadLine.init(gpa, &self.stdout_writer.interface);
+    return self;
 }
 
 pub fn deinit(self: *Repl) void {
     self.runtime.deinit();
     self.rl.deinit();
+    self.gpa.destroy(self);
 }
 
 pub fn run(self: *Repl) !void {
-    try welcomeMessage();
+    try self.welcomeMessage();
 
     while (true) {
         const line = self.readInput() catch |err| switch (err) {
@@ -75,21 +89,38 @@ pub fn run(self: *Repl) !void {
         defer self.gpa.free(line);
 
         const handled = self.handleCommand(line) catch |err| {
-            try stderr.print("{t}\n", .{err});
-            try stderr.flush();
+            try self.stderr().print("{t}\n", .{err});
+            try self.stderr().flush();
             continue;
         };
         if (handled) continue;
 
-        self.renderLine(stdout, line) catch |err| {
-            try stderr.print("{t}\n", .{err});
-            try stderr.flush();
+        self.renderLine(line) catch |err| {
+            try self.stderr().print("{t}\n", .{err});
+            try self.stderr().flush();
             continue;
         };
     }
 }
 
-fn renderLine(self: *Repl, out: anytype, source: []const u8) !void {
+fn stdout(self: *Repl) *Io.Writer {
+    return &self.stdout_writer.interface;
+}
+
+fn stderr(self: *Repl) *Io.Writer {
+    return &self.stderr_writer.interface;
+}
+
+fn stdoutTerminal(self: *Repl) Terminal {
+    return term.wrap(self.stdout());
+}
+
+fn stderrTerminal(self: *Repl) Terminal {
+    return term.wrap(self.stderr());
+}
+
+fn renderLine(self: *Repl, source: []const u8) !void {
+    const out = self.stdout();
     if (self.ast_mode == .off) {
         const value = try self.runtime.evaluateSource(source);
         switch (value) {
@@ -103,7 +134,7 @@ fn renderLine(self: *Repl, out: anytype, source: []const u8) !void {
         return;
     }
 
-    try render(out, self.gpa, source, self.ast_mode);
+    try render(self.stdoutTerminal(), self.gpa, source, self.ast_mode);
     try out.writeByte('\n');
     try out.flush();
 }
@@ -136,7 +167,7 @@ fn readInput(self: *Repl) ![]u8 {
     return owned;
 }
 
-pub fn render(out: anytype, gpa: Allocator, source: []const u8, mode: AstMode) !void {
+pub fn render(t: Terminal, gpa: Allocator, source: []const u8, mode: AstMode) !void {
     var parser = try Parser.init(gpa, source);
     defer parser.deinit();
 
@@ -144,9 +175,9 @@ pub fn render(out: anytype, gpa: Allocator, source: []const u8, mode: AstMode) !
     defer node.deinit(gpa);
 
     switch (mode) {
-        .off => try out.writeAll("ok"),
-        .tree => try node.writeTreeColored(out),
-        .source => try node.writeSource(out),
+        .off => try t.writer.writeAll("ok"),
+        .tree => try node.writeTree(t),
+        .source => try node.writeSource(t.writer),
     }
 }
 
@@ -156,8 +187,8 @@ fn handleCommand(self: *Repl, line: []const u8) !bool {
 
     if (std.mem.eql(u8, trimmed, ":ast") or std.mem.eql(u8, trimmed, ".ast")) {
         self.ast_mode = self.ast_mode.next();
-        try stderr.print("ast mode: {s}\n", .{self.ast_mode.label()});
-        try stderr.flush();
+        try self.stderr().print("ast mode: {s}\n", .{self.ast_mode.label()});
+        try self.stderr().flush();
         return true;
     }
 
@@ -173,22 +204,23 @@ fn handleCommand(self: *Repl, line: []const u8) !bool {
             return error.InvalidAstMode;
         }
 
-        try stderr.print("ast mode: {s}\n", .{self.ast_mode.label()});
-        try stderr.flush();
+        try self.stderr().print("ast mode: {s}\n", .{self.ast_mode.label()});
+        try self.stderr().flush();
         return true;
     }
 
     return false;
 }
 
-fn welcomeMessage() !void {
-    try stderr.print("{s}lx{s} runtime {s}\n", .{
-        ansi.bold ++ ansi.red,
-        ansi.reset,
-        build_options.version,
-    });
-    try stderr.print("ast mode: off\n", .{});
-    try stderr.flush();
+fn welcomeMessage(self: *Repl) !void {
+    const t = self.stderrTerminal();
+    try t.setColor(.bold);
+    try t.setColor(.red);
+    try t.writer.writeAll("lx");
+    try t.setColor(.reset);
+    try t.writer.print(" runtime {s}\n", .{build_options.version});
+    try t.writer.writeAll("ast mode: off\n");
+    try t.writer.flush();
 }
 
 fn inputIsComplete(source: []const u8) !bool {
