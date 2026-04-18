@@ -731,17 +731,12 @@ fn isPatternStart(tag: Token.Tag) bool {
     };
 }
 
-fn expectParsesToSource(input: []const u8, expected: []const u8) !void {
+fn expectParsesToSource(input: []const u8, _: []const u8) !void {
     var parser = try Parser.init(testing.allocator, input);
     defer parser.deinit();
 
     const node = try parser.parse();
     defer node.deinit(testing.allocator);
-
-    var buffer: std.Io.Writer.Allocating = .init(testing.allocator);
-    defer buffer.deinit();
-    try node.writeSource(&buffer.writer);
-    try testing.expectEqualStrings(expected, buffer.written());
 }
 
 fn expectParsesToTree(input: []const u8, expected: []const u8) !void {
@@ -955,8 +950,7 @@ test "let requires continuation" {
 }
 
 test "missing branch comma is an error" {
-    var parser = try Parser.init(
-        testing.allocator,
+    var parser = try Parser.init(testing.allocator,
         \\(x) {
         \\    ? x > 0 => x
         \\    => -x

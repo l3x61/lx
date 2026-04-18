@@ -313,7 +313,6 @@ fn writeCommandColored(t: Terminal, source: []const u8) !void {
 fn colorForCommandToken(command: []const u8, token: []const u8) Terminal.Color {
     if (mem.eql(u8, command, ".ast") or mem.eql(u8, command, ":ast")) {
         if (mem.eql(u8, token, "tree")) return .magenta;
-        if (mem.eql(u8, token, "source")) return .green;
         if (mem.eql(u8, token, "off")) return .dim;
         return .red;
     }

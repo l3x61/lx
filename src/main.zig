@@ -56,10 +56,6 @@ pub fn main(init: std.process.Init) !void {
             mode = .tree;
             continue;
         }
-        if (std.mem.eql(u8, arg, "--ast-source")) {
-            mode = .source;
-            continue;
-        }
         if (std.mem.eql(u8, arg, "--ast-off")) {
             mode = .off;
             continue;

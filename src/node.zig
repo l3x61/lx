@@ -143,136 +143,8 @@ pub const Node = union(Tag) {
         ator.destroy(self);
     }
 
-    pub fn writeSource(self: *const Node, writer: anytype) anyerror!void {
-        try self.writeSourceIndented(writer, 0);
-    }
-
     pub fn writeTree(self: *const Node, term: Terminal) anyerror!void {
         try self.writeTreeIndented(term, 0, null);
-    }
-
-    fn writeSourceIndented(self: *const Node, writer: anytype, indent: usize) anyerror!void {
-        switch (self.*) {
-            .program => |program| try program.expression.writeSourceIndented(writer, indent),
-            .binding => |binding| {
-                try writeIndent(writer, indent);
-                try writer.writeAll("let ");
-                try writePatternSource(binding.pattern, writer);
-                try writer.writeAll(" = ");
-                try binding.value.writeInline(writer, 0, .none);
-                try writer.writeAll(";\n");
-                try binding.body.writeSourceIndented(writer, indent);
-            },
-            .sequence => |sequence| {
-                try sequence.first.writeSourceIndented(writer, indent);
-                try writer.writeAll(";\n");
-                try sequence.second.writeSourceIndented(writer, indent);
-            },
-            else => {
-                try writeIndent(writer, indent);
-                try self.writeInline(writer, 0, .none);
-            },
-        }
-    }
-
-    const AssocSide = enum {
-        none,
-        left,
-        right,
-    };
-
-    fn writeInline(self: *const Node, writer: anytype, parent_prec: u8, side: AssocSide) anyerror!void {
-        const my_prec = self.precedence();
-        const need_parens = my_prec != 0 and needsParens(self, parent_prec, side);
-
-        if (need_parens) try writer.writeByte('(');
-        defer if (need_parens) writer.writeByte(')') catch {};
-
-        switch (self.*) {
-            .program => |program| try program.expression.writeInline(writer, parent_prec, side),
-            .identifier, .literal => |token| try writer.writeAll(token.lexeme),
-            .unary => |unary| {
-                try writer.writeAll(unary.operator.lexeme);
-                try unary.operand.writeInline(writer, my_prec, .right);
-            },
-            .binary => |binary| {
-                try binary.left.writeInline(writer, my_prec, .left);
-                try writer.print(" {s} ", .{binary.operator.lexeme});
-                try binary.right.writeInline(writer, my_prec, .right);
-            },
-            .call => |call| {
-                try call.callee.writeInline(writer, my_prec, .left);
-                try writer.writeByte('(');
-                for (call.arguments, 0..) |argument, index| {
-                    if (index != 0) try writer.writeAll(", ");
-                    try argument.writeInline(writer, 0, .none);
-                }
-                try writer.writeByte(')');
-            },
-            .list => |list| {
-                try writer.writeByte('[');
-                for (list.items, 0..) |item, index| {
-                    if (index != 0) try writer.writeAll(", ");
-                    try item.writeInline(writer, 0, .none);
-                }
-                if (list.spread) |spread| {
-                    if (list.items.len != 0) try writer.writeAll(", ");
-                    try writer.writeAll("...");
-                    try spread.writeInline(writer, 0, .none);
-                }
-                try writer.writeByte(']');
-            },
-            .range => |range| {
-                try writer.writeByte('[');
-                try range.start.writeInline(writer, 0, .none);
-                try writer.writeAll("..");
-                try range.end.writeInline(writer, 0, .none);
-                try writer.writeByte(']');
-            },
-            .block => |block| {
-                try writer.writeAll("{\n");
-                try block.expression.writeSourceIndented(writer, 4);
-                try writer.writeByte('\n');
-                try writeIndent(writer, 0);
-                try writer.writeByte('}');
-            },
-            .function => |function| {
-                try writeParameters(writer, function.parameters);
-                switch (function.body) {
-                    .expression => |body_expression| {
-                        if (body_expression.isCompactExpression()) {
-                            try writer.writeAll(" { ");
-                            try body_expression.writeInline(writer, 0, .none);
-                            try writer.writeAll(" }");
-                        } else {
-                            try writer.writeAll(" {\n");
-                            try body_expression.writeSourceIndented(writer, 4);
-                            try writer.writeByte('\n');
-                            try writeIndent(writer, 0);
-                            try writer.writeByte('}');
-                        }
-                    },
-                    .branches => |branches| {
-                        try writer.writeAll(" {\n");
-                        for (branches, 0..) |branch, index| {
-                            try writeIndent(writer, 4);
-                            try writeBranchSource(branch, writer, 4);
-                            if (index + 1 != branches.len) try writer.writeByte(',');
-                            try writer.writeByte('\n');
-                        }
-                        try writeIndent(writer, 0);
-                        try writer.writeByte('}');
-                    },
-                }
-            },
-            .binding, .sequence => {
-                try writer.writeAll("{\n");
-                try self.writeSourceIndented(writer, 4);
-                try writer.writeByte('\n');
-                try writeIndent(writer, 0);
-                try writer.writeByte('}');
-            },
-        }
     }
 
     fn writeTreeIndented(self: *const Node, term: Terminal, indent: usize, label: ?[]const u8) anyerror!void {
@@ -367,23 +239,6 @@ pub const Node = union(Tag) {
                 try sequence.second.writeTreeIndented(term, indent + 4, "second");
             },
         }
-    }
-
-    fn precedence(self: *const Node) u8 {
-        return switch (self.*) {
-            .identifier, .literal, .list, .range, .block, .function => 9,
-            .call => 8,
-            .unary => 7,
-            .binary => |binary| binaryPrecedence(binary.operator.tag),
-            .program, .binding, .sequence => 0,
-        };
-    }
-
-    fn isCompactExpression(self: *const Node) bool {
-        return switch (self.*) {
-            .binding, .sequence, .block, .function => false,
-            else => true,
-        };
     }
 
     fn writeTreeKind(term: Terminal, name: []const u8) !void {
@@ -496,48 +351,6 @@ pub const Pattern = union(PatternTag) {
     }
 };
 
-fn writeParameters(writer: anytype, parameters: []const Token) !void {
-    try writer.writeByte('(');
-    for (parameters, 0..) |parameter, index| {
-        if (index != 0) try writer.writeAll(", ");
-        try writer.writeAll(parameter.lexeme);
-    }
-    try writer.writeByte(')');
-}
-
-fn writeBranchSource(branch: *const Branch, writer: anytype, indent: usize) !void {
-    if (branch.patterns) |patterns| {
-        for (patterns, 0..) |pattern, index| {
-            if (index != 0) try writer.writeAll(", ");
-            try writePatternSource(pattern, writer);
-        }
-        if (branch.guard) |guard| {
-            try writer.writeAll(" ? ");
-            try guard.writeSource(writer);
-        }
-    } else if (branch.guard) |guard| {
-        try writer.writeAll("? ");
-        try guard.writeSource(writer);
-    }
-
-    if (branch.patterns == null and branch.guard == null) {
-        try writer.writeAll("=> ");
-    } else {
-        try writer.writeAll(" => ");
-    }
-
-    switch (branch.result.*) {
-        .block => |block| {
-            try writer.writeAll("{\n");
-            try block.expression.writeSourceIndented(writer, indent + 4);
-            try writer.writeByte('\n');
-            try writeIndent(writer, indent);
-            try writer.writeByte('}');
-        },
-        else => try branch.result.writeSource(writer),
-    }
-}
-
 fn writeBranchTree(branch: *const Branch, term: Terminal, indent: usize, label: []const u8) !void {
     const writer = term.writer;
     try writeIndent(writer, indent);
@@ -568,31 +381,6 @@ fn writeBranchTree(branch: *const Branch, term: Terminal, indent: usize, label: 
     }
 
     try branch.result.writeTreeIndented(term, indent + 4, "result");
-}
-
-fn writePatternSource(pattern: *const Pattern, writer: anytype) !void {
-    switch (pattern.*) {
-        .wildcard => try writer.writeByte('_'),
-        .identifier, .literal => |token| try writer.writeAll(token.lexeme),
-        .group => |inner| {
-            try writer.writeByte('(');
-            try writePatternSource(inner, writer);
-            try writer.writeByte(')');
-        },
-        .list => |list| {
-            try writer.writeByte('[');
-            for (list.items, 0..) |item, index| {
-                if (index != 0) try writer.writeAll(", ");
-                try writePatternSource(item, writer);
-            }
-            if (list.spread) |spread| {
-                if (list.items.len != 0) try writer.writeAll(", ");
-                try writer.writeAll("...");
-                try writePatternSource(spread, writer);
-            }
-            try writer.writeByte(']');
-        },
-    }
 }
 
 fn writePatternTree(pattern: *const Pattern, term: Terminal, indent: usize, label: []const u8) !void {
@@ -626,29 +414,4 @@ fn writePatternTree(pattern: *const Pattern, term: Terminal, indent: usize, labe
 fn writeIndent(writer: anytype, indent: usize) !void {
     var remaining = indent;
     while (remaining != 0) : (remaining -= 1) try writer.writeByte(' ');
-}
-
-fn binaryPrecedence(tag: Token.Tag) u8 {
-    return switch (tag) {
-        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 1,
-        .concat => 2,
-        .plus, .minus => 3,
-        .star, .slash, .percent => 4,
-        else => 0,
-    };
-}
-
-fn needsParens(self: *const Node, parent_prec: u8, side: Node.AssocSide) bool {
-    const my_prec = self.precedence();
-    if (my_prec == 0 or parent_prec == 0) return false;
-    if (my_prec < parent_prec) return true;
-    if (my_prec > parent_prec) return false;
-
-    return switch (self.*) {
-        .binary => |binary| switch (binary.operator.tag) {
-            .concat => side == .left,
-            else => side == .right,
-        },
-        else => false,
-    };
 }

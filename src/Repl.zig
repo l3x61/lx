@@ -21,13 +21,11 @@ const continuation_prompt = term.csi ++ "2m" ++ "| " ++ term.csi ++ "0m";
 pub const AstMode = enum {
     off,
     tree,
-    source,
 
     pub fn next(self: AstMode) AstMode {
         return switch (self) {
             .off => .tree,
-            .tree => .source,
-            .source => .off,
+            .tree => .off,
         };
     }
 
@@ -35,7 +33,6 @@ pub const AstMode = enum {
         return switch (self) {
             .off => "off",
             .tree => "tree",
-            .source => "source",
         };
     }
 };
@@ -177,7 +174,6 @@ pub fn render(t: Terminal, gpa: Allocator, source: []const u8, mode: AstMode) !v
     switch (mode) {
         .off => try t.writer.writeAll("ok"),
         .tree => try node.writeTree(t),
-        .source => try node.writeSource(t.writer),
     }
 }
 
@@ -198,8 +194,6 @@ fn handleCommand(self: *Repl, line: []const u8) !bool {
             self.ast_mode = .off;
         } else if (std.mem.eql(u8, value, "tree")) {
             self.ast_mode = .tree;
-        } else if (std.mem.eql(u8, value, "source")) {
-            self.ast_mode = .source;
         } else {
             return error.InvalidAstMode;
         }
