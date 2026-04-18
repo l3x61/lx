@@ -14,7 +14,10 @@ test:
 
 examples:
     zig build
-    for file in examples/*.lx; do printf '\n== %s ==\n' "$file"; ./zig-out/bin/lx "$file"; done
+    for file in examples/*.lx; do \
+        if command -v bat >/dev/null 2>&1; then bat -l rb "$file"; else cat "$file"; fi; \
+        ./zig-out/bin/lx "$file"; \
+    done
 
 clean:
     rm -rf .zig-cache zig-out
