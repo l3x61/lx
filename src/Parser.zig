@@ -2,8 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const fs = std.fs;
-
-const log = std.log.scoped(.parser);
+const Terminal = std.Io.Terminal;
 
 const Lexer = @import("Lexer.zig");
 const Node = @import("node.zig").Node;
@@ -17,8 +16,117 @@ const Parser = @This();
 allocator: Allocator,
 tokens: []Token,
 index: usize,
+source_name: []const u8,
+last_error: ?Diagnostic,
+
+pub const Diagnostic = struct {
+    source_name: []const u8,
+    token: Token,
+    kind: Kind,
+
+    const Kind = union(enum) {
+        expected: Token.Tag,
+        message: []const u8,
+    };
+
+    const Location = struct {
+        line: usize,
+        column: usize,
+        line_text: []const u8,
+        before_columns: usize,
+        marker_width: usize,
+    };
+
+    pub fn write(self: Diagnostic, term: Terminal) !void {
+        const writer = term.writer;
+        const loc = self.location();
+
+        try term.setColor(.bold);
+        try term.setColor(.red);
+        try writer.writeAll("Syntax error: ");
+        try term.setColor(.reset);
+        switch (self.kind) {
+            .expected => |expected| {
+                try writer.writeAll("expected \"");
+                try expected.format(writer);
+                try writer.writeAll("\" but got \"");
+                try self.token.tag.format(writer);
+                try writer.writeAll("\"\n");
+            },
+            .message => |message| {
+                try writer.writeAll(message);
+                try writer.writeByte('\n');
+            },
+        }
+
+        try term.setColor(.dim);
+        try writer.print("{s}:{d}:{d}\n", .{
+            self.source_name,
+            loc.line,
+            loc.column,
+        });
+        try term.setColor(.reset);
+
+        var line_buffer: [32]u8 = undefined;
+        const line_number = try std.fmt.bufPrint(&line_buffer, "{d}", .{loc.line});
+
+        try term.setColor(.dim);
+        try writer.writeAll("  ");
+        try writer.writeAll(line_number);
+        try writer.writeAll(" | ");
+        try term.setColor(.reset);
+        try writeHighlightedLine(term, loc.line_text);
+        try writer.writeByte('\n');
+
+        try term.setColor(.dim);
+        try writer.writeAll("  ");
+        try writeRepeated(writer, ' ', line_number.len);
+        try writer.writeAll(" | ");
+        try term.setColor(.reset);
+        try writeRepeated(writer, ' ', loc.before_columns);
+        try term.setColor(.bold);
+        try term.setColor(.red);
+        try writeRepeated(writer, '^', loc.marker_width);
+        try term.setColor(.reset);
+        try writer.writeByte('\n');
+    }
+
+    fn location(self: Diagnostic) Location {
+        const source = self.token.source;
+        const start_index = self.token.startIndex();
+        var cursor: usize = 0;
+        var line_start: usize = 0;
+        var line: usize = 1;
+
+        while (cursor < start_index and cursor < source.len) : (cursor += 1) {
+            if (source[cursor] == '\n') {
+                line += 1;
+                line_start = cursor + 1;
+            }
+        }
+
+        var line_end = start_index;
+        while (line_end < source.len and source[line_end] != '\n') : (line_end += 1) {}
+
+        const before = source[line_start..@min(start_index, source.len)];
+        const token_end = @min(start_index + self.token.lexeme.len, line_end);
+        const marker_slice = source[@min(start_index, source.len)..token_end];
+
+        return .{
+            .line = line,
+            .column = utf8CountCodepoints(before) + 1,
+            .line_text = source[line_start..line_end],
+            .before_columns = utf8CountCodepoints(before),
+            .marker_width = @max(1, utf8CountCodepoints(marker_slice)),
+        };
+    }
+};
 
 pub fn init(allocator: Allocator, source: []const u8) !Parser {
+    return initNamed(allocator, "<input>", source);
+}
+
+pub fn initNamed(allocator: Allocator, source_name: []const u8, source: []const u8) !Parser {
     var lexer = try Lexer.init(source);
     var tokens: std.ArrayList(Token) = .empty;
     errdefer tokens.deinit(allocator);
@@ -33,6 +141,8 @@ pub fn init(allocator: Allocator, source: []const u8) !Parser {
         .allocator = allocator,
         .tokens = try tokens.toOwnedSlice(allocator),
         .index = 0,
+        .source_name = source_name,
+        .last_error = null,
     };
 }
 
@@ -44,6 +154,7 @@ pub fn deinit(self: *Parser) void {
 // program = expression EOF .
 // ```
 pub fn parse(self: *Parser) !*Node {
+    self.last_error = null;
     self.skipNewlines();
     const expression = try self.parseExpression();
     errdefer expression.deinit(self.allocator);
@@ -73,10 +184,27 @@ fn advance(self: *Parser) Token {
 fn expect(self: *Parser, tag: Token.Tag) !Token {
     const token = self.current();
     if (token.tag != tag) {
-        log.debug("expected {f} but got {f}\n", .{ tag, token.tag });
-        return error.SyntaxError;
+        return self.failExpected(tag);
     }
     return self.advance();
+}
+
+fn failExpected(self: *Parser, expected: Token.Tag) error{SyntaxError} {
+    self.last_error = .{
+        .source_name = self.source_name,
+        .token = self.current(),
+        .kind = .{ .expected = expected },
+    };
+    return error.SyntaxError;
+}
+
+fn failMessage(self: *Parser, message: []const u8) error{SyntaxError} {
+    self.last_error = .{
+        .source_name = self.source_name,
+        .token = self.current(),
+        .kind = .{ .message = message },
+    };
+    return error.SyntaxError;
 }
 
 fn match(self: *Parser, tag: Token.Tag) bool {
@@ -272,10 +400,7 @@ fn parsePrimary(self: *Parser) anyerror!*Node {
         },
         .lbrace => self.parseBlock(),
         .lbracket => if (self.isRangeStart()) self.parseRange() else self.parseList(),
-        else => {
-            log.debug("unexpected token {f}\n", .{token.tag});
-            return error.SyntaxError;
-        },
+        else => self.failMessage("expected expression"),
     };
 }
 
@@ -304,7 +429,7 @@ fn parseFunction(self: *Parser) anyerror!*Node {
     _ = try self.expect(.lbrace);
     self.skipNewlines();
 
-    if (self.current().tag == .rbrace) return error.SyntaxError;
+    if (self.current().tag == .rbrace) return self.failMessage("expected function body");
 
     const body: FunctionBody = if (self.startsBranch())
         .{ .branches = try self.parseBranches() }
@@ -450,8 +575,45 @@ fn parsePattern(self: *Parser) anyerror!*Pattern {
             break :blk try Pattern.create(self.allocator, .{ .group = inner });
         },
         .lbracket => self.parseListPattern(),
-        else => error.SyntaxError,
+        else => self.failMessage("expected pattern"),
     };
+}
+
+fn utf8CountCodepoints(bytes: []const u8) usize {
+    var count: usize = 0;
+    for (bytes) |byte| {
+        if ((byte & 0xC0) != 0x80) count += 1;
+    }
+    return count;
+}
+
+fn writeRepeated(writer: anytype, byte: u8, count: usize) !void {
+    for (0..count) |_| try writer.writeByte(byte);
+}
+
+fn writeHighlightedLine(term: Terminal, source: []const u8) !void {
+    var lexer = try Lexer.init(source);
+    var previous_index: usize = 0;
+
+    while (true) {
+        const token = lexer.nextToken();
+        if (token.tag == .eof) break;
+
+        const token_index = token.startIndex();
+        if (token_index > previous_index) {
+            try term.writer.writeAll(source[previous_index..token_index]);
+        }
+
+        try term.setColor(token.color());
+        try term.writer.writeAll(token.lexeme);
+        try term.setColor(.reset);
+
+        previous_index = token_index + token.lexeme.len;
+    }
+
+    if (previous_index < source.len) {
+        try term.writer.writeAll(source[previous_index..]);
+    }
 }
 
 // ```
@@ -752,6 +914,19 @@ fn expectParsesToTree(input: []const u8, expected: []const u8) !void {
     try testing.expectEqualStrings(expected, buffer.written());
 }
 
+fn expectDiagnostic(input: []const u8, expected: []const u8) !void {
+    var parser = try Parser.initNamed(testing.allocator, "examples/test.lx", input);
+    defer parser.deinit();
+
+    try testing.expectError(error.SyntaxError, parser.parse());
+    const diagnostic = parser.last_error orelse unreachable;
+
+    var buffer: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buffer.deinit();
+    try diagnostic.write(.{ .writer = &buffer.writer, .mode = .no_color });
+    try testing.expectEqualStrings(expected, buffer.written());
+}
+
 test "literal program" {
     try expectParsesToSource("42", "42");
 }
@@ -958,6 +1133,17 @@ test "missing branch comma is an error" {
     );
     defer parser.deinit();
     try testing.expectError(error.SyntaxError, parser.parse());
+}
+
+test "diagnostic prints file line and caret" {
+    try expectDiagnostic(
+        "let add = (x + y {",
+        \\Syntax error: expected ")" but got "{"
+        \\examples/test.lx:1:18
+        \\  1 | let add = (x + y {
+        \\    |                  ^
+        \\
+    );
 }
 
 test "comments and newlines are ignored as whitespace" {

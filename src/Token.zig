@@ -106,6 +106,10 @@ pub fn equal(a: Token, b: Token) bool {
     return a.tag == b.tag and eql(u8, a.lexeme, b.lexeme);
 }
 
+pub fn startIndex(self: Token) usize {
+    return @intFromPtr(self.lexeme.ptr) - @intFromPtr(self.source.ptr);
+}
+
 pub fn format(self: Token, writer: anytype) !void {
     switch (self.tag) {
         .eof => try writer.print("end-of-file", .{}),

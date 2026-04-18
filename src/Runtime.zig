@@ -15,6 +15,7 @@ gpa: Allocator,
 io: Io,
 gc: Gc,
 globals: *Environment,
+last_parse_error: ?Parser.Diagnostic,
 
 pub fn init(gpa: Allocator, io: Io) !Runtime {
     var gc = try Gc.init(gpa, io);
@@ -30,6 +31,7 @@ pub fn init(gpa: Allocator, io: Io) !Runtime {
         .io = io,
         .gc = gc,
         .globals = globals,
+        .last_parse_error = null,
     };
 
     try builtins.install(&runtime.gc, runtime.globals);
@@ -41,16 +43,44 @@ pub fn deinit(self: *Runtime) void {
 }
 
 pub fn evaluateSource(self: *Runtime, source: []const u8) !Value {
-    const owned_source = try self.gc.allocator().dupe(u8, source);
-    errdefer self.gc.allocator().free(owned_source);
-    try self.gc.track(owned_source);
+    return self.evaluateSourceNamed("<input>", source);
+}
 
-    var parser = try Parser.init(self.gc.allocator(), owned_source);
+pub fn evaluateSourceNamed(self: *Runtime, source_name: []const u8, source: []const u8) !Value {
+    self.last_parse_error = null;
+    const owned_source = try self.gc.allocator().dupe(u8, source);
+
+    var parser = Parser.initNamed(self.gc.allocator(), source_name, owned_source) catch |err| {
+        self.gc.allocator().free(owned_source);
+        return err;
+    };
     defer parser.deinit();
 
-    const ast = try parser.parse();
-    errdefer ast.deinit(self.gc.allocator());
-    try self.gc.track(ast);
+    const ast = parser.parse() catch |err| switch (err) {
+        error.SyntaxError => {
+            self.last_parse_error = parser.last_error;
+            self.gc.track(owned_source) catch |track_err| {
+                self.gc.allocator().free(owned_source);
+                return track_err;
+            };
+            return err;
+        },
+        else => {
+            self.gc.allocator().free(owned_source);
+            return err;
+        },
+    };
+
+    self.gc.track(owned_source) catch |err| {
+        ast.deinit(self.gc.allocator());
+        self.gc.allocator().free(owned_source);
+        return err;
+    };
+
+    self.gc.track(ast) catch |err| {
+        ast.deinit(self.gc.allocator());
+        return err;
+    };
 
     return evaluate(ast, &self.gc, self.globals);
 }

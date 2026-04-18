@@ -29,7 +29,7 @@ pub const AstMode = enum {
         };
     }
 
-    pub fn label(self: AstMode) []const u8 {
+    pub fn state(self: AstMode) []const u8 {
         return switch (self) {
             .off => "off",
             .tree => "tree",
@@ -119,7 +119,17 @@ fn stderrTerminal(self: *Repl) Terminal {
 fn renderLine(self: *Repl, source: []const u8) !void {
     const out = self.stdout();
     if (self.ast_mode == .off) {
-        const value = try self.runtime.evaluateSource(source);
+        const value = self.runtime.evaluateSourceNamed("<repl>", source) catch |err| switch (err) {
+            error.SyntaxError => {
+                if (self.runtime.last_parse_error) |diagnostic| {
+                    try diagnostic.write(self.stderrTerminal());
+                    try self.stderr().flush();
+                    return;
+                }
+                return err;
+            },
+            else => return err,
+        };
         switch (value) {
             .unit => {},
             else => {
@@ -131,7 +141,20 @@ fn renderLine(self: *Repl, source: []const u8) !void {
         return;
     }
 
-    try render(self.stdoutTerminal(), self.gpa, source, self.ast_mode);
+    render(
+        self.stdoutTerminal(),
+        self.stderrTerminal(),
+        self.gpa,
+        "<repl>",
+        source,
+        self.ast_mode,
+    ) catch |err| switch (err) {
+        error.SyntaxError => {
+            try self.stderr().flush();
+            return;
+        },
+        else => return err,
+    };
     try out.writeByte('\n');
     try out.flush();
 }
@@ -164,16 +187,22 @@ fn readInput(self: *Repl) ![]u8 {
     return owned;
 }
 
-pub fn render(t: Terminal, gpa: Allocator, source: []const u8, mode: AstMode) !void {
-    var parser = try Parser.init(gpa, source);
+pub fn render(out: Terminal, err: Terminal, gpa: Allocator, source_name: []const u8, source: []const u8, mode: AstMode) !void {
+    var parser = try Parser.initNamed(gpa, source_name, source);
     defer parser.deinit();
 
-    const node = try parser.parse();
+    const node = parser.parse() catch |parse_err| switch (parse_err) {
+        error.SyntaxError => {
+            if (parser.last_error) |diagnostic| try diagnostic.write(err);
+            return parse_err;
+        },
+        else => return parse_err,
+    };
     defer node.deinit(gpa);
 
     switch (mode) {
-        .off => try t.writer.writeAll("ok"),
-        .tree => try node.writeTree(t),
+        .off => try out.writer.writeAll("ok"),
+        .tree => try node.writeTree(out),
     }
 }
 
@@ -183,7 +212,7 @@ fn handleCommand(self: *Repl, line: []const u8) !bool {
 
     if (std.mem.eql(u8, trimmed, ":ast") or std.mem.eql(u8, trimmed, ".ast")) {
         self.ast_mode = self.ast_mode.next();
-        try self.stderr().print("ast mode: {s}\n", .{self.ast_mode.label()});
+        try self.stderr().print("ast mode: {s}\n", .{self.ast_mode.state()});
         try self.stderr().flush();
         return true;
     }
@@ -198,7 +227,7 @@ fn handleCommand(self: *Repl, line: []const u8) !bool {
             return error.InvalidAstMode;
         }
 
-        try self.stderr().print("ast mode: {s}\n", .{self.ast_mode.label()});
+        try self.stderr().print("ast mode: {s}\n", .{self.ast_mode.state()});
         try self.stderr().flush();
         return true;
     }

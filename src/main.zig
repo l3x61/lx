@@ -72,11 +72,23 @@ pub fn main(init: std.process.Init) !void {
         var stdout_buffer: [4096]u8 = undefined;
         var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
         const out = &stdout_writer.interface;
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
+        const err = &stderr_writer.interface;
         if (mode == .off) {
             var runtime = try Runtime.init(gpa, io);
             defer runtime.deinit();
-            const value = runtime.evaluateSource(source) catch |err|
-                fatal("{t}", .{err});
+            const value = runtime.evaluateSourceNamed(file, source) catch |eval_err| switch (eval_err) {
+                error.SyntaxError => {
+                    if (runtime.last_parse_error) |diagnostic| {
+                        diagnostic.write(term.wrap(err)) catch {};
+                        err.flush() catch {};
+                        std.process.exit(1);
+                    }
+                    fatal("{t}", .{eval_err});
+                },
+                else => fatal("{t}", .{eval_err}),
+            };
             switch (value) {
                 .unit => {},
                 else => {
@@ -86,8 +98,13 @@ pub fn main(init: std.process.Init) !void {
                 },
             }
         } else {
-            Repl.render(term.wrap(out), gpa, source, mode) catch |err|
-                fatal("{t}", .{err});
+            Repl.render(term.wrap(out), term.wrap(err), gpa, file, source, mode) catch |render_err| switch (render_err) {
+                error.SyntaxError => {
+                    err.flush() catch {};
+                    std.process.exit(1);
+                },
+                else => fatal("{t}", .{render_err}),
+            };
             out.writeByte('\n') catch {};
             out.flush() catch {};
         }
