@@ -1,18 +1,17 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const testing = std.testing;
 
-const Parser = @import("Parser.zig");
-const Environment = @import("Environment.zig");
-const Gc = @import("Gc.zig");
-const Value = @import("value.zig").Value;
-const evaluate = @import("evaluate.zig").evaluate;
 const builtins = @import("builtins.zig");
+const Environment = @import("Environment.zig");
+const evaluate = @import("evaluate.zig").evaluate;
+const Gc = @import("Gc.zig");
+const Parser = @import("Parser.zig");
+const Value = @import("value.zig").Value;
 
 const Runtime = @This();
 
-gpa: Allocator,
-io: Io,
 gc: Gc,
 globals: *Environment,
 last_parse_error: ?Parser.Diagnostic,
@@ -27,8 +26,6 @@ pub fn init(gpa: Allocator, io: Io) !Runtime {
     try gc.track(globals);
 
     var runtime = Runtime{
-        .gpa = gpa,
-        .io = io,
         .gc = gc,
         .globals = globals,
         .last_parse_error = null,
@@ -85,8 +82,6 @@ pub fn evaluateSourceNamed(self: *Runtime, source_name: []const u8, source: []co
     return evaluate(ast, &self.gc, self.globals);
 }
 
-const testing = std.testing;
-
 test "evaluate source through runtime" {
     var runtime = try Runtime.init(testing.allocator, testing.io);
     defer runtime.deinit();
@@ -97,4 +92,23 @@ test "evaluate source through runtime" {
     );
 
     try testing.expect(value.equal(.{ .number = 3 }));
+}
+
+test "runs current non-print examples" {
+    const files = [_][]const u8{
+        "examples/abs.lx",
+        "examples/block.lx",
+        "examples/classify.lx",
+        "examples/head.lx",
+        "examples/lists-and-ranges.lx",
+    };
+
+    var runtime = try Runtime.init(testing.allocator, testing.io);
+    defer runtime.deinit();
+
+    for (files) |path| {
+        const source = try Io.Dir.cwd().readFileAlloc(testing.io, path, testing.allocator, .limited(16 * 1024 * 1024));
+        defer testing.allocator.free(source);
+        _ = try runtime.evaluateSourceNamed(path, source);
+    }
 }

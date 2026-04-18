@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Terminal = std.Io.Terminal;
 const testing = std.testing;
 const fs = std.fs;
-const Terminal = std.Io.Terminal;
 
 const Lexer = @import("Lexer.zig");
 const Node = @import("node.zig").Node;
@@ -189,6 +189,16 @@ fn expect(self: *Parser, tag: Token.Tag) !Token {
     return self.advance();
 }
 
+fn match(self: *Parser, tag: Token.Tag) bool {
+    if (self.current().tag != tag) return false;
+    _ = self.advance();
+    return true;
+}
+
+fn skipNewlines(self: *Parser) void {
+    while (self.current().tag == .newline) _ = self.advance();
+}
+
 fn failExpected(self: *Parser, expected: Token.Tag) error{SyntaxError} {
     self.last_error = .{
         .source_name = self.source_name,
@@ -207,22 +217,6 @@ fn failMessage(self: *Parser, message: []const u8) error{SyntaxError} {
     return error.SyntaxError;
 }
 
-fn match(self: *Parser, tag: Token.Tag) bool {
-    if (self.current().tag != tag) return false;
-    _ = self.advance();
-    return true;
-}
-
-fn skipNewlines(self: *Parser) void {
-    while (self.current().tag == .newline) _ = self.advance();
-}
-
-// ```
-// expression
-//     = let-binding ";" expression
-//     | non-binding [ ";" expression ]
-//     .
-// ```
 fn parseExpression(self: *Parser) anyerror!*Node {
     self.skipNewlines();
 
@@ -247,9 +241,6 @@ fn parseExpression(self: *Parser) anyerror!*Node {
     });
 }
 
-// ```
-// let-binding = "let" pattern "=" non-binding .
-// ```
 fn parseBindingExpression(self: *Parser) anyerror!*Node {
     _ = try self.expect(.let);
     const pattern = try self.parsePattern();
@@ -275,20 +266,10 @@ fn parseBindingExpression(self: *Parser) anyerror!*Node {
     });
 }
 
-// ```
-// non-binding = binary .
-// ```
 fn parseNonBinding(self: *Parser) anyerror!*Node {
     return self.parseBinary(1);
 }
 
-// ```
-// binary = comparison .
-// comparison = concat { ("==" | "!=" | "<" | ">" | "<=" | ">=") concat } .
-// concat = addition [ "++" concat ] .
-// addition = multiplication { ("+" | "-") multiplication } .
-// multiplication = unary { ("*" | "/" | "%") unary } .
-// ```
 fn parseBinary(self: *Parser, min_precedence: u8) anyerror!*Node {
     var left = try self.parseUnary();
     errdefer left.deinit(self.allocator);
@@ -319,9 +300,6 @@ fn parseBinary(self: *Parser, min_precedence: u8) anyerror!*Node {
     return left;
 }
 
-// ```
-// unary = [ "-" | "!" ] application .
-// ```
 fn parseUnary(self: *Parser) anyerror!*Node {
     self.skipNewlines();
     return switch (self.current().tag) {
@@ -340,9 +318,6 @@ fn parseUnary(self: *Parser) anyerror!*Node {
     };
 }
 
-// ```
-// application = primary { "(" [ arguments ] ")" } .
-// ```
 fn parseApplication(self: *Parser) anyerror!*Node {
     var callee = try self.parsePrimary();
     errdefer callee.deinit(self.allocator);
@@ -367,17 +342,6 @@ fn parseApplication(self: *Parser) anyerror!*Node {
     return callee;
 }
 
-// ```
-// primary
-//     = literal
-//     | identifier
-//     | list
-//     | range
-//     | block
-//     | function
-//     | "(" expression ")"
-//     .
-// ```
 fn parsePrimary(self: *Parser) anyerror!*Node {
     self.skipNewlines();
     const token = self.current();
@@ -404,11 +368,6 @@ fn parsePrimary(self: *Parser) anyerror!*Node {
     };
 }
 
-// ```
-// function = "(" [ parameters ] ")" "{" function-body "}" .
-// parameters = identifier { "," identifier } .
-// function-body = expression | branches .
-// ```
 fn parseFunction(self: *Parser) anyerror!*Node {
     _ = try self.expect(.lparen);
 
@@ -453,9 +412,6 @@ fn parseFunction(self: *Parser) anyerror!*Node {
     });
 }
 
-// ```
-// branches = branch { "," branch } [ "," ] .
-// ```
 fn parseBranches(self: *Parser) anyerror![]*Branch {
     var branches: std.ArrayList(*Branch) = .empty;
     errdefer {
@@ -468,6 +424,7 @@ fn parseBranches(self: *Parser) anyerror![]*Branch {
 
         self.skipNewlines();
         if (self.current().tag == .rbrace) break;
+
         _ = try self.expect(.comma);
 
         self.skipNewlines();
@@ -477,13 +434,6 @@ fn parseBranches(self: *Parser) anyerror![]*Branch {
     return try branches.toOwnedSlice(self.allocator);
 }
 
-// ```
-// branch
-//     = patterns [ "?" expression ] "=>" expression
-//     | "?" expression "=>" expression
-//     | "=>" expression
-//     .
-// ```
 fn parseBranch(self: *Parser) anyerror!*Branch {
     if (self.match(.question)) {
         const guard = try self.parseExpression();
@@ -520,9 +470,6 @@ fn parseBranch(self: *Parser) anyerror!*Branch {
     return try Branch.create(self.allocator, patterns, guard, result);
 }
 
-// ```
-// patterns = pattern { "," pattern } .
-// ```
 fn parsePatterns(self: *Parser) anyerror![]*Pattern {
     var patterns: std.ArrayList(*Pattern) = .empty;
     errdefer {
@@ -541,15 +488,6 @@ fn parsePatterns(self: *Parser) anyerror![]*Pattern {
     return try patterns.toOwnedSlice(self.allocator);
 }
 
-// ```
-// pattern
-//     = "_"
-//     | literal
-//     | identifier
-//     | "[" [ pattern-items ] "]"
-//     | "(" pattern ")"
-//     .
-// ```
 fn parsePattern(self: *Parser) anyerror!*Pattern {
     self.skipNewlines();
     const token = self.current();
@@ -579,47 +517,6 @@ fn parsePattern(self: *Parser) anyerror!*Pattern {
     };
 }
 
-fn utf8CountCodepoints(bytes: []const u8) usize {
-    var count: usize = 0;
-    for (bytes) |byte| {
-        if ((byte & 0xC0) != 0x80) count += 1;
-    }
-    return count;
-}
-
-fn writeRepeated(writer: anytype, byte: u8, count: usize) !void {
-    for (0..count) |_| try writer.writeByte(byte);
-}
-
-fn writeHighlightedLine(term: Terminal, source: []const u8) !void {
-    var lexer = try Lexer.init(source);
-    var previous_index: usize = 0;
-
-    while (true) {
-        const token = lexer.nextToken();
-        if (token.tag == .eof) break;
-
-        const token_index = token.startIndex();
-        if (token_index > previous_index) {
-            try term.writer.writeAll(source[previous_index..token_index]);
-        }
-
-        try term.setColor(token.color());
-        try term.writer.writeAll(token.lexeme);
-        try term.setColor(.reset);
-
-        previous_index = token_index + token.lexeme.len;
-    }
-
-    if (previous_index < source.len) {
-        try term.writer.writeAll(source[previous_index..]);
-    }
-}
-
-// ```
-// pattern-items = spread-pattern | pattern { "," pattern } [ "," spread-pattern ] .
-// spread-pattern = "..." pattern .
-// ```
 fn parseListPattern(self: *Parser) anyerror!*Pattern {
     _ = try self.expect(.lbracket);
     self.skipNewlines();
@@ -664,9 +561,6 @@ fn parseListPattern(self: *Parser) anyerror!*Pattern {
     });
 }
 
-// ```
-// arguments = expression { "," expression } .
-// ```
 fn parseArguments(self: *Parser) anyerror![]*Node {
     _ = try self.expect(.lparen);
     self.skipNewlines();
@@ -690,11 +584,6 @@ fn parseArguments(self: *Parser) anyerror![]*Node {
     return try arguments.toOwnedSlice(self.allocator);
 }
 
-// ```
-// list = "[" [ list-items ] "]" .
-// list-items = spread | expression { "," expression } [ "," spread ] .
-// spread = "..." expression .
-// ```
 fn parseList(self: *Parser) anyerror!*Node {
     _ = try self.expect(.lbracket);
     self.skipNewlines();
@@ -739,9 +628,6 @@ fn parseList(self: *Parser) anyerror!*Node {
     });
 }
 
-// ```
-// range = "[" expression ".." expression "]" .
-// ```
 fn parseRange(self: *Parser) anyerror!*Node {
     _ = try self.expect(.lbracket);
     self.skipNewlines();
@@ -762,9 +648,6 @@ fn parseRange(self: *Parser) anyerror!*Node {
     });
 }
 
-// ```
-// block = "{" expression "}" .
-// ```
 fn parseBlock(self: *Parser) anyerror!*Node {
     _ = try self.expect(.lbrace);
     self.skipNewlines();
@@ -775,21 +658,6 @@ fn parseBlock(self: *Parser) anyerror!*Node {
     return try Node.create(self.allocator, .{
         .block = .{ .expression = expression },
     });
-}
-
-fn deinitNodeSlice(allocator: Allocator, items: []*Node) void {
-    for (items) |item| item.deinit(allocator);
-    allocator.free(items);
-}
-
-fn infixPrecedence(tag: Token.Tag) ?u8 {
-    return switch (tag) {
-        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 1,
-        .concat => 2,
-        .plus, .minus => 3,
-        .star, .slash, .percent => 4,
-        else => null,
-    };
 }
 
 fn isFunctionStart(self: *const Parser) bool {
@@ -890,6 +758,58 @@ fn isPatternStart(tag: Token.Tag) bool {
     return switch (tag) {
         .underscore, .identifier, .number, .string, .true, .false, .lbracket, .lparen => true,
         else => false,
+    };
+}
+
+fn utf8CountCodepoints(bytes: []const u8) usize {
+    var count: usize = 0;
+    for (bytes) |byte| {
+        if ((byte & 0xC0) != 0x80) count += 1;
+    }
+    return count;
+}
+
+fn writeRepeated(writer: anytype, byte: u8, count: usize) !void {
+    for (0..count) |_| try writer.writeByte(byte);
+}
+
+fn writeHighlightedLine(term: Terminal, source: []const u8) !void {
+    var lexer = try Lexer.init(source);
+    var previous_index: usize = 0;
+
+    while (true) {
+        const token = lexer.nextToken();
+        if (token.tag == .eof) break;
+
+        const token_index = token.startIndex();
+        if (token_index > previous_index) {
+            try term.writer.writeAll(source[previous_index..token_index]);
+        }
+
+        try term.setColor(token.color());
+        try term.writer.writeAll(token.lexeme);
+        try term.setColor(.reset);
+
+        previous_index = token_index + token.lexeme.len;
+    }
+
+    if (previous_index < source.len) {
+        try term.writer.writeAll(source[previous_index..]);
+    }
+}
+
+fn deinitNodeSlice(allocator: std.mem.Allocator, items: []*Node) void {
+    for (items) |item| item.deinit(allocator);
+    allocator.free(items);
+}
+
+fn infixPrecedence(tag: Token.Tag) ?u8 {
+    return switch (tag) {
+        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 1,
+        .concat => 2,
+        .plus, .minus => 3,
+        .star, .slash, .percent => 4,
+        else => null,
     };
 }
 

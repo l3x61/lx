@@ -14,10 +14,13 @@ const Allocator = mem.Allocator;
 const zeroes = mem.zeroes;
 const bytesToValue = mem.bytesToValue;
 
-const term = @import("term.zig");
 const Token = @import("Token.zig");
 const Lexer = @import("Lexer.zig");
 const String = ArrayList(u8);
+
+const csi = "\x1b[";
+const erase_to_end = csi ++ "0K";
+const get_cursor_position = csi ++ "6n";
 
 // https://github.com/termbox/termbox2/blob/290ac6b8225aacfd16851224682b851b65fcb918/termbox2.h#L122
 const KeyCode = enum(u64) {
@@ -47,7 +50,7 @@ pub fn init(gpa: Allocator, out: *Writer) ReadLine {
 }
 
 fn terminal(self: *const ReadLine) Terminal {
-    return term.wrap(self.out);
+    return wrapTerminal(self.out);
 }
 
 pub fn deinit(self: *ReadLine) void {
@@ -160,7 +163,7 @@ pub fn readLineWithHistory(self: *ReadLine, prompt: []const u8, save_history: bo
         }
 
         try self.out.writeAll("\r");
-        try self.out.writeAll(term.erase_to_end);
+        try self.out.writeAll(erase_to_end);
         try self.out.writeAll(prompt);
         try writeColored(self.terminal(), line.items);
         try self.out.flush();
@@ -206,7 +209,7 @@ fn utf8PreviousCodepoint(s: []const u8, index: usize) usize {
 }
 
 fn getCursorPosition(out: *Writer) ![2]usize {
-    try out.writeAll(term.get_cursor_position);
+    try out.writeAll(get_cursor_position);
     try out.flush();
 
     const Buffer = [@sizeOf(u64)]u8;
@@ -241,6 +244,10 @@ fn readBytes(buffer: []u8) ![]const u8 {
             return buffer[0..bytes_read];
         }
     }
+}
+
+fn wrapTerminal(writer: *Writer) Terminal {
+    return .{ .writer = writer, .mode = .escape_codes };
 }
 
 fn writeColored(t: Terminal, source: []const u8) !void {

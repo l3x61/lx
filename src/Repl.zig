@@ -6,7 +6,6 @@ const Io = std.Io;
 const Terminal = Io.Terminal;
 const max_path_bytes = Io.Dir.max_path_bytes;
 
-const term = @import("term.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const ReadLine = @import("readline.zig");
@@ -15,8 +14,9 @@ const Token = @import("Token.zig");
 
 const Repl = @This();
 
-const prompt = term.csi ++ "36m" ++ "> " ++ term.csi ++ "0m";
-const continuation_prompt = term.csi ++ "2m" ++ "| " ++ term.csi ++ "0m";
+const csi = "\x1b[";
+const prompt = csi ++ "36m" ++ "> " ++ csi ++ "0m";
+const continuation_prompt = csi ++ "2m" ++ "| " ++ csi ++ "0m";
 
 pub const AstMode = enum {
     off,
@@ -109,11 +109,15 @@ fn stderr(self: *Repl) *Io.Writer {
 }
 
 fn stdoutTerminal(self: *Repl) Terminal {
-    return term.wrap(self.stdout());
+    return wrapTerminal(self.stdout());
 }
 
 fn stderrTerminal(self: *Repl) Terminal {
-    return term.wrap(self.stderr());
+    return wrapTerminal(self.stderr());
+}
+
+fn wrapTerminal(writer: *Io.Writer) Terminal {
+    return .{ .writer = writer, .mode = .escape_codes };
 }
 
 fn renderLine(self: *Repl, source: []const u8) !void {

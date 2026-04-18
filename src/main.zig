@@ -5,7 +5,6 @@ const Io = std.Io;
 const log = std.log.scoped(.main);
 const fatal = std.process.fatal;
 
-const term = @import("term.zig");
 const Repl = @import("Repl.zig");
 const Runtime = @import("Runtime.zig");
 
@@ -38,6 +37,10 @@ pub const std_options = std.Options{
         }
     }.logFn,
 };
+
+fn wrapTerminal(writer: *Io.Writer) Io.Terminal {
+    return .{ .writer = writer, .mode = .escape_codes };
+}
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
@@ -81,7 +84,7 @@ pub fn main(init: std.process.Init) !void {
             const value = runtime.evaluateSourceNamed(file, source) catch |eval_err| switch (eval_err) {
                 error.SyntaxError => {
                     if (runtime.last_parse_error) |diagnostic| {
-                        diagnostic.write(term.wrap(err)) catch {};
+                        diagnostic.write(wrapTerminal(err)) catch {};
                         err.flush() catch {};
                         std.process.exit(1);
                     }
@@ -98,7 +101,7 @@ pub fn main(init: std.process.Init) !void {
                 },
             }
         } else {
-            Repl.render(term.wrap(out), term.wrap(err), gpa, file, source, mode) catch |render_err| switch (render_err) {
+            Repl.render(wrapTerminal(out), wrapTerminal(err), gpa, file, source, mode) catch |render_err| switch (render_err) {
                 error.SyntaxError => {
                     err.flush() catch {};
                     std.process.exit(1);
@@ -127,8 +130,6 @@ test "all" {
     _ = @import("builtins.zig");
     _ = @import("evaluate.zig");
     _ = @import("Runtime.zig");
-    _ = @import("Script.zig");
     _ = @import("readline.zig");
     _ = @import("Repl.zig");
-    _ = @import("term.zig");
 }
