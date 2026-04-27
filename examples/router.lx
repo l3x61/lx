@@ -1,0 +1,82 @@
+let respond =
+    \ status, body -> {status: status, body: body};
+
+let ok =
+    \ body -> respond(200, body);
+
+let forbidden =
+    \ reason -> respond(403, {error: reason});
+
+let not_found =
+    \ path -> respond(404, {error: "not found", path: path});
+
+let method_not_allowed =
+    \ method, path -> respond(405, {error: "method not allowed", method: method, path: path});
+
+let has_admin =
+    \ {user: {role: "admin", ..}, ..} -> true
+    | _ -> false;
+
+let actor_name =
+    \ {user: {name: name, ..}, ..} -> name
+    | _ -> "anonymous";
+
+let route_users =
+    \ {method: "GET", user: {role: "admin", ..}, ..} ->
+        ok({resource: "users", action: "list"})
+    | {method: "GET", ..} ->
+        forbidden("admin required")
+    | {method: method, path: path, ..} ->
+        method_not_allowed(method, path);
+
+let route_project =
+    \ {method: "GET", params: {id: id}, ..} ->
+        ok({resource: "project", action: "show", id: id})
+    | {method: "POST", params: {id: id}, user: {role: "admin", ..}, body: body, ..} ->
+        ok({resource: "project", action: "update", id: id, body: body})
+    | {method: "POST", params: {id: id}, ..} ->
+        forbidden(("project update", id))
+    | {method: method, path: path, ..} ->
+        method_not_allowed(method, path);
+
+let route_login =
+    \ {method: "POST", body: {name: name}, ..} ->
+        ok({session: name})
+    | {method: "POST", ..} ->
+        respond(400, {error: "missing name"})
+    | {method: method, path: path, ..} ->
+        method_not_allowed(method, path);
+
+let route =
+    \ {path: "/users", ..rest} -> route_users(rest ++ {path: "/users"})
+    | {path: "/login", ..rest} -> route_login(rest ++ {path: "/login"})
+    | {path: "/project", ..rest} -> route_project(rest ++ {path: "/project"})
+    | {method: method, path: path, ..} -> not_found(path);
+
+let audit =
+    \ request -> (
+        let response = route(request);
+        {
+          actor: actor_name(request),
+          admin: has_admin(request),
+          request: request.path,
+          status: response.status,
+          body: response.body
+        }
+      );
+
+let map =
+    \ _, [] -> []
+    | f, [x, ..xs] -> f(x) :: map(f, xs);
+
+let requests = [
+  {method: "GET", path: "/users", user: {name: "Alice", role: "admin"}},
+  {method: "GET", path: "/users", user: {name: "Bob", role: "viewer"}},
+  {method: "POST", path: "/login", body: {name: "Charlie"}},
+  {method: "POST", path: "/project", params: {id: "lx"}, body: {title: "Records"}, user: {name: "Alice", role: "admin"}},
+  {method: "POST", path: "/project", params: {id: "lx"}, body: {title: "Nope"}, user: {name: "Bob", role: "viewer"}},
+  {method: "DELETE", path: "/project", params: {id: "lx"}, user: {name: "Alice", role: "admin"}},
+  {method: "GET", path: "/missing", user: {name: "Eve", role: "guest"}}
+];
+
+map(audit, requests)

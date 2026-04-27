@@ -1,0 +1,9 @@
+let abs =
+    \ n & n >= 0 -> n
+    | n            -> -n;
+
+let gcd =
+    \ a, 0 -> abs(a)
+    | a, b -> gcd(b, a % b);
+
+gcd(1071, 462)

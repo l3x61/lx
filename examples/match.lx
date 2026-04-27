@@ -1,0 +1,8 @@
+let describe =
+    \ xs -> match xs
+        \ []         -> "empty"
+        | [_]        -> "one"
+        | [_, _]     -> "two"
+        | [_, _, ..] -> "many";
+
+describe([1, 2, 3, 4])

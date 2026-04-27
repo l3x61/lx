@@ -1,0 +1,19 @@
+let range_from =
+    \ i, n & i > n -> []
+    | i, n -> i :: range_from(i + 1, n);
+
+let filter =
+    \ p, [] -> []
+    | p, [x, ..xs] ->
+        match p(x)
+            \ true  -> x :: filter(p, xs)
+            | false -> filter(p, xs);
+
+let sieve =
+    \ [] -> []
+    | [p, ..xs] ->
+        p :: sieve(filter(\ x -> x % p != 0, xs));
+
+let primes_upto = \ n -> sieve(range_from(2, n));
+
+primes_upto(30)

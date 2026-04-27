@@ -1,0 +1,44 @@
+let abs =
+    \ n & n >= 0 -> n
+    | n -> -n;
+
+let reverse_into =
+    \ acc, [] -> acc
+    | acc, [x, ..xs] -> reverse_into(x :: acc, xs);
+
+let reverse =
+    \ xs -> reverse_into([], xs);
+
+let map =
+    \ f, [] -> []
+    | f, [x, ..xs] -> f(x) :: map(f, xs);
+
+let concat =
+    \ [] -> []
+    | [xs, ..xss] -> xs ++ concat(xss);
+
+let concat_map =
+    \ f, xs -> concat(map(f, xs));
+
+let range_from =
+    \ i, n & i > n -> []
+    | i, n -> i :: range_from(i + 1, n);
+
+let safe =
+    \ _, [], _ -> true
+    | col, [c, ..cs], d & (col == c || abs(col - c) == d) -> false
+    | col, [_, ..cs], d -> safe(col, cs, d + 1);
+
+let place =
+    \ n, row, placed & row > n -> [reverse(placed)]
+    | n, row, placed ->
+        concat_map(
+            \ col -> match safe(col, placed, 1)
+                \ true  -> place(n, row + 1, col :: placed)
+                | false -> [],
+            range_from(1, n)
+        );
+
+let queens = \ n -> place(n, 1, []);
+
+queens(4)

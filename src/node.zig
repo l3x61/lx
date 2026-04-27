@@ -10,26 +10,24 @@ pub const Tag = enum {
     literal,
     unary,
     binary,
-    call,
+    application,
+    index,
     list,
-    range,
-    block,
+    tuple,
+    map,
     function,
     binding,
-    sequence,
 };
 
 pub const PatternTag = enum {
     wildcard,
     identifier,
     literal,
+    tuple,
     list,
-    group,
-};
-
-pub const FunctionBodyTag = enum {
-    expression,
-    branches,
+    map,
+    refinement,
+    alternative,
 };
 
 pub const Node = union(Tag) {
@@ -38,13 +36,13 @@ pub const Node = union(Tag) {
     literal: Token,
     unary: Unary,
     binary: Binary,
-    call: Call,
+    application: Application,
+    index: Index,
     list: List,
-    range: Range,
-    block: Block,
+    tuple: Tuple,
+    map: Map,
     function: Function,
     binding: Binding,
-    sequence: Sequence,
 
     pub const Program = struct {
         expression: *Node,
@@ -61,39 +59,41 @@ pub const Node = union(Tag) {
         right: *Node,
     };
 
-    pub const Call = struct {
+    pub const Application = struct {
         callee: *Node,
-        arguments: []*Node,
+        argument: *Node,
+    };
+
+    pub const Index = struct {
+        target: *Node,
+        index: *Node,
     };
 
     pub const List = struct {
         items: []*Node,
-        spread: ?*Node,
     };
 
-    pub const Range = struct {
-        start: *Node,
-        end: *Node,
+    pub const Tuple = struct {
+        items: []*Node,
     };
 
-    pub const Block = struct {
-        expression: *Node,
+    pub const Map = struct {
+        entries: []Entry,
+
+        pub const Entry = struct {
+            key: []const u8,
+            value: *Node,
+        };
     };
 
     pub const Function = struct {
-        parameters: []Token,
-        body: FunctionBody,
+        clauses: []*Clause,
     };
 
     pub const Binding = struct {
         pattern: *Pattern,
         value: *Node,
         body: *Node,
-    };
-
-    pub const Sequence = struct {
-        first: *Node,
-        second: *Node,
     };
 
     pub fn create(ator: Allocator, node: Node) !*Node {
@@ -111,33 +111,37 @@ pub const Node = union(Tag) {
                 binary.left.deinit(ator);
                 binary.right.deinit(ator);
             },
-            .call => |call| {
-                call.callee.deinit(ator);
-                for (call.arguments) |argument| argument.deinit(ator);
-                ator.free(call.arguments);
+            .application => |app| {
+                app.callee.deinit(ator);
+                app.argument.deinit(ator);
+            },
+            .index => |idx| {
+                idx.target.deinit(ator);
+                idx.index.deinit(ator);
             },
             .list => |list| {
                 for (list.items) |item| item.deinit(ator);
                 ator.free(list.items);
-                if (list.spread) |spread| spread.deinit(ator);
             },
-            .range => |range| {
-                range.start.deinit(ator);
-                range.end.deinit(ator);
+            .tuple => |tuple| {
+                for (tuple.items) |item| item.deinit(ator);
+                ator.free(tuple.items);
             },
-            .block => |block| block.expression.deinit(ator),
-            .function => |*function| {
-                ator.free(function.parameters);
-                function.body.deinit(ator);
+            .map => |map| {
+                for (map.entries) |entry| {
+                    ator.free(entry.key);
+                    entry.value.deinit(ator);
+                }
+                ator.free(map.entries);
+            },
+            .function => |function| {
+                for (function.clauses) |clause| clause.deinit(ator);
+                ator.free(function.clauses);
             },
             .binding => |binding| {
                 binding.pattern.deinit(ator);
                 binding.value.deinit(ator);
                 binding.body.deinit(ator);
-            },
-            .sequence => |sequence| {
-                sequence.first.deinit(ator);
-                sequence.second.deinit(ator);
             },
         }
         ator.destroy(self);
@@ -168,14 +172,15 @@ pub const Node = union(Tag) {
                 try binary.left.writeTreeIndented(term, indent + 4, "left");
                 try binary.right.writeTreeIndented(term, indent + 4, "right");
             },
-            .call => |call| {
-                try writeTreeKind(term, "call");
-                try call.callee.writeTreeIndented(term, indent + 4, "callee");
-                for (call.arguments, 0..) |argument, index| {
-                    var label_buffer: [32]u8 = undefined;
-                    const item_label = try std.fmt.bufPrint(&label_buffer, "arg[{d}]", .{index});
-                    try argument.writeTreeIndented(term, indent + 4, item_label);
-                }
+            .application => |app| {
+                try writeTreeKind(term, "application");
+                try app.callee.writeTreeIndented(term, indent + 4, "callee");
+                try app.argument.writeTreeIndented(term, indent + 4, "argument");
+            },
+            .index => |idx| {
+                try writeTreeKind(term, "index");
+                try idx.target.writeTreeIndented(term, indent + 4, "target");
+                try idx.index.writeTreeIndented(term, indent + 4, "index");
             },
             .list => |list| {
                 try writeTreeKind(term, "list");
@@ -184,47 +189,35 @@ pub const Node = union(Tag) {
                     const item_label = try std.fmt.bufPrint(&label_buffer, "item[{d}]", .{index});
                     try item.writeTreeIndented(term, indent + 4, item_label);
                 }
-                if (list.spread) |spread| try spread.writeTreeIndented(term, indent + 4, "spread");
             },
-            .range => |range| {
-                try writeTreeKind(term, "range");
-                try range.start.writeTreeIndented(term, indent + 4, "start");
-                try range.end.writeTreeIndented(term, indent + 4, "end");
+            .tuple => |tuple| {
+                try writeTreeKind(term, "tuple");
+                for (tuple.items, 0..) |item, index| {
+                    var label_buffer: [32]u8 = undefined;
+                    const item_label = try std.fmt.bufPrint(&label_buffer, "item[{d}]", .{index});
+                    try item.writeTreeIndented(term, indent + 4, item_label);
+                }
             },
-            .block => |block| {
-                try writeTreeKind(term, "block");
-                try block.expression.writeTreeIndented(term, indent + 4, "expression");
+            .map => |map| {
+                try writeTreeKind(term, "map");
+                for (map.entries, 0..) |entry, index| {
+                    var key_label_buffer: [32]u8 = undefined;
+                    const key_label = try std.fmt.bufPrint(&key_label_buffer, "entry[{d}].key", .{index});
+                    try writeIndent(term.writer, indent + 4);
+                    try writeTreeLabel(term, key_label);
+                    try writeTreeWord(term, "key", .magenta);
+                    try term.writer.print(" \"{s}\"\n", .{entry.key});
+                    var value_label_buffer: [32]u8 = undefined;
+                    const value_label = try std.fmt.bufPrint(&value_label_buffer, "entry[{d}].value", .{index});
+                    try entry.value.writeTreeIndented(term, indent + 4, value_label);
+                }
             },
             .function => |function| {
                 try writeTreeKind(term, "function");
-                try writeIndent(writer, indent + 4);
-                try writeTreeWord(term, "parameters", .cyan);
-                if (function.parameters.len == 0) {
-                    try writer.writeByte('\n');
-                } else {
-                    try term.setColor(.dim);
-                    try writer.writeByte(':');
-                    try term.setColor(.reset);
-                    for (function.parameters) |parameter| {
-                        try writer.writeByte(' ');
-                        try term.setColor(parameter.color());
-                        try writer.writeAll(parameter.lexeme);
-                        try term.setColor(.reset);
-                    }
-                    try writer.writeByte('\n');
-                }
-                switch (function.body) {
-                    .expression => |body_expression| try body_expression.writeTreeIndented(term, indent + 4, "body"),
-                    .branches => |branches| {
-                        try writeIndent(writer, indent + 4);
-                        try writeTreeWord(term, "branches", .magenta);
-                        try writer.writeByte('\n');
-                        for (branches, 0..) |branch, index| {
-                            var label_buffer: [32]u8 = undefined;
-                            const branch_label = try std.fmt.bufPrint(&label_buffer, "branch[{d}]", .{index});
-                            try writeBranchTree(branch, term, indent + 8, branch_label);
-                        }
-                    },
+                for (function.clauses, 0..) |clause, index| {
+                    var label_buffer: [32]u8 = undefined;
+                    const clause_label = try std.fmt.bufPrint(&label_buffer, "clause[{d}]", .{index});
+                    try writeClauseTree(clause, term, indent + 4, clause_label);
                 }
             },
             .binding => |binding| {
@@ -232,11 +225,6 @@ pub const Node = union(Tag) {
                 try writePatternTree(binding.pattern, term, indent + 4, "pattern");
                 try binding.value.writeTreeIndented(term, indent + 4, "value");
                 try binding.body.writeTreeIndented(term, indent + 4, "body");
-            },
-            .sequence => |sequence| {
-                try writeTreeKind(term, "sequence");
-                try sequence.first.writeTreeIndented(term, indent + 4, "first");
-                try sequence.second.writeTreeIndented(term, indent + 4, "second");
             },
         }
     }
@@ -273,62 +261,71 @@ pub const Node = union(Tag) {
     }
 };
 
-pub const FunctionBody = union(FunctionBodyTag) {
-    expression: *Node,
-    branches: []*Branch,
+pub const Clause = struct {
+    pattern: *Pattern,
+    body: *Node,
 
-    pub fn deinit(self: *FunctionBody, ator: Allocator) void {
-        switch (self.*) {
-            .expression => |expression| expression.deinit(ator),
-            .branches => |branches| {
-                for (branches) |branch| branch.deinit(ator);
-                ator.free(branches);
-            },
-        }
-    }
-};
-
-pub const Branch = struct {
-    patterns: ?[]*Pattern,
-    guard: ?*Node,
-    result: *Node,
-
-    pub fn create(
-        ator: Allocator,
-        patterns: ?[]*Pattern,
-        guard: ?*Node,
-        result: *Node,
-    ) !*Branch {
-        const ptr = try ator.create(Branch);
-        ptr.* = .{
-            .patterns = patterns,
-            .guard = guard,
-            .result = result,
-        };
+    pub fn create(ator: Allocator, pattern: *Pattern, body: *Node) !*Clause {
+        const ptr = try ator.create(Clause);
+        ptr.* = .{ .pattern = pattern, .body = body };
         return ptr;
     }
 
-    pub fn deinit(self: *Branch, ator: Allocator) void {
-        if (self.patterns) |patterns| {
-            for (patterns) |pattern| pattern.deinit(ator);
-            ator.free(patterns);
-        }
-        if (self.guard) |guard| guard.deinit(ator);
-        self.result.deinit(ator);
+    pub fn deinit(self: *Clause, ator: Allocator) void {
+        self.pattern.deinit(ator);
+        self.body.deinit(ator);
         ator.destroy(self);
     }
+};
+
+pub const Rest = union(enum) {
+    none: void,
+    wildcard: void,
+    pattern: *Pattern,
 };
 
 pub const Pattern = union(PatternTag) {
     wildcard: void,
     identifier: Token,
-    literal: Token,
+    literal: LiteralPattern,
+    tuple: TuplePattern,
     list: ListPattern,
-    group: *Pattern,
+    map: MapPattern,
+    refinement: Refinement,
+    alternative: Alternative,
+
+    pub const LiteralPattern = struct {
+        token: Token,
+        negate: bool,
+    };
+
+    pub const TuplePattern = struct {
+        items: []*Pattern,
+    };
 
     pub const ListPattern = struct {
         items: []*Pattern,
-        spread: ?*Pattern,
+        rest: Rest,
+    };
+
+    pub const MapPattern = struct {
+        entries: []Entry,
+        rest: Rest,
+
+        pub const Entry = struct {
+            key: []const u8,
+            pattern: *Pattern,
+        };
+    };
+
+    pub const Refinement = struct {
+        base: *Pattern,
+        condition: *Node,
+    };
+
+    pub const Alternative = struct {
+        left: *Pattern,
+        right: *Pattern,
     };
 
     pub fn create(ator: Allocator, pattern: Pattern) !*Pattern {
@@ -340,47 +337,51 @@ pub const Pattern = union(PatternTag) {
     pub fn deinit(self: *Pattern, ator: Allocator) void {
         switch (self.*) {
             .wildcard, .identifier, .literal => {},
-            .group => |inner| inner.deinit(ator),
+            .tuple => |tuple| {
+                for (tuple.items) |item| item.deinit(ator);
+                ator.free(tuple.items);
+            },
             .list => |list| {
                 for (list.items) |item| item.deinit(ator);
                 ator.free(list.items);
-                if (list.spread) |spread| spread.deinit(ator);
+                switch (list.rest) {
+                    .pattern => |p| p.deinit(ator),
+                    else => {},
+                }
+            },
+            .map => |map| {
+                for (map.entries) |entry| {
+                    ator.free(entry.key);
+                    entry.pattern.deinit(ator);
+                }
+                ator.free(map.entries);
+                switch (map.rest) {
+                    .pattern => |p| p.deinit(ator),
+                    else => {},
+                }
+            },
+            .refinement => |r| {
+                r.base.deinit(ator);
+                r.condition.deinit(ator);
+            },
+            .alternative => |a| {
+                a.left.deinit(ator);
+                a.right.deinit(ator);
             },
         }
         ator.destroy(self);
     }
 };
 
-fn writeBranchTree(branch: *const Branch, term: Terminal, indent: usize, label: []const u8) !void {
+fn writeClauseTree(clause: *const Clause, term: Terminal, indent: usize, label: []const u8) !void {
     const writer = term.writer;
     try writeIndent(writer, indent);
     try Node.writeTreeLabel(term, label);
-    try Node.writeTreeWord(term, "branch", .magenta);
+    try Node.writeTreeWord(term, "clause", .magenta);
     try writer.writeByte('\n');
 
-    if (branch.patterns) |patterns| {
-        for (patterns, 0..) |pattern, index| {
-            var label_buffer: [32]u8 = undefined;
-            const item_label = try std.fmt.bufPrint(&label_buffer, "pattern[{d}]", .{index});
-            try writePatternTree(pattern, term, indent + 4, item_label);
-        }
-    } else {
-        try writeIndent(writer, indent + 4);
-        try Node.writeTreeLabel(term, "patterns");
-        try Node.writeTreeWord(term, "implicit-parameters", .dim);
-        try writer.writeByte('\n');
-    }
-
-    if (branch.guard) |guard| {
-        try guard.writeTreeIndented(term, indent + 4, "guard");
-    } else {
-        try writeIndent(writer, indent + 4);
-        try Node.writeTreeLabel(term, "guard");
-        try Node.writeTreeWord(term, "none", .dim);
-        try writer.writeByte('\n');
-    }
-
-    try branch.result.writeTreeIndented(term, indent + 4, "result");
+    try writePatternTree(clause.pattern, term, indent + 4, "pattern");
+    try clause.body.writeTreeIndented(term, indent + 4, "body");
 }
 
 fn writePatternTree(pattern: *const Pattern, term: Terminal, indent: usize, label: []const u8) !void {
@@ -393,10 +394,22 @@ fn writePatternTree(pattern: *const Pattern, term: Terminal, indent: usize, labe
             try writer.writeByte('\n');
         },
         .identifier => |token| try Node.writeTreeTokenLine(term, "identifier", token),
-        .literal => |token| try Node.writeTreeTokenLine(term, "literal", token),
-        .group => |inner| {
-            try Node.writeTreeKind(term, "group");
-            try writePatternTree(inner, term, indent + 4, "inner");
+        .literal => |lit| {
+            try Node.writeTreeWord(term, "literal", .magenta);
+            try writer.writeByte(' ');
+            if (lit.negate) try writer.writeByte('-');
+            try term.setColor(lit.token.color());
+            try writer.writeAll(lit.token.lexeme);
+            try term.setColor(.reset);
+            try writer.writeByte('\n');
+        },
+        .tuple => |tuple| {
+            try Node.writeTreeKind(term, "tuple");
+            for (tuple.items, 0..) |item, index| {
+                var label_buffer: [32]u8 = undefined;
+                const item_label = try std.fmt.bufPrint(&label_buffer, "item[{d}]", .{index});
+                try writePatternTree(item, term, indent + 4, item_label);
+            }
         },
         .list => |list| {
             try Node.writeTreeKind(term, "list");
@@ -405,11 +418,47 @@ fn writePatternTree(pattern: *const Pattern, term: Terminal, indent: usize, labe
                 const item_label = try std.fmt.bufPrint(&label_buffer, "item[{d}]", .{index});
                 try writePatternTree(item, term, indent + 4, item_label);
             }
-            if (list.spread) |spread| try writePatternTree(spread, term, indent + 4, "spread");
+            switch (list.rest) {
+                .none => {},
+                .wildcard => {
+                    try writeIndent(writer, indent + 4);
+                    try Node.writeTreeLabel(term, "rest");
+                    try Node.writeTreeWord(term, "any", .magenta);
+                    try writer.writeByte('\n');
+                },
+                .pattern => |p| try writePatternTree(p, term, indent + 4, "rest"),
+            }
+        },
+        .map => |map| {
+            try Node.writeTreeKind(term, "map");
+            for (map.entries, 0..) |entry, index| {
+                var label_buffer: [128]u8 = undefined;
+                const entry_label = try std.fmt.bufPrint(&label_buffer, "entry[{d}] \"{s}\"", .{ index, entry.key });
+                try writePatternTree(entry.pattern, term, indent + 4, entry_label);
+            }
+            switch (map.rest) {
+                .none => {},
+                .wildcard => {
+                    try writeIndent(writer, indent + 4);
+                    try Node.writeTreeLabel(term, "rest");
+                    try Node.writeTreeWord(term, "any", .magenta);
+                    try writer.writeByte('\n');
+                },
+                .pattern => |p| try writePatternTree(p, term, indent + 4, "rest"),
+            }
+        },
+        .refinement => |r| {
+            try Node.writeTreeKind(term, "refinement");
+            try writePatternTree(r.base, term, indent + 4, "base");
+            try r.condition.writeTreeIndented(term, indent + 4, "condition");
+        },
+        .alternative => |a| {
+            try Node.writeTreeKind(term, "alternative");
+            try writePatternTree(a.left, term, indent + 4, "left");
+            try writePatternTree(a.right, term, indent + 4, "right");
         },
     }
 }
-
 
 fn writeIndent(writer: anytype, indent: usize) !void {
     var remaining = indent;

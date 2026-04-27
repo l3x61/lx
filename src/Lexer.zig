@@ -12,6 +12,7 @@ const Lexer = @This();
 
 const keywords = std.StaticStringMap(Token.Tag).initComptime(.{
     .{ "let", .let },
+    .{ "match", .match },
     .{ "true", .true },
     .{ "false", .false },
 });
@@ -40,10 +41,14 @@ pub fn nextToken(self: *Lexer) Token {
         greater,
         less,
         plus,
+        minus,
+        amp,
+        bar,
+        colon,
         dot,
         number,
-        fraction,
-        string,
+        string_double,
+        string_single,
         identifier,
     };
 
@@ -72,20 +77,20 @@ pub fn nextToken(self: *Lexer) Token {
                 tag = .rparen;
                 break :state;
             },
-            '{' => {
-                tag = .lbrace;
-                break :state;
-            },
-            '}' => {
-                tag = .rbrace;
-                break :state;
-            },
             '[' => {
                 tag = .lbracket;
                 break :state;
             },
             ']' => {
                 tag = .rbracket;
+                break :state;
+            },
+            '{' => {
+                tag = .lbrace;
+                break :state;
+            },
+            '}' => {
+                tag = .rbrace;
                 break :state;
             },
             ',' => {
@@ -96,8 +101,8 @@ pub fn nextToken(self: *Lexer) Token {
                 tag = .semicolon;
                 break :state;
             },
-            '?' => {
-                tag = .question;
+            '\\' => {
+                tag = .backslash;
                 break :state;
             },
             '*' => {
@@ -134,27 +139,39 @@ pub fn nextToken(self: *Lexer) Token {
             },
             '-' => {
                 tag = .minus;
-                break :state;
+                continue :state .minus;
             },
             '&' => {
-                tag = .invalid;
-                break :state;
+                tag = .amp;
+                continue :state .amp;
             },
             '|' => {
-                tag = .invalid;
-                break :state;
+                tag = .bar;
+                continue :state .bar;
+            },
+            ':' => {
+                tag = .colon;
+                continue :state .colon;
             },
             '.' => {
-                tag = .invalid;
+                tag = .dot;
                 continue :state .dot;
             },
             '"' => {
                 tag = .string;
-                continue :state .string;
+                continue :state .string_double;
+            },
+            '\'' => {
+                tag = .string;
+                continue :state .string_single;
             },
             '0'...'9' => {
-                tag = .number;
+                tag = .integer;
                 continue :state .number;
+            },
+            0x03BB => {
+                tag = .lambda;
+                break :state;
             },
             else => |cp| {
                 if (isIdentifierStartCodepoint(cp)) {
@@ -194,10 +211,6 @@ pub fn nextToken(self: *Lexer) Token {
             switch (iterator.nextCodepoint() orelse break :state) {
                 '=' => {
                     tag = .equal;
-                    break :state;
-                },
-                '>' => {
-                    tag = .fat_arrow;
                     break :state;
                 },
                 else => {
@@ -263,22 +276,68 @@ pub fn nextToken(self: *Lexer) Token {
             }
         },
 
+        .minus => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '>' => {
+                    tag = .arrow;
+                    break :state;
+                },
+                else => {
+                    iterator.i = previous;
+                    break :state;
+                },
+            }
+        },
+
+        .amp => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '&' => {
+                    tag = .and_and;
+                    break :state;
+                },
+                else => {
+                    iterator.i = previous;
+                    break :state;
+                },
+            }
+        },
+
+        .bar => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                '|' => {
+                    tag = .or_or;
+                    break :state;
+                },
+                else => {
+                    iterator.i = previous;
+                    break :state;
+                },
+            }
+        },
+
+        .colon => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse break :state) {
+                ':' => {
+                    tag = .cons;
+                    break :state;
+                },
+                else => {
+                    iterator.i = previous;
+                    break :state;
+                },
+            }
+        },
+
         .dot => {
             const previous = iterator.i;
             switch (iterator.nextCodepoint() orelse break :state) {
                 '.' => {
-                    const previous2 = iterator.i;
-                    switch (iterator.nextCodepoint() orelse break :state) {
-                        '.' => {
-                            tag = .spread;
-                            break :state;
-                        },
-                        else => {
-                            iterator.i = previous2;
-                            tag = .range;
-                            break :state;
-                        },
-                    }
+                    tag = .dot_dot;
+                    break :state;
                 },
                 else => {
                     iterator.i = previous;
@@ -291,20 +350,6 @@ pub fn nextToken(self: *Lexer) Token {
             const previous = iterator.i;
             switch (iterator.nextCodepoint() orelse break :state) {
                 '0'...'9' => continue :state .number,
-                '.' => {
-                    const fraction_previous = iterator.i;
-                    switch (iterator.nextCodepoint() orelse {
-                        iterator.i = previous;
-                        break :state;
-                    }) {
-                        '0'...'9' => continue :state .fraction,
-                        else => {
-                            iterator.i = previous;
-                            break :state;
-                        },
-                    }
-                    iterator.i = fraction_previous;
-                },
                 else => {
                     iterator.i = previous;
                     break :state;
@@ -312,18 +357,7 @@ pub fn nextToken(self: *Lexer) Token {
             }
         },
 
-        .fraction => {
-            const previous = iterator.i;
-            switch (iterator.nextCodepoint() orelse break :state) {
-                '0'...'9' => continue :state .fraction,
-                else => {
-                    iterator.i = previous;
-                    break :state;
-                },
-            }
-        },
-
-        .string => {
+        .string_double => {
             const previous = iterator.i;
             switch (iterator.nextCodepoint() orelse {
                 tag = .string_open;
@@ -338,14 +372,40 @@ pub fn nextToken(self: *Lexer) Token {
                         tag = .string_open;
                         break :state;
                     };
-                    continue :state .string;
+                    continue :state .string_double;
                 },
                 '\n', '\r' => {
                     iterator.i = previous;
                     tag = .string_open;
                     break :state;
                 },
-                else => continue :state .string,
+                else => continue :state .string_double,
+            }
+        },
+
+        .string_single => {
+            const previous = iterator.i;
+            switch (iterator.nextCodepoint() orelse {
+                tag = .string_open;
+                break :state;
+            }) {
+                '\'' => {
+                    tag = .string;
+                    break :state;
+                },
+                '\\' => {
+                    _ = iterator.nextCodepoint() orelse {
+                        tag = .string_open;
+                        break :state;
+                    };
+                    continue :state .string_single;
+                },
+                '\n', '\r' => {
+                    iterator.i = previous;
+                    tag = .string_open;
+                    break :state;
+                },
+                else => continue :state .string_single,
             }
         },
 
@@ -374,7 +434,7 @@ pub fn nextToken(self: *Lexer) Token {
 fn isIdentifierStartCodepoint(cp: u21) bool {
     if (cp == '_') return true;
     if (cp <= 0x7F) return std.ascii.isAlphabetic(@intCast(cp));
-    return true;
+    return false;
 }
 
 fn isIdentifierContinueCodepoint(cp: u21) bool {
@@ -383,7 +443,7 @@ fn isIdentifierContinueCodepoint(cp: u21) bool {
         const byte: u8 = @intCast(cp);
         return std.ascii.isAlphabetic(byte) or std.ascii.isDigit(byte);
     }
-    return true;
+    return false;
 }
 
 fn runTest(input: []const u8, tokens: []const Token) !void {
@@ -415,9 +475,10 @@ test "invalid utf8" {
 }
 
 test "keywords and identifiers" {
-    const input = "let answer _ _12x34 true false";
+    const input = "let match answer _ _12x34 true false";
     const tokens = [_]Token{
         Token.init(.let, input, "let"),
+        Token.init(.match, input, "match"),
         Token.init(.identifier, input, "answer"),
         Token.init(.underscore, input, "_"),
         Token.init(.identifier, input, "_12x34"),
@@ -428,40 +489,51 @@ test "keywords and identifiers" {
     try runTest(input, &tokens);
 }
 
-test "unicode identifier" {
-    const input = "größe";
+test "lambda glyph" {
+    const input = "λ x -> x";
     const tokens = [_]Token{
-        Token.init(.identifier, input, "größe"),
+        Token.init(.lambda, input, "λ"),
+        Token.init(.identifier, input, "x"),
+        Token.init(.arrow, input, "->"),
+        Token.init(.identifier, input, "x"),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
 
-test "delimiters" {
-    const input = "(){}[],;";
+test "punctuators" {
+    const input = "\\ -> | & && || : :: . .. = ; , ( ) [ ] { }";
     const tokens = [_]Token{
+        Token.init(.backslash, input, "\\"),
+        Token.init(.arrow, input, "->"),
+        Token.init(.bar, input, "|"),
+        Token.init(.amp, input, "&"),
+        Token.init(.and_and, input, "&&"),
+        Token.init(.or_or, input, "||"),
+        Token.init(.colon, input, ":"),
+        Token.init(.cons, input, "::"),
+        Token.init(.dot, input, "."),
+        Token.init(.dot_dot, input, ".."),
+        Token.init(.assign, input, "="),
+        Token.init(.semicolon, input, ";"),
+        Token.init(.comma, input, ","),
         Token.init(.lparen, input, "("),
         Token.init(.rparen, input, ")"),
-        Token.init(.lbrace, input, "{"),
-        Token.init(.rbrace, input, "}"),
         Token.init(.lbracket, input, "["),
         Token.init(.rbracket, input, "]"),
-        Token.init(.comma, input, ","),
-        Token.init(.semicolon, input, ";"),
+        Token.init(.lbrace, input, "{"),
+        Token.init(.rbrace, input, "}"),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
 
 test "operators" {
-    const input = "= => ? == ! != > >= < <= + ++ - * / % .. ...";
+    const input = "== != ! > >= < <= + ++ - * / %";
     const tokens = [_]Token{
-        Token.init(.assign, input, "="),
-        Token.init(.fat_arrow, input, "=>"),
-        Token.init(.question, input, "?"),
         Token.init(.equal, input, "=="),
-        Token.init(.not, input, "!"),
         Token.init(.not_equal, input, "!="),
+        Token.init(.not, input, "!"),
         Token.init(.greater, input, ">"),
         Token.init(.greater_equal, input, ">="),
         Token.init(.less, input, "<"),
@@ -472,8 +544,6 @@ test "operators" {
         Token.init(.star, input, "*"),
         Token.init(.slash, input, "/"),
         Token.init(.percent, input, "%"),
-        Token.init(.range, input, ".."),
-        Token.init(.spread, input, "..."),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
@@ -487,7 +557,7 @@ test "comments and newlines" {
         Token.init(.let, input, "let"),
         Token.init(.identifier, input, "x"),
         Token.init(.assign, input, "="),
-        Token.init(.number, input, "1"),
+        Token.init(.integer, input, "1"),
         Token.init(.newline, input, "\n"),
         Token.init(.comment, input, "# two"),
         Token.init(.newline, input, "\n"),
@@ -496,28 +566,36 @@ test "comments and newlines" {
     try runTest(input, &tokens);
 }
 
-test "numbers float and range" {
-    const input = "1 3.14 [1..5] 1.";
+test "integer and dotdot" {
+    const input = "0 42 [x, ..rest]";
     const tokens = [_]Token{
-        Token.init(.number, input, "1"),
-        Token.init(.number, input, "3.14"),
+        Token.init(.integer, input, "0"),
+        Token.init(.integer, input, "42"),
         Token.init(.lbracket, input, "["),
-        Token.init(.number, input, "1"),
-        Token.init(.range, input, ".."),
-        Token.init(.number, input, "5"),
+        Token.init(.identifier, input, "x"),
+        Token.init(.comma, input, ","),
+        Token.init(.dot_dot, input, ".."),
+        Token.init(.identifier, input, "rest"),
         Token.init(.rbracket, input, "]"),
-        Token.init(.number, input, "1"),
-        Token.init(.invalid, input, "."),
         Token.init(.eof, input, ""),
     };
     try runTest(input, &tokens);
 }
 
-test "string and unterminated string" {
+test "double and single quoted strings" {
     {
         const input = "\"lx\"";
         const tokens = [_]Token{
             Token.init(.string, input, "\"lx\""),
+            Token.init(.eof, input, ""),
+        };
+        try runTest(input, &tokens);
+    }
+
+    {
+        const input = "'lx'";
+        const tokens = [_]Token{
+            Token.init(.string, input, "'lx'"),
             Token.init(.eof, input, ""),
         };
         try runTest(input, &tokens);
@@ -531,39 +609,4 @@ test "string and unterminated string" {
         };
         try runTest(input, &tokens);
     }
-}
-
-test "branch body example" {
-    const input =
-        \\let abs = (n) {
-        \\    ? n >= 0 => n
-        \\    => -n
-        \\};
-    ;
-
-    const tokens = [_]Token{
-        Token.init(.let, input, "let"),
-        Token.init(.identifier, input, "abs"),
-        Token.init(.assign, input, "="),
-        Token.init(.lparen, input, "("),
-        Token.init(.identifier, input, "n"),
-        Token.init(.rparen, input, ")"),
-        Token.init(.lbrace, input, "{"),
-        Token.init(.newline, input, "\n"),
-        Token.init(.question, input, "?"),
-        Token.init(.identifier, input, "n"),
-        Token.init(.greater_equal, input, ">="),
-        Token.init(.number, input, "0"),
-        Token.init(.fat_arrow, input, "=>"),
-        Token.init(.identifier, input, "n"),
-        Token.init(.newline, input, "\n"),
-        Token.init(.fat_arrow, input, "=>"),
-        Token.init(.minus, input, "-"),
-        Token.init(.identifier, input, "n"),
-        Token.init(.newline, input, "\n"),
-        Token.init(.rbrace, input, "}"),
-        Token.init(.semicolon, input, ";"),
-        Token.init(.eof, input, ""),
-    };
-    try runTest(input, &tokens);
 }

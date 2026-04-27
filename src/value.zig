@@ -3,24 +3,28 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
 const Environment = @import("Environment.zig");
-const FunctionBody = @import("node.zig").FunctionBody;
+const Clause = @import("node.zig").Clause;
 const Token = @import("Token.zig");
 
 pub const Value = union(Tag) {
     unit: void,
     boolean: bool,
-    number: f64,
+    integer: i64,
     string: *String,
     list: *List,
+    tuple: *Tuple,
+    map: *Map,
     native: *Native,
     closure: *Closure,
 
     pub const Tag = enum {
         unit,
         boolean,
-        number,
+        integer,
         string,
         list,
+        tuple,
+        map,
         native,
         closure,
 
@@ -41,9 +45,9 @@ pub const Value = union(Tag) {
         }
     };
 
-    pub const Number = struct {
-        pub fn init(value: f64) Value {
-            return .{ .number = value };
+    pub const Integer = struct {
+        pub fn init(value: i64) Value {
+            return .{ .integer = value };
         }
     };
 
@@ -87,14 +91,89 @@ pub const Value = union(Tag) {
         }
     };
 
+    pub const Tuple = struct {
+        items: []Value,
+
+        pub fn initOwned(gpa: Allocator, items: []Value) !Value {
+            const ptr = try gpa.create(Tuple);
+            errdefer gpa.destroy(ptr);
+            ptr.* = .{ .items = items };
+            return .{ .tuple = ptr };
+        }
+
+        pub fn init(gpa: Allocator, items: []const Value) !Value {
+            return initOwned(gpa, try gpa.dupe(Value, items));
+        }
+
+        pub fn deinit(self: *Tuple, gpa: Allocator) void {
+            gpa.free(self.items);
+            gpa.destroy(self);
+        }
+    };
+
+    pub const Map = struct {
+        entries: []Entry,
+
+        pub const Entry = struct {
+            key: Value,
+            value: Value,
+        };
+
+        pub fn initOwned(gpa: Allocator, entries: []Entry) !Value {
+            const ptr = try gpa.create(Map);
+            errdefer gpa.destroy(ptr);
+            ptr.* = .{ .entries = entries };
+            return .{ .map = ptr };
+        }
+
+        pub fn init(gpa: Allocator, entries: []const Entry) !Value {
+            return initOwned(gpa, try gpa.dupe(Entry, entries));
+        }
+
+        pub fn deinit(self: *Map, gpa: Allocator) void {
+            gpa.free(self.entries);
+            gpa.destroy(self);
+        }
+
+        pub fn findIndex(self: *const Map, key: Value) ?usize {
+            for (self.entries, 0..) |entry, index| {
+                if (entry.key.equal(key)) return index;
+            }
+            return null;
+        }
+
+        pub fn findStringIndex(self: *const Map, key: []const u8) ?usize {
+            for (self.entries, 0..) |entry, index| {
+                const bytes = entry.key.asString() orelse continue;
+                if (std.mem.eql(u8, bytes, key)) return index;
+            }
+            return null;
+        }
+    };
+
+    pub const NativeContext = struct {
+        gpa: Allocator,
+        io: Io,
+        tracker: *anyopaque,
+        trackFn: *const fn (*anyopaque, Value) anyerror!void,
+
+        pub fn allocator(self: NativeContext) Allocator {
+            return self.gpa;
+        }
+
+        pub fn track(self: NativeContext, value: Value) anyerror!void {
+            try self.trackFn(self.tracker, value);
+        }
+    };
+
     pub const Native = struct {
         name: []const u8,
-        function: *const fn (io: Io, arguments: []const Value) anyerror!Value,
+        function: *const fn (context: NativeContext, argument: Value) anyerror!Value,
 
         pub fn init(
             gpa: Allocator,
             name: []const u8,
-            function: *const fn (io: Io, arguments: []const Value) anyerror!Value,
+            function: *const fn (context: NativeContext, argument: Value) anyerror!Value,
         ) !Value {
             const ptr = try gpa.create(Native);
             errdefer gpa.destroy(ptr);
@@ -111,21 +190,18 @@ pub const Value = union(Tag) {
     };
 
     pub const Closure = struct {
-        parameters: []const Token,
-        body: FunctionBody,
+        clauses: []const *Clause,
         env: *Environment,
 
         pub fn init(
             gpa: Allocator,
-            parameters: []const Token,
-            body: FunctionBody,
+            clauses: []const *Clause,
             env: *Environment,
         ) !Value {
             const ptr = try gpa.create(Closure);
             errdefer gpa.destroy(ptr);
             ptr.* = .{
-                .parameters = parameters,
-                .body = body,
+                .clauses = clauses,
                 .env = env,
             };
             return .{ .closure = ptr };
@@ -136,6 +212,8 @@ pub const Value = union(Tag) {
         switch (self) {
             .string => |string| string.deinit(gpa),
             .list => |list| list.deinit(gpa),
+            .tuple => |tuple| tuple.deinit(gpa),
+            .map => |map| map.deinit(gpa),
             .native => |native| native.deinit(gpa),
             .closure => |closure| gpa.destroy(closure),
             else => {},
@@ -149,9 +227,9 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn asNumber(self: Value) ?f64 {
+    pub fn asInteger(self: Value) ?i64 {
         return switch (self) {
-            .number => |number| number,
+            .integer => |i| i,
             else => null,
         };
     }
@@ -166,6 +244,20 @@ pub const Value = union(Tag) {
     pub fn asList(self: Value) ?*List {
         return switch (self) {
             .list => |list| list,
+            else => null,
+        };
+    }
+
+    pub fn asTuple(self: Value) ?*Tuple {
+        return switch (self) {
+            .tuple => |tuple| tuple,
+            else => null,
+        };
+    }
+
+    pub fn asMap(self: Value) ?*Map {
+        return switch (self) {
+            .map => |map| map,
             else => null,
         };
     }
@@ -194,8 +286,8 @@ pub const Value = union(Tag) {
                 .boolean => |other| value == other,
                 else => false,
             },
-            .number => |value| switch (right) {
-                .number => |other| value == other,
+            .integer => |value| switch (right) {
+                .integer => |other| value == other,
                 else => false,
             },
             .string => |value| switch (right) {
@@ -207,6 +299,27 @@ pub const Value = union(Tag) {
                     if (value.items.len != other.items.len) break :blk false;
                     for (value.items, other.items) |lhs, rhs| {
                         if (!lhs.equal(rhs)) break :blk false;
+                    }
+                    break :blk true;
+                },
+                else => false,
+            },
+            .tuple => |value| switch (right) {
+                .tuple => |other| blk: {
+                    if (value.items.len != other.items.len) break :blk false;
+                    for (value.items, other.items) |lhs, rhs| {
+                        if (!lhs.equal(rhs)) break :blk false;
+                    }
+                    break :blk true;
+                },
+                else => false,
+            },
+            .map => |value| switch (right) {
+                .map => |other| blk: {
+                    if (value.entries.len != other.entries.len) break :blk false;
+                    for (value.entries) |entry| {
+                        const index = other.findIndex(entry.key) orelse break :blk false;
+                        if (!entry.value.equal(other.entries[index].value)) break :blk false;
                     }
                     break :blk true;
                 },
@@ -227,7 +340,7 @@ pub const Value = union(Tag) {
         switch (self) {
             .unit => try writer.writeAll("()"),
             .boolean => |boolean| try writer.writeAll(if (boolean) "true" else "false"),
-            .number => |number| try writer.print("{d}", .{number}),
+            .integer => |i| try writer.print("{d}", .{i}),
             .string => |string| try writer.print("\"{s}\"", .{string.bytes}),
             .list => |list| {
                 try writer.writeByte('[');
@@ -237,15 +350,26 @@ pub const Value = union(Tag) {
                 }
                 try writer.writeByte(']');
             },
-            .native => |native| try writer.print("<native {s}>", .{native.name}),
-            .closure => |closure| {
+            .tuple => |tuple| {
                 try writer.writeByte('(');
-                for (closure.parameters, 0..) |parameter, index| {
+                for (tuple.items, 0..) |item, index| {
                     if (index != 0) try writer.writeAll(", ");
-                    try writer.writeAll(parameter.lexeme);
+                    try item.write(writer);
                 }
-                try writer.writeAll(") { ... }");
+                try writer.writeByte(')');
             },
+            .map => |map| {
+                try writer.writeByte('{');
+                for (map.entries, 0..) |entry, index| {
+                    if (index != 0) try writer.writeAll(", ");
+                    try entry.key.write(writer);
+                    try writer.writeAll(": ");
+                    try entry.value.write(writer);
+                }
+                try writer.writeByte('}');
+            },
+            .native => |native| try writer.print("<native {s}>", .{native.name}),
+            .closure => try writer.writeAll("<function>"),
         }
     }
 

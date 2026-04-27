@@ -1,0 +1,14 @@
+let result = (
+    let l1 = (
+        let l2 = (
+            let l3 = (
+                3333 :: []
+            );
+            222 :: l3
+        );
+        11 :: l2
+    );
+    0 :: l1
+);
+
+print(result)

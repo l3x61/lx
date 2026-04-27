@@ -9,6 +9,15 @@ gpa: Allocator,
 parent: ?*Environment,
 bindings: HashMap(?Value),
 
+pub const Snapshot = struct {
+    count: usize,
+    values: []?Value,
+
+    pub fn deinit(self: Snapshot, gpa: Allocator) void {
+        gpa.free(self.values);
+    }
+};
+
 pub fn init(gpa: Allocator, parent: ?*Environment) !*Environment {
     const self = try gpa.create(Environment);
     self.* = Environment{
@@ -62,12 +71,30 @@ pub fn set(self: *Environment, key: []const u8, value: Value) !void {
 pub fn get(self: *Environment, key: []const u8) !Value {
     if (self.bindings.get(key)) |maybe_value| {
         if (maybe_value) |value| return value;
-        return error.NotDefined;
+        return error.UninitializedBinding;
     }
     if (self.parent) |parent| {
         return parent.get(key);
     }
     return error.NotDefined;
+}
+
+pub fn snapshot(self: *Environment) !Snapshot {
+    return .{
+        .count = self.bindings.count(),
+        .values = try self.gpa.dupe(?Value, self.bindings.values()),
+    };
+}
+
+pub fn restore(self: *Environment, snapshot_value: Snapshot) void {
+    const values = self.bindings.values();
+    @memcpy(values[0..snapshot_value.count], snapshot_value.values);
+
+    while (self.bindings.count() > snapshot_value.count) {
+        const key = self.bindings.keys()[snapshot_value.count];
+        self.bindings.orderedRemoveAt(snapshot_value.count);
+        self.gpa.free(key);
+    }
 }
 
 const testing = std.testing;
@@ -112,7 +139,7 @@ test "bind, get, and get not bound" {
     const env = try Environment.init(testing.allocator, null);
     defer env.deinitAll();
 
-    const x = Value.Number.init(123);
+    const x = Value.Integer.init(123);
     try env.bind("x", x);
 
     try expect((try env.get("x")).equal(x));
@@ -121,39 +148,39 @@ test "bind, get, and get not bound" {
 
 test "shadowing prefers nearest scope" {
     const parent = try Environment.init(testing.allocator, null);
-    try parent.bind("x", Value.Number.init(1));
+    try parent.bind("x", Value.Integer.init(1));
 
     const child = try Environment.init(testing.allocator, parent);
     defer child.deinitAll();
-    try child.bind("x", Value.Number.init(2));
+    try child.bind("x", Value.Integer.init(2));
 
-    try expect((try child.get("x")).equal(Value.Number.init(2)));
-    try expect((try parent.get("x")).equal(Value.Number.init(1)));
+    try expect((try child.get("x")).equal(Value.Integer.init(2)));
+    try expect((try parent.get("x")).equal(Value.Integer.init(1)));
 }
 
 test "rebind in same scope errors" {
     const env = try Environment.init(testing.allocator, null);
     defer env.deinitAll();
 
-    try env.bind("x", Value.Number.init(1));
-    try expectError(error.AlreadyDefined, env.bind("x", Value.Number.init(2)));
+    try env.bind("x", Value.Integer.init(1));
+    try expectError(error.AlreadyDefined, env.bind("x", Value.Integer.init(2)));
 }
 
 test "set errors when name not declared" {
     const env = try Environment.init(testing.allocator, null);
     defer env.deinitAll();
-    try expectError(error.NotDefined, env.set("x", Value.Number.init(1)));
+    try expectError(error.NotDefined, env.set("x", Value.Integer.init(1)));
 }
 
 test "set updates nearest declared in ancestor" {
     const parent = try Environment.init(testing.allocator, null);
-    try parent.bind("x", Value.Number.init(1));
+    try parent.bind("x", Value.Integer.init(1));
 
     const child = try Environment.init(testing.allocator, parent);
     defer child.deinitAll();
 
-    try child.set("x", Value.Number.init(3));
-    try expect((try parent.get("x")).equal(Value.Number.init(3)));
+    try child.set("x", Value.Integer.init(3));
+    try expect((try parent.get("x")).equal(Value.Integer.init(3)));
 }
 
 test "set fills previously-declared free slot" {
@@ -163,17 +190,48 @@ test "set fills previously-declared free slot" {
     const child = try Environment.init(testing.allocator, parent);
     defer child.deinitAll();
 
-    try child.set("x", Value.Number.init(7));
-    try expect((try parent.get("x")).equal(Value.Number.init(7)));
+    try child.set("x", Value.Integer.init(7));
+    try expect((try parent.get("x")).equal(Value.Integer.init(7)));
+}
+
+test "snapshot restore removes new bindings and resets existing values" {
+    const env = try Environment.init(testing.allocator, null);
+    defer env.deinitAll();
+
+    try env.bind("x", Value.Integer.init(1));
+    const mark = try env.snapshot();
+    defer mark.deinit(testing.allocator);
+
+    try env.set("x", Value.Integer.init(2));
+    try env.bind("y", Value.Integer.init(3));
+
+    env.restore(mark);
+
+    try expect((try env.get("x")).equal(Value.Integer.init(1)));
+    try expectError(error.NotDefined, env.get("y"));
+}
+
+test "snapshot restore preserves preallocated cells" {
+    const env = try Environment.init(testing.allocator, null);
+    defer env.deinitAll();
+
+    try env.bind("x", null);
+    const mark = try env.snapshot();
+    defer mark.deinit(testing.allocator);
+
+    try env.set("x", Value.Integer.init(2));
+    env.restore(mark);
+
+    try expectError(error.UninitializedBinding, env.get("x"));
 }
 
 test "deinitAll cleans whole chain" {
     const root = try Environment.init(testing.allocator, null);
-    try root.bind("a", Value.Number.init(1));
+    try root.bind("a", Value.Integer.init(1));
     const mid = try Environment.init(testing.allocator, root);
-    try mid.bind("b", Value.Number.init(2));
+    try mid.bind("b", Value.Integer.init(2));
     const leaf = try Environment.init(testing.allocator, mid);
-    try leaf.bind("c", Value.Number.init(3));
+    try leaf.bind("c", Value.Integer.init(3));
 
     leaf.deinitAll();
 }

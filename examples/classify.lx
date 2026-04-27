@@ -1,7 +1,6 @@
-let classify = (n) {
-    ? n > 0 => "positive",
-    ? n < 0 => "negative",
-    => "zero"
-};
+let classify =
+    \ n & n > 0 -> "positive"
+    | n & n < 0 -> "negative"
+    | _         -> "zero";
 
 classify(-3)

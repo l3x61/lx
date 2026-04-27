@@ -1,6 +1,6 @@
-let makeAdder = (n) {
-    (x) { x + n }
-};
+let addN =
+    \ n ->
+        \ x -> x + n;
 
-let add5 = makeAdder(5);
+let add5 = addN(5);
 add5(10)

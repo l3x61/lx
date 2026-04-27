@@ -1,16 +1,14 @@
-let fizzbuzz = (n) {
-    ? n % 15 == 0 => print("FizzBuzz"),
-    ? n % 3 == 0 => print("Fizz"),
-    ? n % 5 == 0 => print("Buzz"),
-    => print(n)
-};
+let fizzbuzz =
+    \ n & n % 15 == 0 -> print("FizzBuzz")
+    | n & n % 3  == 0 -> print("Fizz")
+    | n & n % 5  == 0 -> print("Buzz")
+    | n               -> print(n);
 
-let loop = (i, max) {
-    i, max ? i > max => print("Done."),
-    => {
-        fizzbuzz(i);
+let loop =
+    \ i, max & i > max -> print("Done.")
+    | i, max           -> (
+        let _ = fizzbuzz(i);
         loop(i + 1, max)
-    }
-};
+    );
 
 loop(1, 15)

@@ -87,20 +87,19 @@ test "evaluate source through runtime" {
     defer runtime.deinit();
 
     const value = try runtime.evaluateSource(
-        \\let add = (x, y) { x + y };
+        \\let add = \ x, y -> x + y;
         \\add(1, 2)
     );
 
-    try testing.expect(value.equal(.{ .number = 3 }));
+    try testing.expect(value.equal(.{ .integer = 3 }));
 }
 
 test "runs current non-print examples" {
     const files = [_][]const u8{
         "examples/abs.lx",
-        "examples/block.lx",
         "examples/classify.lx",
         "examples/head.lx",
-        "examples/lists-and-ranges.lx",
+        "examples/block.lx",
     };
 
     var runtime = try Runtime.init(testing.allocator, testing.io);

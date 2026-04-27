@@ -1,16 +1,13 @@
-let both = (a, b) {
-    true, true => true,
-    _, _ => false
-};
+let both =
+    \ true, true -> true
+    | _,    _    -> false;
 
-let either = (a, b) {
-    false, false => false,
-    _, _ => true
-};
+let either =
+    \ false, false -> false
+    | _,     _     -> true;
 
-let not = (x) {
-    true => false,
-    false => true
-};
+let not =
+    \ true  -> false
+    | false -> true;
 
 not(both(true, either(false, true)))

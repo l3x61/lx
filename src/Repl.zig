@@ -255,10 +255,9 @@ fn inputIsComplete(source: []const u8) !bool {
 
     var lexer = try Lexer.init(source);
     var paren_depth: usize = 0;
-    var brace_depth: usize = 0;
     var bracket_depth: usize = 0;
-    var first_top_level: ?Token.Tag = null;
-    var saw_top_level_semicolon = false;
+    var brace_depth: usize = 0;
+    var let_depth: usize = 0;
     var last_significant: ?Token.Tag = null;
 
     while (true) {
@@ -268,25 +267,24 @@ fn inputIsComplete(source: []const u8) !bool {
             .eof => break,
             .string_open => return false,
             else => {
-                if (first_top_level == null and paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) {
-                    first_top_level = token.tag;
-                }
-
                 switch (token.tag) {
                     .lparen => paren_depth += 1,
                     .rparen => {
                         if (paren_depth != 0) paren_depth -= 1;
                     },
-                    .lbrace => brace_depth += 1,
-                    .rbrace => {
-                        if (brace_depth != 0) brace_depth -= 1;
-                    },
                     .lbracket => bracket_depth += 1,
                     .rbracket => {
                         if (bracket_depth != 0) bracket_depth -= 1;
                     },
-                    .semicolon => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) {
-                        saw_top_level_semicolon = true;
+                    .lbrace => brace_depth += 1,
+                    .rbrace => {
+                        if (brace_depth != 0) brace_depth -= 1;
+                    },
+                    .let => if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
+                        let_depth += 1;
+                    },
+                    .semicolon => if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0 and let_depth > 0) {
+                        let_depth -= 1;
                     },
                     else => {},
                 }
@@ -296,16 +294,19 @@ fn inputIsComplete(source: []const u8) !bool {
         }
     }
 
-    if (paren_depth != 0 or brace_depth != 0 or bracket_depth != 0) return false;
-
-    if (first_top_level == .let and !saw_top_level_semicolon) return false;
+    if (paren_depth != 0 or bracket_depth != 0 or brace_depth != 0) return false;
+    if (let_depth != 0) return false;
 
     const last = last_significant orelse return true;
     return switch (last) {
         .semicolon,
         .assign,
-        .question,
-        .fat_arrow,
+        .arrow,
+        .bar,
+        .amp,
+        .and_and,
+        .or_or,
+        .cons,
         .comma,
         .plus,
         .concat,
@@ -320,11 +321,16 @@ fn inputIsComplete(source: []const u8) !bool {
         .less,
         .less_equal,
         .not,
-        .range,
+        .dot,
+        .dot_dot,
         .let,
+        .backslash,
+        .lambda,
+        .match,
         .lparen,
-        .lbrace,
         .lbracket,
+        .lbrace,
+        .colon,
         => false,
         else => true,
     };
@@ -336,7 +342,7 @@ test "input completeness for simple expression" {
     try testing.expect(try inputIsComplete("42"));
 }
 
-test "input completeness for let binding requires continuation" {
+test "input completeness for binding requires continuation" {
     try testing.expect(!(try inputIsComplete("let answer = 42")));
     try testing.expect(!(try inputIsComplete("let answer = 42;")));
     try testing.expect(try inputIsComplete("let answer = 42;\nanswer"));
@@ -344,18 +350,16 @@ test "input completeness for let binding requires continuation" {
 
 test "input completeness for multiline function" {
     try testing.expect(!(try inputIsComplete(
-        \\let abs = (n) {
-    )));
-    try testing.expect(!(try inputIsComplete(
-        \\let abs = (n) {
-        \\    ? n >= 0 => n
-        \\    => -n
+        \\let abs = \ n & n >= 0 -> n
     )));
     try testing.expect(try inputIsComplete(
-        \\let abs = (n) {
-        \\    ? n >= 0 => n
-        \\    => -n
-        \\};
+        \\let abs = \ n & n >= 0 -> n | n -> -n;
         \\abs(-5)
     ));
+}
+
+test "input completeness for map literal" {
+    try testing.expect(!(try inputIsComplete("{\"a\":")));
+    try testing.expect(!(try inputIsComplete("{\"a\": 1")));
+    try testing.expect(try inputIsComplete("{\"a\": 1}"));
 }

@@ -1,0 +1,22 @@
+let split = \ [] -> ([], [])
+          | [x] -> ([x], [])
+          | [x, y, ..xs] -> (
+              let as, bs = split(xs);
+              (x :: as, y :: bs)
+            );
+
+let merge = \ [], ys -> ys
+          | xs, [] -> xs
+          | [x, ..xs], [y, ..ys] & x <= y ->
+              x :: merge(xs, y :: ys)
+          | [x, ..xs], [y, ..ys] ->
+              y :: merge(x :: xs, ys);
+
+let merge_sort = \ [] -> []
+               | [x] -> [x]
+               | xs -> (
+                   let as, bs = split(xs);
+                   merge(merge_sort(as), merge_sort(bs))
+                 );
+
+merge_sort([7, 3, 9, 1, 4, 8, 2])

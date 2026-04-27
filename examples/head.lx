@@ -1,6 +1,5 @@
-let head = (xs) {
-    [x, ..._] => x,
-    [] => "empty"
-};
+let head =
+    \ [x, ..] -> x
+    | []      -> "empty";
 
 head([10, 20, 30])

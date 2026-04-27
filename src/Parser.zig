@@ -5,10 +5,11 @@ const testing = std.testing;
 const fs = std.fs;
 
 const Lexer = @import("Lexer.zig");
-const Node = @import("node.zig").Node;
-const Branch = @import("node.zig").Branch;
-const Pattern = @import("node.zig").Pattern;
-const FunctionBody = @import("node.zig").FunctionBody;
+const node_mod = @import("node.zig");
+const Node = node_mod.Node;
+const Clause = node_mod.Clause;
+const Pattern = node_mod.Pattern;
+const Rest = node_mod.Rest;
 const Token = @import("Token.zig");
 
 const Parser = @This();
@@ -133,7 +134,7 @@ pub fn initNamed(allocator: Allocator, source_name: []const u8, source: []const 
 
     while (true) {
         const token = lexer.nextToken();
-        if (token.tag != .comment) try tokens.append(allocator, token);
+        if (token.tag != .comment and token.tag != .newline) try tokens.append(allocator, token);
         if (token.tag == .eof) break;
     }
 
@@ -150,15 +151,10 @@ pub fn deinit(self: *Parser) void {
     self.allocator.free(self.tokens);
 }
 
-// ```
-// program = expression EOF .
-// ```
 pub fn parse(self: *Parser) !*Node {
     self.last_error = null;
-    self.skipNewlines();
     const expression = try self.parseExpression();
     errdefer expression.deinit(self.allocator);
-    self.skipNewlines();
     _ = try self.expect(.eof);
     return Node.create(self.allocator, .{
         .program = .{ .expression = expression },
@@ -183,9 +179,7 @@ fn advance(self: *Parser) Token {
 
 fn expect(self: *Parser, tag: Token.Tag) !Token {
     const token = self.current();
-    if (token.tag != tag) {
-        return self.failExpected(tag);
-    }
+    if (token.tag != tag) return self.failExpected(tag);
     return self.advance();
 }
 
@@ -193,10 +187,6 @@ fn match(self: *Parser, tag: Token.Tag) bool {
     if (self.current().tag != tag) return false;
     _ = self.advance();
     return true;
-}
-
-fn skipNewlines(self: *Parser) void {
-    while (self.current().tag == .newline) _ = self.advance();
 }
 
 fn failExpected(self: *Parser, expected: Token.Tag) error{SyntaxError} {
@@ -218,42 +208,21 @@ fn failMessage(self: *Parser, message: []const u8) error{SyntaxError} {
 }
 
 fn parseExpression(self: *Parser) anyerror!*Node {
-    self.skipNewlines();
-
-    if (self.current().tag == .let) {
-        return self.parseBindingExpression();
-    }
-
-    const first = try self.parseNonBinding();
-    errdefer first.deinit(self.allocator);
-
-    self.skipNewlines();
-    if (!self.match(.semicolon)) return first;
-
-    self.skipNewlines();
-    const second = try self.parseExpression();
-    errdefer second.deinit(self.allocator);
-    return Node.create(self.allocator, .{
-        .sequence = .{
-            .first = first,
-            .second = second,
-        },
-    });
+    return self.parseBind();
 }
 
-fn parseBindingExpression(self: *Parser) anyerror!*Node {
-    _ = try self.expect(.let);
-    const pattern = try self.parsePattern();
+fn parseBind(self: *Parser) anyerror!*Node {
+    if (self.current().tag != .let) return self.parseMatch();
+
+    _ = self.advance();
+    const pattern = try self.parseBindOrHeadPattern();
     errdefer pattern.deinit(self.allocator);
 
-    self.skipNewlines();
     _ = try self.expect(.assign);
-    const value = try self.parseNonBinding();
+    const value = try self.parseExpression();
     errdefer value.deinit(self.allocator);
 
-    self.skipNewlines();
     _ = try self.expect(.semicolon);
-    self.skipNewlines();
     const body = try self.parseExpression();
     errdefer body.deinit(self.allocator);
 
@@ -266,327 +235,326 @@ fn parseBindingExpression(self: *Parser) anyerror!*Node {
     });
 }
 
-fn parseNonBinding(self: *Parser) anyerror!*Node {
-    return self.parseBinary(1);
+fn parseMatch(self: *Parser) anyerror!*Node {
+    if (self.current().tag != .match) return self.parseLogicOr();
+
+    _ = self.advance();
+    const subject = try self.parseLogicOr();
+    errdefer subject.deinit(self.allocator);
+
+    if (self.current().tag != .backslash and self.current().tag != .lambda) {
+        return self.failMessage("expected function abstraction after match subject");
+    }
+
+    const function = try self.parseFunction();
+    errdefer function.deinit(self.allocator);
+
+    return Node.create(self.allocator, .{
+        .application = .{
+            .callee = function,
+            .argument = subject,
+        },
+    });
 }
 
-fn parseBinary(self: *Parser, min_precedence: u8) anyerror!*Node {
-    var left = try self.parseUnary();
+fn parseLogicOr(self: *Parser) anyerror!*Node {
+    var left = try self.parseLogicAnd();
     errdefer left.deinit(self.allocator);
 
-    while (true) {
-        self.skipNewlines();
-
-        const operator = self.current();
-        const precedence = infixPrecedence(operator.tag) orelse break;
-        if (precedence < min_precedence) break;
-
-        _ = self.advance();
-        const next_min = if (operator.tag == .concat) precedence else precedence + 1;
+    while (self.current().tag == .or_or) {
+        const operator = self.advance();
         left = blk: {
-            const right = try self.parseBinary(next_min);
+            const right = try self.parseLogicAnd();
             errdefer right.deinit(self.allocator);
-
             break :blk try Node.create(self.allocator, .{
-                .binary = .{
-                    .left = left,
-                    .operator = operator,
-                    .right = right,
-                },
+                .binary = .{ .left = left, .operator = operator, .right = right },
             });
         };
     }
-
     return left;
 }
 
-fn parseUnary(self: *Parser) anyerror!*Node {
-    self.skipNewlines();
-    return switch (self.current().tag) {
-        .minus, .not => blk: {
-            const operator = self.advance();
-            const operand = try self.parseUnary();
-            errdefer operand.deinit(self.allocator);
+fn parseLogicAnd(self: *Parser) anyerror!*Node {
+    var left = try self.parseEquality();
+    errdefer left.deinit(self.allocator);
+
+    while (self.current().tag == .and_and) {
+        const operator = self.advance();
+        left = blk: {
+            const right = try self.parseEquality();
+            errdefer right.deinit(self.allocator);
             break :blk try Node.create(self.allocator, .{
-                .unary = .{
-                    .operator = operator,
-                    .operand = operand,
-                },
-            });
-        },
-        else => self.parseApplication(),
-    };
-}
-
-fn parseApplication(self: *Parser) anyerror!*Node {
-    var callee = try self.parsePrimary();
-    errdefer callee.deinit(self.allocator);
-
-    while (true) {
-        self.skipNewlines();
-        if (self.current().tag != .lparen) break;
-
-        callee = blk: {
-            const arguments = try self.parseArguments();
-            errdefer deinitNodeSlice(self.allocator, arguments);
-
-            break :blk try Node.create(self.allocator, .{
-                .call = .{
-                    .callee = callee,
-                    .arguments = arguments,
-                },
+                .binary = .{ .left = left, .operator = operator, .right = right },
             });
         };
     }
+    return left;
+}
 
-    return callee;
+fn parseEquality(self: *Parser) anyerror!*Node {
+    const left = try self.parseComparison();
+    errdefer left.deinit(self.allocator);
+
+    switch (self.current().tag) {
+        .equal, .not_equal => {
+            const operator = self.advance();
+            const right = try self.parseComparison();
+            errdefer right.deinit(self.allocator);
+            return Node.create(self.allocator, .{
+                .binary = .{ .left = left, .operator = operator, .right = right },
+            });
+        },
+        else => return left,
+    }
+}
+
+fn parseComparison(self: *Parser) anyerror!*Node {
+    const left = try self.parseConcat();
+    errdefer left.deinit(self.allocator);
+
+    switch (self.current().tag) {
+        .less, .less_equal, .greater, .greater_equal => {
+            const operator = self.advance();
+            const right = try self.parseConcat();
+            errdefer right.deinit(self.allocator);
+            return Node.create(self.allocator, .{
+                .binary = .{ .left = left, .operator = operator, .right = right },
+            });
+        },
+        else => return left,
+    }
+}
+
+fn parseConcat(self: *Parser) anyerror!*Node {
+    var left = try self.parseCons();
+    errdefer left.deinit(self.allocator);
+
+    while (self.current().tag == .concat) {
+        const operator = self.advance();
+        left = blk: {
+            const right = try self.parseCons();
+            errdefer right.deinit(self.allocator);
+            break :blk try Node.create(self.allocator, .{
+                .binary = .{ .left = left, .operator = operator, .right = right },
+            });
+        };
+    }
+    return left;
+}
+
+fn parseCons(self: *Parser) anyerror!*Node {
+    const left = try self.parseAdditive();
+    errdefer left.deinit(self.allocator);
+
+    if (self.current().tag == .cons) {
+        const operator = self.advance();
+        const right = try self.parseCons();
+        errdefer right.deinit(self.allocator);
+        return Node.create(self.allocator, .{
+            .binary = .{ .left = left, .operator = operator, .right = right },
+        });
+    }
+    return left;
+}
+
+fn parseAdditive(self: *Parser) anyerror!*Node {
+    var left = try self.parseMultiplicative();
+    errdefer left.deinit(self.allocator);
+
+    while (true) {
+        switch (self.current().tag) {
+            .plus, .minus => {
+                const operator = self.advance();
+                left = blk: {
+                    const right = try self.parseMultiplicative();
+                    errdefer right.deinit(self.allocator);
+                    break :blk try Node.create(self.allocator, .{
+                        .binary = .{ .left = left, .operator = operator, .right = right },
+                    });
+                };
+            },
+            else => return left,
+        }
+    }
+}
+
+fn parseMultiplicative(self: *Parser) anyerror!*Node {
+    var left = try self.parsePrefix();
+    errdefer left.deinit(self.allocator);
+
+    while (true) {
+        switch (self.current().tag) {
+            .star, .slash, .percent => {
+                const operator = self.advance();
+                left = blk: {
+                    const right = try self.parsePrefix();
+                    errdefer right.deinit(self.allocator);
+                    break :blk try Node.create(self.allocator, .{
+                        .binary = .{ .left = left, .operator = operator, .right = right },
+                    });
+                };
+            },
+            else => return left,
+        }
+    }
+}
+
+fn parsePrefix(self: *Parser) anyerror!*Node {
+    switch (self.current().tag) {
+        .minus, .not => {
+            const operator = self.advance();
+            const operand = try self.parsePrefix();
+            errdefer operand.deinit(self.allocator);
+            return Node.create(self.allocator, .{
+                .unary = .{ .operator = operator, .operand = operand },
+            });
+        },
+        else => return self.parsePostfix(),
+    }
+}
+
+fn parsePostfix(self: *Parser) anyerror!*Node {
+    var base = try self.parsePrimary();
+    errdefer base.deinit(self.allocator);
+
+    while (true) {
+        switch (self.current().tag) {
+            .lparen => {
+                base = try self.parseCallSuffix(base);
+            },
+            .lbracket => {
+                _ = self.advance();
+                const idx = try self.parseExpression();
+                errdefer idx.deinit(self.allocator);
+                _ = try self.expect(.rbracket);
+                base = blk: {
+                    break :blk try Node.create(self.allocator, .{
+                        .index = .{ .target = base, .index = idx },
+                    });
+                };
+            },
+            .dot => {
+                _ = self.advance();
+                const field = try self.expect(.identifier);
+                const idx = try Node.create(self.allocator, .{
+                    .literal = Token.init(.string, field.source, field.lexeme),
+                });
+                errdefer idx.deinit(self.allocator);
+                base = blk: {
+                    break :blk try Node.create(self.allocator, .{
+                        .index = .{ .target = base, .index = idx },
+                    });
+                };
+            },
+            else => break,
+        }
+    }
+    return base;
+}
+
+fn parseCallSuffix(self: *Parser, callee: *Node) anyerror!*Node {
+    const open = try self.expect(.lparen);
+
+    if (self.current().tag == .rparen) {
+        const close = self.advance();
+        const unit_node = try Node.create(self.allocator, .{
+            .literal = unitToken(open, close),
+        });
+        errdefer unit_node.deinit(self.allocator);
+        return Node.create(self.allocator, .{
+            .application = .{ .callee = callee, .argument = unit_node },
+        });
+    }
+
+    var args: std.ArrayList(*Node) = .empty;
+    defer args.deinit(self.allocator);
+    errdefer for (args.items) |arg| arg.deinit(self.allocator);
+
+    try args.append(self.allocator, try self.parseExpression());
+    while (self.match(.comma)) {
+        try args.append(self.allocator, try self.parseExpression());
+    }
+    _ = try self.expect(.rparen);
+
+    if (args.items.len == 1) {
+        return Node.create(self.allocator, .{
+            .application = .{ .callee = callee, .argument = args.items[0] },
+        });
+    }
+
+    const owned = try self.allocator.dupe(*Node, args.items);
+    errdefer self.allocator.free(owned);
+
+    const tuple_node = try Node.create(self.allocator, .{
+        .tuple = .{ .items = owned },
+    });
+    errdefer tuple_node.deinit(self.allocator);
+
+    return Node.create(self.allocator, .{
+        .application = .{ .callee = callee, .argument = tuple_node },
+    });
 }
 
 fn parsePrimary(self: *Parser) anyerror!*Node {
-    self.skipNewlines();
     const token = self.current();
-
     return switch (token.tag) {
         .identifier => blk: {
             _ = self.advance();
             break :blk try Node.create(self.allocator, .{ .identifier = token });
         },
-        .number, .string, .true, .false => blk: {
+        .integer, .string, .true, .false => blk: {
             _ = self.advance();
             break :blk try Node.create(self.allocator, .{ .literal = token });
         },
-        .lparen => if (self.isFunctionStart()) self.parseFunction() else blk: {
-            _ = self.advance();
-            const expression = try self.parseExpression();
-            errdefer expression.deinit(self.allocator);
-            _ = try self.expect(.rparen);
-            break :blk expression;
-        },
-        .lbrace => self.parseBlock(),
-        .lbracket => if (self.isRangeStart()) self.parseRange() else self.parseList(),
+        .lparen => self.parseParenOrTupleOrUnit(),
+        .lbracket => self.parseList(),
+        .lbrace => self.parseMap(),
+        .backslash, .lambda => self.parseFunction(),
         else => self.failMessage("expected expression"),
     };
 }
 
-fn parseFunction(self: *Parser) anyerror!*Node {
-    _ = try self.expect(.lparen);
+fn parseParenOrTupleOrUnit(self: *Parser) anyerror!*Node {
+    const open = try self.expect(.lparen);
 
-    var parameters: std.ArrayList(Token) = .empty;
-    defer parameters.deinit(self.allocator);
+    if (self.current().tag == .rparen) {
+        const close = self.advance();
+        return Node.create(self.allocator, .{ .literal = unitToken(open, close) });
+    }
 
-    self.skipNewlines();
-    if (self.current().tag != .rparen) {
+    const first = try self.parseExpression();
+    errdefer first.deinit(self.allocator);
+
+    if (self.match(.comma)) {
+        var items: std.ArrayList(*Node) = .empty;
+        errdefer {
+            for (items.items) |item| item.deinit(self.allocator);
+            items.deinit(self.allocator);
+        }
+        try items.append(self.allocator, first);
+
         while (true) {
-            try parameters.append(self.allocator, try self.expect(.identifier));
-            self.skipNewlines();
+            try items.append(self.allocator, try self.parseExpression());
             if (!self.match(.comma)) break;
-            self.skipNewlines();
         }
-    }
-    _ = try self.expect(.rparen);
-    self.skipNewlines();
-    _ = try self.expect(.lbrace);
-    self.skipNewlines();
 
-    if (self.current().tag == .rbrace) return self.failMessage("expected function body");
-
-    const body: FunctionBody = if (self.startsBranch())
-        .{ .branches = try self.parseBranches() }
-    else
-        .{ .expression = try self.parseExpression() };
-    errdefer {
-        var owned_body = body;
-        owned_body.deinit(self.allocator);
-    }
-
-    self.skipNewlines();
-    _ = try self.expect(.rbrace);
-    const owned_parameters = try parameters.toOwnedSlice(self.allocator);
-    errdefer self.allocator.free(owned_parameters);
-
-    return Node.create(self.allocator, .{
-        .function = .{
-            .parameters = owned_parameters,
-            .body = body,
-        },
-    });
-}
-
-fn parseBranches(self: *Parser) anyerror![]*Branch {
-    var branches: std.ArrayList(*Branch) = .empty;
-    errdefer {
-        for (branches.items) |branch| branch.deinit(self.allocator);
-        branches.deinit(self.allocator);
-    }
-
-    while (true) {
-        try branches.append(self.allocator, try self.parseBranch());
-
-        self.skipNewlines();
-        if (self.current().tag == .rbrace) break;
-
-        _ = try self.expect(.comma);
-
-        self.skipNewlines();
-        if (self.current().tag == .rbrace) break;
-    }
-
-    return try branches.toOwnedSlice(self.allocator);
-}
-
-fn parseBranch(self: *Parser) anyerror!*Branch {
-    if (self.match(.question)) {
-        const guard = try self.parseExpression();
-        errdefer guard.deinit(self.allocator);
-
-        _ = try self.expect(.fat_arrow);
-        const result = try self.parseExpression();
-        errdefer result.deinit(self.allocator);
-        return try Branch.create(self.allocator, null, guard, result);
-    }
-
-    if (self.match(.fat_arrow)) {
-        const result = try self.parseExpression();
-        errdefer result.deinit(self.allocator);
-        return try Branch.create(self.allocator, null, null, result);
-    }
-
-    const patterns = try self.parsePatterns();
-    errdefer {
-        for (patterns) |pattern| pattern.deinit(self.allocator);
-        self.allocator.free(patterns);
-    }
-
-    var guard: ?*Node = null;
-    errdefer if (guard) |owned_guard| owned_guard.deinit(self.allocator);
-    if (self.match(.question)) {
-        guard = try self.parseExpression();
-    }
-
-    _ = try self.expect(.fat_arrow);
-    const result = try self.parseExpression();
-    errdefer result.deinit(self.allocator);
-
-    return try Branch.create(self.allocator, patterns, guard, result);
-}
-
-fn parsePatterns(self: *Parser) anyerror![]*Pattern {
-    var patterns: std.ArrayList(*Pattern) = .empty;
-    errdefer {
-        for (patterns.items) |pattern| pattern.deinit(self.allocator);
-        patterns.deinit(self.allocator);
-    }
-
-    try patterns.append(self.allocator, try self.parsePattern());
-    while (true) {
-        self.skipNewlines();
-        if (!self.match(.comma)) break;
-        self.skipNewlines();
-        try patterns.append(self.allocator, try self.parsePattern());
-    }
-
-    return try patterns.toOwnedSlice(self.allocator);
-}
-
-fn parsePattern(self: *Parser) anyerror!*Pattern {
-    self.skipNewlines();
-    const token = self.current();
-
-    return switch (token.tag) {
-        .underscore => blk: {
-            _ = self.advance();
-            break :blk try Pattern.create(self.allocator, .{ .wildcard = {} });
-        },
-        .identifier => blk: {
-            _ = self.advance();
-            break :blk try Pattern.create(self.allocator, .{ .identifier = token });
-        },
-        .number, .string, .true, .false => blk: {
-            _ = self.advance();
-            break :blk try Pattern.create(self.allocator, .{ .literal = token });
-        },
-        .lparen => blk: {
-            _ = self.advance();
-            const inner = try self.parsePattern();
-            errdefer inner.deinit(self.allocator);
-            _ = try self.expect(.rparen);
-            break :blk try Pattern.create(self.allocator, .{ .group = inner });
-        },
-        .lbracket => self.parseListPattern(),
-        else => self.failMessage("expected pattern"),
-    };
-}
-
-fn parseListPattern(self: *Parser) anyerror!*Pattern {
-    _ = try self.expect(.lbracket);
-    self.skipNewlines();
-
-    var items: std.ArrayList(*Pattern) = .empty;
-    errdefer {
-        for (items.items) |item| item.deinit(self.allocator);
-        items.deinit(self.allocator);
-    }
-
-    var spread: ?*Pattern = null;
-    errdefer if (spread) |owned_spread| owned_spread.deinit(self.allocator);
-
-    if (self.current().tag != .rbracket) {
-        if (self.match(.spread)) {
-            spread = try self.parsePattern();
-        } else {
-            try items.append(self.allocator, try self.parsePattern());
-            while (true) {
-                self.skipNewlines();
-                if (!self.match(.comma)) break;
-                self.skipNewlines();
-                if (self.match(.spread)) {
-                    spread = try self.parsePattern();
-                    break;
-                }
-                try items.append(self.allocator, try self.parsePattern());
-            }
-        }
-    }
-
-    self.skipNewlines();
-    _ = try self.expect(.rbracket);
-    const owned_items = try items.toOwnedSlice(self.allocator);
-    errdefer self.allocator.free(owned_items);
-
-    return try Pattern.create(self.allocator, .{
-        .list = .{
-            .items = owned_items,
-            .spread = spread,
-        },
-    });
-}
-
-fn parseArguments(self: *Parser) anyerror![]*Node {
-    _ = try self.expect(.lparen);
-    self.skipNewlines();
-
-    var arguments: std.ArrayList(*Node) = .empty;
-    errdefer {
-        for (arguments.items) |argument| argument.deinit(self.allocator);
-        arguments.deinit(self.allocator);
-    }
-
-    if (self.current().tag != .rparen) {
-        while (true) {
-            try arguments.append(self.allocator, try self.parseExpression());
-            self.skipNewlines();
-            if (!self.match(.comma)) break;
-            self.skipNewlines();
-        }
+        _ = try self.expect(.rparen);
+        const owned = try items.toOwnedSlice(self.allocator);
+        return Node.create(self.allocator, .{ .tuple = .{ .items = owned } });
     }
 
     _ = try self.expect(.rparen);
-    return try arguments.toOwnedSlice(self.allocator);
+    return first;
+}
+
+fn unitToken(open: Token, close: Token) Token {
+    const start = open.startIndex();
+    const end = close.startIndex() + close.lexeme.len;
+    return Token.init(.unit, open.source, open.source[start..end]);
 }
 
 fn parseList(self: *Parser) anyerror!*Node {
     _ = try self.expect(.lbracket);
-    self.skipNewlines();
 
     var items: std.ArrayList(*Node) = .empty;
     errdefer {
@@ -594,171 +562,396 @@ fn parseList(self: *Parser) anyerror!*Node {
         items.deinit(self.allocator);
     }
 
-    var spread: ?*Node = null;
-    errdefer if (spread) |owned_spread| owned_spread.deinit(self.allocator);
-
     if (self.current().tag != .rbracket) {
-        if (self.match(.spread)) {
-            spread = try self.parseExpression();
-        } else {
+        try items.append(self.allocator, try self.parseExpression());
+        while (self.match(.comma)) {
             try items.append(self.allocator, try self.parseExpression());
+        }
+    }
+
+    _ = try self.expect(.rbracket);
+    const owned = try items.toOwnedSlice(self.allocator);
+    return Node.create(self.allocator, .{ .list = .{ .items = owned } });
+}
+
+fn parseMap(self: *Parser) anyerror!*Node {
+    _ = try self.expect(.lbrace);
+
+    var entries: std.ArrayList(Node.Map.Entry) = .empty;
+    errdefer {
+        for (entries.items) |entry| {
+            self.allocator.free(entry.key);
+            entry.value.deinit(self.allocator);
+        }
+        entries.deinit(self.allocator);
+    }
+
+    if (self.current().tag != .rbrace) {
+        while (true) {
+            const key = try self.parseRecordKey();
+            var key_transferred = false;
+            errdefer if (!key_transferred) self.allocator.free(key);
+
+            _ = try self.expect(.colon);
+
+            const value = try self.parseExpression();
+            errdefer value.deinit(self.allocator);
+
+            try entries.append(self.allocator, .{ .key = key, .value = value });
+            key_transferred = true;
+            if (!self.match(.comma)) break;
+        }
+    }
+
+    _ = try self.expect(.rbrace);
+    const owned = try entries.toOwnedSlice(self.allocator);
+    return Node.create(self.allocator, .{ .map = .{ .entries = owned } });
+}
+
+fn parseRecordKey(self: *Parser) anyerror![]const u8 {
+    const token = self.current();
+    switch (token.tag) {
+        .identifier => {
+            _ = self.advance();
+            return self.allocator.dupe(u8, token.lexeme);
+        },
+        .string => {
+            _ = self.advance();
+            return decodeStaticStringLiteral(self.allocator, token.lexeme) catch |err| switch (err) {
+                error.InvalidStringLiteral => self.failMessage("invalid record key string"),
+                else => return err,
+            };
+        },
+        else => return self.failMessage("expected record key"),
+    }
+}
+
+fn parseFunction(self: *Parser) anyerror!*Node {
+    const intro = self.current();
+    if (intro.tag != .backslash and intro.tag != .lambda) {
+        return self.failMessage("expected \\ or λ");
+    }
+    _ = self.advance();
+
+    var clauses: std.ArrayList(*Clause) = .empty;
+    errdefer {
+        for (clauses.items) |clause| clause.deinit(self.allocator);
+        clauses.deinit(self.allocator);
+    }
+
+    try clauses.append(self.allocator, try self.parseClause());
+    while (self.current().tag == .bar) {
+        _ = self.advance();
+        try clauses.append(self.allocator, try self.parseClause());
+    }
+
+    const owned = try clauses.toOwnedSlice(self.allocator);
+    return Node.create(self.allocator, .{ .function = .{ .clauses = owned } });
+}
+
+fn parseClause(self: *Parser) anyerror!*Clause {
+    const pattern = try self.parseBindOrHeadPattern();
+    errdefer pattern.deinit(self.allocator);
+
+    _ = try self.expect(.arrow);
+    const body = try self.parseExpression();
+    errdefer body.deinit(self.allocator);
+
+    return Clause.create(self.allocator, pattern, body);
+}
+
+fn parseBindOrHeadPattern(self: *Parser) anyerror!*Pattern {
+    const first = try self.parsePattern();
+    errdefer first.deinit(self.allocator);
+
+    if (self.current().tag != .comma) return first;
+
+    var items: std.ArrayList(*Pattern) = .empty;
+    errdefer {
+        for (items.items) |item| item.deinit(self.allocator);
+        items.deinit(self.allocator);
+    }
+    try items.append(self.allocator, first);
+
+    while (self.match(.comma)) {
+        try items.append(self.allocator, try self.parsePattern());
+    }
+
+    const owned = try items.toOwnedSlice(self.allocator);
+    return Pattern.create(self.allocator, .{ .tuple = .{ .items = owned } });
+}
+
+fn parsePattern(self: *Parser) anyerror!*Pattern {
+    return self.parseAlternativePattern();
+}
+
+fn parseAlternativePattern(self: *Parser) anyerror!*Pattern {
+    var left = try self.parseRefinementPattern();
+    errdefer left.deinit(self.allocator);
+
+    while (self.current().tag == .bar) {
+        _ = self.advance();
+        left = blk: {
+            const right = try self.parseRefinementPattern();
+            errdefer right.deinit(self.allocator);
+            break :blk try Pattern.create(self.allocator, .{
+                .alternative = .{ .left = left, .right = right },
+            });
+        };
+    }
+    return left;
+}
+
+fn parseRefinementPattern(self: *Parser) anyerror!*Pattern {
+    var base = try self.parseAtomicPattern();
+    errdefer base.deinit(self.allocator);
+
+    while (self.current().tag == .amp) {
+        _ = self.advance();
+        base = blk: {
+            const cond = try self.parseExpression();
+            errdefer cond.deinit(self.allocator);
+            break :blk try Pattern.create(self.allocator, .{
+                .refinement = .{ .base = base, .condition = cond },
+            });
+        };
+    }
+    return base;
+}
+
+fn parseAtomicPattern(self: *Parser) anyerror!*Pattern {
+    const token = self.current();
+    switch (token.tag) {
+        .underscore => {
+            _ = self.advance();
+            return Pattern.create(self.allocator, .{ .wildcard = {} });
+        },
+        .identifier => {
+            _ = self.advance();
+            return Pattern.create(self.allocator, .{ .identifier = token });
+        },
+        .true, .false, .integer, .string => {
+            _ = self.advance();
+            return Pattern.create(self.allocator, .{
+                .literal = .{ .token = token, .negate = false },
+            });
+        },
+        .minus => {
+            _ = self.advance();
+            const next = self.current();
+            if (next.tag != .integer) return self.failMessage("expected integer after - in pattern");
+            _ = self.advance();
+            return Pattern.create(self.allocator, .{
+                .literal = .{ .token = next, .negate = true },
+            });
+        },
+        .lparen => return self.parseParenPattern(),
+        .lbracket => return self.parseListPattern(),
+        .lbrace => return self.parseMapPattern(),
+        else => return self.failMessage("expected pattern"),
+    }
+}
+
+fn parseParenPattern(self: *Parser) anyerror!*Pattern {
+    const open = try self.expect(.lparen);
+    if (self.match(.rparen)) {
+        return Pattern.create(self.allocator, .{
+            .literal = .{ .token = Token.init(.unit, open.source, open.lexeme), .negate = false },
+        });
+    }
+
+    const first = try self.parsePattern();
+    errdefer first.deinit(self.allocator);
+
+    if (self.match(.comma)) {
+        var items: std.ArrayList(*Pattern) = .empty;
+        errdefer {
+            for (items.items) |item| item.deinit(self.allocator);
+            items.deinit(self.allocator);
+        }
+        try items.append(self.allocator, first);
+
+        while (true) {
+            try items.append(self.allocator, try self.parsePattern());
+            if (!self.match(.comma)) break;
+        }
+
+        _ = try self.expect(.rparen);
+        const owned = try items.toOwnedSlice(self.allocator);
+        return Pattern.create(self.allocator, .{ .tuple = .{ .items = owned } });
+    }
+
+    _ = try self.expect(.rparen);
+    return first;
+}
+
+fn parseListPattern(self: *Parser) anyerror!*Pattern {
+    _ = try self.expect(.lbracket);
+
+    var items: std.ArrayList(*Pattern) = .empty;
+    errdefer {
+        for (items.items) |item| item.deinit(self.allocator);
+        items.deinit(self.allocator);
+    }
+    var rest: Rest = .none;
+    errdefer switch (rest) {
+        .pattern => |p| p.deinit(self.allocator),
+        else => {},
+    };
+
+    if (self.current().tag == .rbracket) {
+        _ = self.advance();
+        const owned = try items.toOwnedSlice(self.allocator);
+        return Pattern.create(self.allocator, .{
+            .list = .{ .items = owned, .rest = .none },
+        });
+    }
+
+    if (self.current().tag == .dot_dot) {
+        _ = self.advance();
+        rest = try self.parseRestBinder();
+    } else {
+        try items.append(self.allocator, try self.parsePattern());
+        while (self.match(.comma)) {
+            if (self.current().tag == .dot_dot) {
+                _ = self.advance();
+                rest = try self.parseRestBinder();
+                break;
+            }
+            try items.append(self.allocator, try self.parsePattern());
+        }
+    }
+
+    _ = try self.expect(.rbracket);
+    const owned = try items.toOwnedSlice(self.allocator);
+    return Pattern.create(self.allocator, .{
+        .list = .{ .items = owned, .rest = rest },
+    });
+}
+
+fn parseMapPattern(self: *Parser) anyerror!*Pattern {
+    _ = try self.expect(.lbrace);
+
+    var entries: std.ArrayList(Pattern.MapPattern.Entry) = .empty;
+    errdefer {
+        for (entries.items) |entry| {
+            self.allocator.free(entry.key);
+            entry.pattern.deinit(self.allocator);
+        }
+        entries.deinit(self.allocator);
+    }
+    var rest: Rest = .none;
+    errdefer switch (rest) {
+        .pattern => |p| p.deinit(self.allocator),
+        else => {},
+    };
+
+    if (self.current().tag != .rbrace) {
+        if (self.current().tag == .dot_dot) {
+            _ = self.advance();
+            rest = try self.parseRestBinder();
+        } else {
             while (true) {
-                self.skipNewlines();
+                const key = try self.parseMapPatternKey();
+                var key_transferred = false;
+                var value_pattern: ?*Pattern = null;
+                errdefer if (!key_transferred) {
+                    self.allocator.free(key);
+                    if (value_pattern) |p| p.deinit(self.allocator);
+                };
+
+                if (mapPatternHasKey(entries.items, key)) {
+                    return self.failMessage("duplicate record pattern key");
+                }
+
+                _ = try self.expect(.colon);
+                value_pattern = try self.parsePattern();
+
+                try entries.append(self.allocator, .{ .key = key, .pattern = value_pattern.? });
+                key_transferred = true;
+
                 if (!self.match(.comma)) break;
-                self.skipNewlines();
-                if (self.match(.spread)) {
-                    spread = try self.parseExpression();
+                if (self.current().tag == .dot_dot) {
+                    _ = self.advance();
+                    rest = try self.parseRestBinder();
                     break;
                 }
-                try items.append(self.allocator, try self.parseExpression());
             }
         }
     }
 
-    self.skipNewlines();
-    _ = try self.expect(.rbracket);
-    const owned_items = try items.toOwnedSlice(self.allocator);
-    errdefer self.allocator.free(owned_items);
-
-    return try Node.create(self.allocator, .{
-        .list = .{
-            .items = owned_items,
-            .spread = spread,
-        },
-    });
-}
-
-fn parseRange(self: *Parser) anyerror!*Node {
-    _ = try self.expect(.lbracket);
-    self.skipNewlines();
-
-    const start = try self.parseExpression();
-    errdefer start.deinit(self.allocator);
-
-    _ = try self.expect(.range);
-    const end = try self.parseExpression();
-    errdefer end.deinit(self.allocator);
-
-    _ = try self.expect(.rbracket);
-    return try Node.create(self.allocator, .{
-        .range = .{
-            .start = start,
-            .end = end,
-        },
-    });
-}
-
-fn parseBlock(self: *Parser) anyerror!*Node {
-    _ = try self.expect(.lbrace);
-    self.skipNewlines();
-    const expression = try self.parseExpression();
-    errdefer expression.deinit(self.allocator);
-    self.skipNewlines();
     _ = try self.expect(.rbrace);
-    return try Node.create(self.allocator, .{
-        .block = .{ .expression = expression },
+    const owned = try entries.toOwnedSlice(self.allocator);
+    return Pattern.create(self.allocator, .{
+        .map = .{ .entries = owned, .rest = rest },
     });
 }
 
-fn isFunctionStart(self: *const Parser) bool {
-    if (self.current().tag != .lparen) return false;
-
-    var index = self.index + 1;
-    if (index >= self.tokens.len) return false;
-
-    if (self.tokens[index].tag == .rparen) {
-        index += 1;
-        return index < self.tokens.len and self.tokens[index].tag == .lbrace;
-    }
-
-    while (true) {
-        if (index >= self.tokens.len or self.tokens[index].tag != .identifier) return false;
-        index += 1;
-        if (index >= self.tokens.len) return false;
-
-        switch (self.tokens[index].tag) {
-            .comma => index += 1,
-            .rparen => {
-                index += 1;
-                return index < self.tokens.len and self.tokens[index].tag == .lbrace;
-            },
-            else => return false,
-        }
+fn parseMapPatternKey(self: *Parser) anyerror![]const u8 {
+    const token = self.current();
+    switch (token.tag) {
+        .identifier => {
+            _ = self.advance();
+            return self.allocator.dupe(u8, token.lexeme);
+        },
+        .string => {
+            _ = self.advance();
+            return decodeStaticStringLiteral(self.allocator, token.lexeme) catch |err| switch (err) {
+                error.InvalidStringLiteral => self.failMessage("invalid record pattern key string"),
+                else => return err,
+            };
+        },
+        else => return self.failMessage("expected record pattern key"),
     }
 }
 
-fn isRangeStart(self: *const Parser) bool {
-    if (self.current().tag != .lbracket) return false;
-
-    var paren_depth: usize = 0;
-    var brace_depth: usize = 0;
-    var bracket_depth: usize = 0;
-    var index = self.index + 1;
-
-    while (index < self.tokens.len) : (index += 1) {
-        const tag = self.tokens[index].tag;
-        switch (tag) {
-            .lparen => paren_depth += 1,
-            .rparen => {
-                if (paren_depth != 0) paren_depth -= 1;
-            },
-            .lbrace => brace_depth += 1,
-            .rbrace => {
-                if (brace_depth != 0) brace_depth -= 1;
-            },
-            .lbracket => bracket_depth += 1,
-            .rbracket => {
-                if (bracket_depth == 0 and paren_depth == 0 and brace_depth == 0) return false;
-                if (bracket_depth != 0) bracket_depth -= 1;
-            },
-            .comma, .spread => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return false,
-            .range => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return true,
-            else => {},
-        }
+fn mapPatternHasKey(entries: []const Pattern.MapPattern.Entry, key: []const u8) bool {
+    for (entries) |entry| {
+        if (std.mem.eql(u8, entry.key, key)) return true;
     }
-
     return false;
 }
 
-fn startsBranch(self: *const Parser) bool {
-    const start = self.current().tag;
-    if (start == .question or start == .fat_arrow) return true;
-    if (!isPatternStart(start)) return false;
-
-    var paren_depth: usize = 0;
-    var brace_depth: usize = 0;
-    var bracket_depth: usize = 0;
-    var index = self.index;
-
-    while (index < self.tokens.len) : (index += 1) {
-        const tag = self.tokens[index].tag;
-        switch (tag) {
-            .lparen => paren_depth += 1,
-            .rparen => {
-                if (paren_depth != 0) paren_depth -= 1;
-            },
-            .lbrace => brace_depth += 1,
-            .rbrace => {
-                if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return false;
-                if (brace_depth != 0) brace_depth -= 1;
-            },
-            .lbracket => bracket_depth += 1,
-            .rbracket => {
-                if (bracket_depth != 0) bracket_depth -= 1;
-            },
-            .fat_arrow => if (paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) return true,
-            else => {},
-        }
-    }
-
-    return false;
+fn parseRestBinder(self: *Parser) anyerror!Rest {
+    if (!isPatternStart(self.current().tag)) return .wildcard;
+    const p = try self.parsePattern();
+    return .{ .pattern = p };
 }
 
 fn isPatternStart(tag: Token.Tag) bool {
     return switch (tag) {
-        .underscore, .identifier, .number, .string, .true, .false, .lbracket, .lparen => true,
+        .underscore, .identifier, .integer, .string, .true, .false, .lparen, .lbracket, .lbrace, .minus => true,
         else => false,
     };
+}
+
+fn decodeStaticStringLiteral(gpa: Allocator, lexeme: []const u8) anyerror![]u8 {
+    var buffer: std.ArrayList(u8) = .empty;
+    errdefer buffer.deinit(gpa);
+
+    var index: usize = 1;
+    while (index + 1 < lexeme.len) {
+        const byte = lexeme[index];
+        if (byte == '\\') {
+            index += 1;
+            if (index + 1 > lexeme.len) return error.InvalidStringLiteral;
+            const escaped = lexeme[index];
+            try buffer.append(gpa, switch (escaped) {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '\\' => '\\',
+                '"' => '"',
+                '\'' => '\'',
+                else => return error.InvalidStringLiteral,
+            });
+        } else {
+            try buffer.append(gpa, byte);
+        }
+        index += 1;
+    }
+
+    return buffer.toOwnedSlice(gpa);
 }
 
 fn utf8CountCodepoints(bytes: []const u8) usize {
@@ -798,695 +991,170 @@ fn writeHighlightedLine(term: Terminal, source: []const u8) !void {
     }
 }
 
-fn deinitNodeSlice(allocator: std.mem.Allocator, items: []*Node) void {
-    for (items) |item| item.deinit(allocator);
-    allocator.free(items);
-}
-
-fn infixPrecedence(tag: Token.Tag) ?u8 {
-    return switch (tag) {
-        .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => 1,
-        .concat => 2,
-        .plus, .minus => 3,
-        .star, .slash, .percent => 4,
-        else => null,
-    };
-}
-
-fn expectParsesToSource(input: []const u8, _: []const u8) !void {
+fn expectParses(input: []const u8) !void {
     var parser = try Parser.init(testing.allocator, input);
     defer parser.deinit();
-
     const node = try parser.parse();
     defer node.deinit(testing.allocator);
 }
 
-fn expectParsesToTree(input: []const u8, expected: []const u8) !void {
+fn expectSyntaxError(input: []const u8) !void {
     var parser = try Parser.init(testing.allocator, input);
     defer parser.deinit();
-
-    const node = try parser.parse();
-    defer node.deinit(testing.allocator);
-
-    var buffer: std.Io.Writer.Allocating = .init(testing.allocator);
-    defer buffer.deinit();
-    try node.writeTree(.{ .writer = &buffer.writer, .mode = .no_color });
-    try testing.expectEqualStrings(expected, buffer.written());
-}
-
-fn expectDiagnostic(input: []const u8, expected: []const u8) !void {
-    var parser = try Parser.initNamed(testing.allocator, "examples/test.lx", input);
-    defer parser.deinit();
-
     try testing.expectError(error.SyntaxError, parser.parse());
-    const diagnostic = parser.last_error orelse unreachable;
-
-    var buffer: std.Io.Writer.Allocating = .init(testing.allocator);
-    defer buffer.deinit();
-    try diagnostic.write(.{ .writer = &buffer.writer, .mode = .no_color });
-    try testing.expectEqualStrings(expected, buffer.written());
 }
 
 test "literal program" {
-    try expectParsesToSource("42", "42");
+    try expectParses("42");
 }
 
-test "binding sequence" {
-    try expectParsesToSource(
-        \\let answer = 42;
-        \\answer
-    ,
-        \\let answer = 42;
-        \\answer
-    );
+test "unit literal" {
+    try expectParses("()");
 }
 
-test "function with single expression body" {
-    try expectParsesToSource(
-        \\let add = (x, y) { x + y };
-        \\add(1, 2)
-    ,
-        \\let add = (x, y) { x + y };
-        \\add(1, 2)
-    );
-}
-
-test "function with branches" {
-    try expectParsesToSource(
-        \\let abs = (n) {
-        \\    ? n >= 0 => n,
-        \\    => -n
-        \\};
-        \\
-        \\abs(-5)
-    ,
-        \\let abs = (n) {
-        \\    ? n >= 0 => n,
-        \\    => -n
-        \\};
-        \\abs(-5)
-    );
-}
-
-test "overview example from spec" {
-    try expectParsesToSource(
-        \\let fizzbuzz = (n) {
-        \\    ? n % 15 == 0 => print("FizzBuzz"),
-        \\    ? n % 3 == 0 => print("Fizz"),
-        \\    ? n % 5 == 0 => print("Buzz"),
-        \\    => print(n)
-        \\};
-        \\
-        \\let loop = (i, max) {
-        \\    i, max ? i > max => print("Done."),
-        \\    => {
-        \\        fizzbuzz(i);
-        \\        loop(i + 1, max)
-        \\    }
-        \\};
-        \\
-        \\loop(1, 15)
-    ,
-        \\let fizzbuzz = (n) {
-        \\    ? n % 15 == 0 => print("FizzBuzz"),
-        \\    ? n % 3 == 0 => print("Fizz"),
-        \\    ? n % 5 == 0 => print("Buzz"),
-        \\    => print(n)
-        \\};
-        \\let loop = (i, max) {
-        \\    i, max ? i > max => print("Done."),
-        \\    => {
-        \\        fizzbuzz(i);
-        \\        loop(i + 1, max)
-        \\    }
-        \\};
-        \\loop(1, 15)
-    );
-}
-
-test "patterns lists and spread" {
-    try expectParsesToSource(
-        \\let head = (xs) {
-        \\    [x, ..._] => x,
-        \\    [] => "empty"
-        \\};
-        \\head([10, 20, 30])
-    ,
-        \\let head = (xs) {
-        \\    [x, ..._] => x,
-        \\    [] => "empty"
-        \\};
-        \\head([10, 20, 30])
-    );
-}
-
-test "operators precedence" {
-    try expectParsesToSource(
-        "1 + 2 * 3 == 7",
-        "1 + 2 * 3 == 7",
-    );
-}
-
-test "operators example from spec" {
-    try expectParsesToSource(
-        \\let classify = (n) {
-        \\    ? n > 0 => "positive",
-        \\    ? n < 0 => "negative",
-        \\    => "zero"
-        \\};
-        \\
-        \\classify(-3)
-    ,
-        \\let classify = (n) {
-        \\    ? n > 0 => "positive",
-        \\    ? n < 0 => "negative",
-        \\    => "zero"
-        \\};
-        \\classify(-3)
-    );
-}
-
-test "block and range" {
-    try expectParsesToSource(
-        \\{
-        \\    let xs = [1..5];
-        \\    [0, ...xs]
-        \\}
-    ,
-        \\{
-        \\    let xs = [1..5];
-        \\    [0, ...xs]
-        \\}
-    );
-}
-
-test "block example from spec" {
-    try expectParsesToSource(
-        \\{
-        \\    let square = (x) { x * x };
-        \\    let y = 4;
-        \\    square(y)
-        \\}
-    ,
-        \\{
-        \\    let square = (x) { x * x };
-        \\    let y = 4;
-        \\    square(y)
-        \\}
-    );
-}
-
-test "empty parameter function" {
-    try expectParsesToSource(
-        \\let constant = () { 1 + 2 };
-        \\constant()
-    ,
-        \\let constant = () { 1 + 2 };
-        \\constant()
-    );
-}
-
-test "grouped pattern and literal forms" {
-    try expectParsesToSource(
-        \\let classify = (value) {
-        \\    ("ok") => true,
-        \\    3.14 => false,
-        \\    _ => false
-        \\};
-        \\classify("ok")
-    ,
-        \\let classify = (value) {
-        \\    ("ok") => true,
-        \\    3.14 => false,
-        \\    _ => false
-        \\};
-        \\classify("ok")
-    );
-}
-
-test "tree output" {
-    try expectParsesToTree(
-        \\let answer = 42;
-        \\answer
-    ,
-        \\program
-        \\    binding
-        \\        pattern: identifier answer
-        \\        value: literal 42
-        \\        body: identifier answer
-        \\
-    );
-}
-
-test "let requires continuation" {
-    var parser = try Parser.init(testing.allocator, "let answer = 42");
+test "unit literal keeps full lexeme" {
+    var parser = try Parser.init(testing.allocator, "()");
     defer parser.deinit();
-    try testing.expectError(error.SyntaxError, parser.parse());
+    const node = try parser.parse();
+    defer node.deinit(testing.allocator);
+
+    const expression = switch (node.*) {
+        .program => |program| program.expression,
+        else => return error.TestExpectedProgram,
+    };
+    const token = switch (expression.*) {
+        .literal => |literal| literal,
+        else => return error.TestExpectedLiteral,
+    };
+
+    try testing.expectEqual(.unit, token.tag);
+    try testing.expectEqualStrings("()", token.lexeme);
 }
 
-test "missing branch comma is an error" {
-    var parser = try Parser.init(testing.allocator,
-        \\(x) {
-        \\    ? x > 0 => x
-        \\    => -x
-        \\}
-    );
+test "zero argument call keeps full unit lexeme" {
+    var parser = try Parser.init(testing.allocator, "f()");
     defer parser.deinit();
-    try testing.expectError(error.SyntaxError, parser.parse());
+    const node = try parser.parse();
+    defer node.deinit(testing.allocator);
+
+    const expression = switch (node.*) {
+        .program => |program| program.expression,
+        else => return error.TestExpectedProgram,
+    };
+    const app = switch (expression.*) {
+        .application => |application| application,
+        else => return error.TestExpectedApplication,
+    };
+    const token = switch (app.argument.*) {
+        .literal => |literal| literal,
+        else => return error.TestExpectedLiteral,
+    };
+
+    try testing.expectEqual(.unit, token.tag);
+    try testing.expectEqualStrings("()", token.lexeme);
 }
 
-test "diagnostic prints file line and caret" {
-    try expectDiagnostic(
-        "let add = (x + y {",
-        \\Syntax error: expected ")" but got "{"
-        \\examples/test.lx:1:18
-        \\  1 | let add = (x + y {
-        \\    |                  ^
-        \\
-    );
+test "binding" {
+    try expectParses("let x = 1; x");
 }
 
-test "comments and newlines are ignored as whitespace" {
-    try expectParsesToSource(
-        \\# leading
-        \\let answer = 42;
-        \\# trailing
-        \\answer
-    ,
-        \\let answer = 42;
-        \\answer
-    );
+test "lambda" {
+    try expectParses("\\ x -> x + 1");
 }
 
-test "unary negation" {
-    try expectParsesToSource("-42", "-42");
+test "lambda glyph" {
+    try expectParses("λ x -> x + 1");
 }
 
-test "unary not" {
-    try expectParsesToSource("!true", "!true");
+test "multi-clause function" {
+    try expectParses("\\ 0 -> 1 | n -> n");
 }
 
-test "double unary" {
-    try expectParsesToSource("--x", "--x");
+test "match expression" {
+    try expectParses("match xs \\ [] -> 0 | [x, ..] -> x");
 }
 
-test "unary in binary expression" {
-    try expectParsesToSource("-a + b", "-a + b");
+test "call zero arguments" {
+    try expectParses("f()");
 }
 
-test "string concatenation" {
-    try expectParsesToSource(
-        \\"hello" ++ " " ++ "world"
-    ,
-        \\"hello" ++ " " ++ "world"
-    );
+test "call one argument" {
+    try expectParses("f(x)");
 }
 
-test "right associativity of concat" {
-    try expectParsesToTree(
-        \\"a" ++ "b" ++ "c"
-    ,
-        \\program
-        \\    binary ++
-        \\        left: literal "a"
-        \\        right: binary ++
-        \\            left: literal "b"
-        \\            right: literal "c"
-        \\
-    );
+test "call multi argument" {
+    try expectParses("add(1, 2)");
 }
 
-test "nested function calls" {
-    try expectParsesToSource("f(g(x))", "f(g(x))");
+test "tuple pattern sugar" {
+    try expectParses("\\ x, y -> x + y");
 }
 
-test "chained function calls" {
-    try expectParsesToSource("f(1)(2)(3)", "f(1)(2)(3)");
+test "refinement pattern" {
+    try expectParses("\\ x & x > 0 -> x");
 }
 
-test "call with no arguments" {
-    try expectParsesToSource("f()", "f()");
+test "alternative pattern" {
+    try expectParses("\\ 0 | 1 -> true | _ -> false");
 }
 
-test "multiple bindings" {
-    try expectParsesToSource(
-        \\let a = 1;
-        \\let b = 2;
-        \\let c = 3;
-        \\a + b + c
-    ,
-        \\let a = 1;
-        \\let b = 2;
-        \\let c = 3;
-        \\a + b + c
-    );
+test "list cons" {
+    try expectParses("1 :: 2 :: []");
 }
 
-test "sequence without binding" {
-    try expectParsesToSource(
-        \\print("hello");
-        \\print("world")
-    ,
-        \\print("hello");
-        \\print("world")
-    );
+test "list rest sugar" {
+    try expectParses("\\ [x, ..] -> x");
 }
 
-test "nested blocks" {
-    try expectParsesToSource(
-        \\{
-        \\    let x = {
-        \\        let a = 1;
-        \\        a + 1
-        \\    };
-        \\    x * 2
-        \\}
-    ,
-        \\{
-        \\    let x = {
-        \\    let a = 1;
-        \\    a + 1
-        \\};
-        \\    x * 2
-        \\}
-    );
+test "list rest binder" {
+    try expectParses("\\ [x, ..xs] -> xs");
 }
 
-test "empty list" {
-    try expectParsesToSource("[]", "[]");
+test "record patterns" {
+    try expectParses("\\ {} -> 0");
+    try expectParses("\\ {name: n} -> n");
+    try expectParses("\\ {\"name\": n, ..} -> n");
+    try expectParses("\\ {name: n, ..rest} -> rest");
 }
 
-test "list with spread only" {
-    try expectParsesToSource("[...xs]", "[...xs]");
+test "record pattern duplicate keys" {
+    try expectSyntaxError("\\ {name: x, \"name\": y} -> x");
 }
 
-test "list with items and spread" {
-    try expectParsesToSource("[1, 2, ...rest]", "[1, 2, ...rest]");
+test "record literals" {
+    try expectParses("{}");
+    try expectParses("{\"a\": 1, \"b\": 2}");
+    try expectParses("{a: 1, b: 2}");
+    try expectSyntaxError("{(1, 2): [3, 4]}");
 }
 
-test "range with expressions" {
-    try expectParsesToSource("[1 + 0..2 * 5]", "[1 + 0..2 * 5]");
+test "indexing" {
+    try expectParses("xs[0]");
 }
 
-test "parenthesized expression" {
-    try expectParsesToSource("(1 + 2) * 3", "(1 + 2) * 3");
+test "member access" {
+    try expectParses("m.name");
+    try expectParses("m.user.name");
+    try expectParses("f().name");
+    try expectParses("m.items[0].name");
 }
 
-test "parenthesized expression tree" {
-    try expectParsesToTree("(1 + 2) * 3",
-        \\program
-        \\    binary *
-        \\        left: binary +
-        \\            left: literal 1
-        \\            right: literal 2
-        \\        right: literal 3
-        \\
-    );
+test "nested indexing" {
+    try expectParses("xs[0][1]");
 }
 
-test "pattern matching with boolean literals" {
-    try expectParsesToSource(
-        \\(x) {
-        \\    true => "yes",
-        \\    false => "no"
-        \\}
-    ,
-        \\(x) {
-        \\    true => "yes",
-        \\    false => "no"
-        \\}
-    );
+test "negative integer pattern" {
+    try expectParses("\\ -1 -> true | _ -> false");
 }
 
-test "pattern matching with multiple parameters" {
-    try expectParsesToSource(
-        \\(a, b) {
-        \\    0, 0 => "origin",
-        \\    _, _ => "elsewhere"
-        \\}
-    ,
-        \\(a, b) {
-        \\    0, 0 => "origin",
-        \\    _, _ => "elsewhere"
-        \\}
-    );
+test "destructuring binding" {
+    try expectParses("let x, y = (1, 2); x + y");
 }
 
-test "pattern with guard and value match" {
-    try expectParsesToSource(
-        \\(x) {
-        \\    0 => "zero",
-        \\    n ? n > 0 => "positive",
-        \\    => "negative"
-        \\}
-    ,
-        \\(x) {
-        \\    0 => "zero",
-        \\    n ? n > 0 => "positive",
-        \\    => "negative"
-        \\}
-    );
+test "call then index" {
+    try expectParses("f(x)[0]");
 }
 
-test "nested list patterns" {
-    try expectParsesToSource(
-        \\(xs) {
-        \\    [[a, b], ...rest] => a,
-        \\    _ => 0
-        \\}
-    ,
-        \\(xs) {
-        \\    [[a, b], ...rest] => a,
-        \\    _ => 0
-        \\}
-    );
-}
-
-test "higher order function" {
-    try expectParsesToSource(
-        \\let apply = (f, x) { f(x) };
-        \\let double = (n) { n * 2 };
-        \\apply(double, 5)
-    ,
-        \\let apply = (f, x) { f(x) };
-        \\let double = (n) { n * 2 };
-        \\apply(double, 5)
-    );
-}
-
-test "closure returning function" {
-    try expectParsesToSource(
-        \\let make = (n) {
-        \\    (x) { x + n }
-        \\};
-        \\make(5)(10)
-    ,
-        \\let make = (n) {
-        \\    (x) { x + n }
-        \\};
-        \\make(5)(10)
-    );
-}
-
-test "all comparison operators" {
-    try expectParsesToSource("a == b", "a == b");
-    try expectParsesToSource("a != b", "a != b");
-    try expectParsesToSource("a < b", "a < b");
-    try expectParsesToSource("a > b", "a > b");
-    try expectParsesToSource("a <= b", "a <= b");
-    try expectParsesToSource("a >= b", "a >= b");
-}
-
-test "all arithmetic operators" {
-    try expectParsesToSource("a + b", "a + b");
-    try expectParsesToSource("a - b", "a - b");
-    try expectParsesToSource("a * b", "a * b");
-    try expectParsesToSource("a / b", "a / b");
-    try expectParsesToSource("a % b", "a % b");
-}
-
-test "operator precedence tree" {
-    try expectParsesToTree("1 + 2 * 3",
-        \\program
-        \\    binary +
-        \\        left: literal 1
-        \\        right: binary *
-        \\            left: literal 2
-        \\            right: literal 3
-        \\
-    );
-}
-
-test "comparison does not chain" {
-    try expectParsesToTree("a < b == c",
-        \\program
-        \\    binary ==
-        \\        left: binary <
-        \\            left: identifier a
-        \\            right: identifier b
-        \\        right: identifier c
-        \\
-    );
-}
-
-test "block as function argument" {
-    try expectParsesToSource(
-        \\f({
-        \\    let x = 1;
-        \\    x + 2
-        \\})
-    ,
-        \\f({
-        \\    let x = 1;
-        \\    x + 2
-        \\})
-    );
-}
-
-test "function in list" {
-    try expectParsesToSource(
-        \\[(x) { x }, (y) { y * 2 }]
-    ,
-        \\[(x) { x }, (y) { y * 2 }]
-    );
-}
-
-test "empty body function is error" {
-    var parser = try Parser.init(testing.allocator, "() {}");
-    defer parser.deinit();
-    try testing.expectError(error.SyntaxError, parser.parse());
-}
-
-test "unexpected token at top level is error" {
-    var parser = try Parser.init(testing.allocator, "=>");
-    defer parser.deinit();
-    try testing.expectError(error.SyntaxError, parser.parse());
-}
-
-test "unclosed paren is error" {
-    var parser = try Parser.init(testing.allocator, "(1 + 2");
-    defer parser.deinit();
-    try testing.expectError(error.SyntaxError, parser.parse());
-}
-
-test "unclosed bracket is error" {
-    var parser = try Parser.init(testing.allocator, "[1, 2");
-    defer parser.deinit();
-    try testing.expectError(error.SyntaxError, parser.parse());
-}
-
-test "unclosed brace is error" {
-    var parser = try Parser.init(testing.allocator, "{ 1 + 2");
-    defer parser.deinit();
-    try testing.expectError(error.SyntaxError, parser.parse());
-}
-
-test "let without value is error" {
-    var parser = try Parser.init(testing.allocator, "let x;");
-    defer parser.deinit();
-    try testing.expectError(error.SyntaxError, parser.parse());
-}
-
-test "string literal" {
-    try expectParsesToSource(
-        \\"hello world"
-    ,
-        \\"hello world"
-    );
-}
-
-test "boolean literals" {
-    try expectParsesToSource("true", "true");
-    try expectParsesToSource("false", "false");
-}
-
-test "float literal" {
-    try expectParsesToSource("3.14", "3.14");
-}
-
-test "recursive pattern matching" {
-    try expectParsesToSource(
-        \\let len = (xs) {
-        \\    [] => 0,
-        \\    [_, ...rest] => 1 + len(rest)
-        \\};
-        \\len([1, 2, 3])
-    ,
-        \\let len = (xs) {
-        \\    [] => 0,
-        \\    [_, ...rest] => 1 + len(rest)
-        \\};
-        \\len([1, 2, 3])
-    );
-}
-
-test "branch result with block" {
-    try expectParsesToSource(
-        \\(x) {
-        \\    0 => {
-        \\        let msg = "zero";
-        \\        print(msg)
-        \\    },
-        \\    => x
-        \\}
-    ,
-        \\(x) {
-        \\    0 => {
-        \\        let msg = "zero";
-        \\        print(msg)
-        \\    },
-        \\    => x
-        \\}
-    );
-}
-
-test "complex expression as range bounds" {
-    try expectParsesToSource("[f(1)..g(2)]", "[f(1)..g(2)]");
-}
-
-test "spread pattern at start of list" {
-    try expectParsesToSource(
-        \\(xs) {
-        \\    [...rest] => rest
-        \\}
-    ,
-        \\(xs) {
-        \\    [...rest] => rest
-        \\}
-    );
-}
-
-test "empty list pattern" {
-    try expectParsesToSource(
-        \\(xs) {
-        \\    [] => true,
-        \\    _ => false
-        \\}
-    ,
-        \\(xs) {
-        \\    [] => true,
-        \\    _ => false
-        \\}
-    );
-}
-
-test "parse all current examples" {
-    const io = testing.io;
-    var dir = try std.Io.Dir.cwd().openDir(io, "examples", .{ .iterate = true });
-    defer dir.close(io);
-
-    var it = dir.iterate();
-    while (try it.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".lx")) continue;
-
-        const source = try dir.readFileAlloc(io, entry.name, testing.allocator, .limited(1024 * 1024));
-        defer testing.allocator.free(source);
-
-        var parser = try Parser.init(testing.allocator, source);
-        defer parser.deinit();
-
-        const node = try parser.parse();
-        defer node.deinit(testing.allocator);
-    }
+test "index then call" {
+    try expectParses("f[0](x)");
 }

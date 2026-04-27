@@ -1,0 +1,20 @@
+let length =
+    \ []        -> 0
+    | [_, ..xs]  -> 1 + length(xs);
+
+let take_same =
+    \ x, [] -> ([], [])
+    | x, [y, ..ys] & x == y -> (
+        let run, rest = take_same(x, ys);
+        (y :: run, rest)
+    )
+    | x, ys -> ([], ys);
+
+let encode =
+    \ [] -> []
+    | [x, ..xs] -> (
+        let run, rest = take_same(x, xs);
+        (1 + length(run), x) :: encode(rest)
+    );
+
+encode(["W", "W", "W", "B", "B", "W"])

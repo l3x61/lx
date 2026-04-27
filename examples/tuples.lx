@@ -1,0 +1,6 @@
+let swap = \ x, y -> (y, x);
+
+let p = swap(1, 2);
+let a, b = p;
+
+a + b

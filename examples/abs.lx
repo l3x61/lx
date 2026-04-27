@@ -1,6 +1,5 @@
-let abs = (n) {
-    ? n >= 0 => n,
-    => -n
-};
+let abs =
+    \ n & n >= 0 -> n
+    | n          -> -n;
 
 abs(-5)

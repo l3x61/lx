@@ -1,14 +1,30 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const parseFloat = std.fmt.parseFloat;
+const parseInt = std.fmt.parseInt;
 
 const Environment = @import("Environment.zig");
 const Gc = @import("Gc.zig");
-const Node = @import("node.zig").Node;
-const Branch = @import("node.zig").Branch;
-const Pattern = @import("node.zig").Pattern;
+const node_mod = @import("node.zig");
+const Node = node_mod.Node;
+const Clause = node_mod.Clause;
+const Pattern = node_mod.Pattern;
+const Rest = node_mod.Rest;
 const Token = @import("Token.zig");
 const Value = @import("value.zig").Value;
+
+pub const EvalError = error{
+    UnboundName,
+    UninitializedRecursiveBinding,
+    TypeError,
+    DivideByZero,
+    IndexOutOfBounds,
+    KeyNotFound,
+    ApplyNonFunction,
+    NoMatch,
+    InvalidStringLiteral,
+    IntegerOverflow,
+    OutOfMemory,
+};
 
 pub fn evaluate(node: *Node, gc: *Gc, env: *Environment) anyerror!Value {
     return evalNode(node, gc, env);
@@ -17,28 +33,29 @@ pub fn evaluate(node: *Node, gc: *Gc, env: *Environment) anyerror!Value {
 fn evalNode(node: *Node, gc: *Gc, env: *Environment) anyerror!Value {
     return switch (node.*) {
         .program => |program| evalNode(program.expression, gc, env),
-        .identifier => |token| env.get(token.lexeme),
+        .identifier => |token| env.get(token.lexeme) catch |err| switch (err) {
+            error.NotDefined => error.UnboundName,
+            error.UninitializedBinding => error.UninitializedRecursiveBinding,
+        },
         .literal => |token| evalLiteral(token, gc),
         .unary => |unary| evalUnary(unary, gc, env),
         .binary => |binary| evalBinary(binary, gc, env),
-        .call => |call| evalCall(call, gc, env),
+        .application => |app| evalApplication(app, gc, env),
+        .index => |idx| evalIndex(idx, gc, env),
         .list => |list| evalList(list, gc, env),
-        .range => |range| evalRange(range, gc, env),
-        .block => |block| evalBlock(block, gc, env),
+        .tuple => |tuple| evalTuple(tuple, gc, env),
+        .map => |map| evalMap(map, gc, env),
         .function => |function| evalFunction(function, gc, env),
         .binding => |binding| evalBinding(binding, gc, env),
-        .sequence => |sequence| blk: {
-            _ = try evalNode(sequence.first, gc, env);
-            break :blk try evalNode(sequence.second, gc, env);
-        },
     };
 }
 
 fn evalLiteral(token: Token, gc: *Gc) anyerror!Value {
     return switch (token.tag) {
+        .unit => .{ .unit = {} },
         .true => .{ .boolean = true },
         .false => .{ .boolean = false },
-        .number => .{ .number = try parseFloat(f64, token.lexeme) },
+        .integer => .{ .integer = try parseInteger(token.lexeme) },
         .string => blk: {
             const decoded = try decodeStringLiteral(gc.allocator(), token.lexeme);
             errdefer gc.allocator().free(decoded);
@@ -53,7 +70,7 @@ fn evalLiteral(token: Token, gc: *Gc) anyerror!Value {
 fn evalUnary(unary: Node.Unary, gc: *Gc, env: *Environment) anyerror!Value {
     const operand = try evalNode(unary.operand, gc, env);
     return switch (unary.operator.tag) {
-        .minus => .{ .number = -(operand.asNumber() orelse return error.TypeError) },
+        .minus => .{ .integer = std.math.negate(operand.asInteger() orelse return error.TypeError) catch return error.IntegerOverflow },
         .not => .{ .boolean = !(operand.asBoolean() orelse return error.TypeError) },
         else => unreachable,
     };
@@ -66,134 +83,144 @@ fn evalBinary(binary: Node.Binary, gc: *Gc, env: *Environment) anyerror!Value {
     return switch (binary.operator.tag) {
         .equal => .{ .boolean = left.equal(right) },
         .not_equal => .{ .boolean = !left.equal(right) },
-        .greater => compareNumbers(left, right, .greater),
-        .greater_equal => compareNumbers(left, right, .greater_equal),
-        .less => compareNumbers(left, right, .less),
-        .less_equal => compareNumbers(left, right, .less_equal),
+        .greater => compareIntegers(left, right, .greater),
+        .greater_equal => compareIntegers(left, right, .greater_equal),
+        .less => compareIntegers(left, right, .less),
+        .less_equal => compareIntegers(left, right, .less_equal),
         .plus => arithmetic(left, right, .plus),
         .minus => arithmetic(left, right, .minus),
         .star => arithmetic(left, right, .star),
         .slash => arithmetic(left, right, .slash),
         .percent => arithmetic(left, right, .percent),
         .concat => concatValues(left, right, gc),
+        .cons => consValue(left, right, gc),
+        .and_and => {
+            const l = left.asBoolean() orelse return error.TypeError;
+            const r = right.asBoolean() orelse return error.TypeError;
+            return .{ .boolean = l and r };
+        },
+        .or_or => {
+            const l = left.asBoolean() orelse return error.TypeError;
+            const r = right.asBoolean() orelse return error.TypeError;
+            return .{ .boolean = l or r };
+        },
         else => unreachable,
     };
 }
 
-fn evalCall(call: Node.Call, gc: *Gc, env: *Environment) anyerror!Value {
-    const callee = try evalNode(call.callee, gc, env);
+fn evalApplication(app: Node.Application, gc: *Gc, env: *Environment) anyerror!Value {
+    const callee = try evalNode(app.callee, gc, env);
+    const argument = try evalNode(app.argument, gc, env);
+    return applyValue(callee, argument, gc);
+}
 
-    var arguments = std.ArrayList(Value).empty;
-    defer arguments.deinit(gc.allocator());
+fn applyValue(callee: Value, argument: Value, gc: *Gc) anyerror!Value {
+    if (callee.asNative()) |native| return native.function(gc.nativeContext(), argument);
 
-    for (call.arguments) |argument| {
-        try arguments.append(gc.allocator(), try evalNode(argument, gc, env));
-    }
+    const closure = callee.asClosure() orelse return error.ApplyNonFunction;
+    for (closure.clauses) |clause| {
+        const scope = try Environment.init(gc.allocator(), closure.env);
+        var keep = false;
+        defer if (!keep) scope.deinit();
 
-    if (callee.asNative()) |native| {
-        return native.function(gc.io, arguments.items);
-    }
-
-    const closure = callee.asClosure() orelse return error.NotCallable;
-    if (closure.parameters.len != arguments.items.len) return error.ArityMismatch;
-
-    return switch (closure.body) {
-        .expression => |body_expression| blk: {
-            const scope = try bindParameters(gc, closure.env, closure.parameters, arguments.items);
+        if (try tryMatchPattern(clause.pattern, argument, scope, gc)) {
             try gc.track(scope);
-            break :blk try evalNode(body_expression, gc, scope);
-        },
-        .branches => |branches| evalBranches(branches, closure, arguments.items, gc),
-    };
+            keep = true;
+            return evalNode(clause.body, gc, scope);
+        }
+    }
+    return error.NoMatch;
+}
+
+fn evalIndex(idx: Node.Index, gc: *Gc, env: *Environment) anyerror!Value {
+    const target = try evalNode(idx.target, gc, env);
+    const key = try evalNode(idx.index, gc, env);
+
+    if (target.asMap()) |map| {
+        const key_bytes = key.asString() orelse return error.TypeError;
+        const entry_index = map.findStringIndex(key_bytes) orelse return error.KeyNotFound;
+        return map.entries[entry_index].value;
+    }
+
+    const i = key.asInteger() orelse return error.TypeError;
+    if (i < 0) return error.IndexOutOfBounds;
+    const u: usize = @intCast(i);
+
+    if (target.asList()) |list| {
+        if (u >= list.items.len) return error.IndexOutOfBounds;
+        return list.items[u];
+    }
+    if (target.asTuple()) |tuple| {
+        if (u >= tuple.items.len) return error.IndexOutOfBounds;
+        return tuple.items[u];
+    }
+    if (target.asString()) |bytes| {
+        if (u >= bytes.len) return error.IndexOutOfBounds;
+        return .{ .integer = @intCast(bytes[u]) };
+    }
+    return error.TypeError;
 }
 
 fn evalList(list: Node.List, gc: *Gc, env: *Environment) anyerror!Value {
-    var items = std.ArrayList(Value).empty;
+    var items: std.ArrayList(Value) = .empty;
     errdefer items.deinit(gc.allocator());
-
     for (list.items) |item| {
         try items.append(gc.allocator(), try evalNode(item, gc, env));
     }
-
-    if (list.spread) |spread| {
-        const spread_value = try evalNode(spread, gc, env);
-        const spread_list = spread_value.asList() orelse return error.TypeError;
-        try items.appendSlice(gc.allocator(), spread_list.items);
-    }
-
-    const owned_items = try items.toOwnedSlice(gc.allocator());
-    errdefer gc.allocator().free(owned_items);
-    const value = try Value.List.initOwned(gc.allocator(), owned_items);
+    const owned = try items.toOwnedSlice(gc.allocator());
+    errdefer gc.allocator().free(owned);
+    const value = try Value.List.initOwned(gc.allocator(), owned);
     try gc.track(value);
     return value;
 }
 
-fn evalRange(range: Node.Range, gc: *Gc, env: *Environment) anyerror!Value {
-    const start_value = try evalNode(range.start, gc, env);
-    const end_value = try evalNode(range.end, gc, env);
+fn evalMap(map: Node.Map, gc: *Gc, env: *Environment) anyerror!Value {
+    var entries: std.ArrayList(Value.Map.Entry) = .empty;
+    errdefer entries.deinit(gc.allocator());
 
-    const start_number = start_value.asNumber() orelse return error.TypeError;
-    const end_number = end_value.asNumber() orelse return error.TypeError;
-    if (@floor(start_number) != start_number or @floor(end_number) != end_number) {
-        return error.InvalidRange;
+    for (map.entries) |entry| {
+        const key = try Value.String.init(gc.allocator(), entry.key);
+        try gc.track(key);
+        const value = try evalNode(entry.value, gc, env);
+        try putMapEntryInList(&entries, gc.allocator(), key, value);
     }
 
-    const start_int: i64 = @intFromFloat(start_number);
-    const end_int: i64 = @intFromFloat(end_number);
-    const len: usize = @intCast(@abs(end_int - start_int) + 1);
-    const step: i64 = if (start_int <= end_int) 1 else -1;
-
-    const items = try gc.allocator().alloc(Value, len);
-    errdefer gc.allocator().free(items);
-
-    var current = start_int;
-    for (items) |*slot| {
-        slot.* = .{ .number = @floatFromInt(current) };
-        current += step;
-    }
-
-    const value = try Value.List.initOwned(gc.allocator(), items);
+    const owned = try entries.toOwnedSlice(gc.allocator());
+    errdefer gc.allocator().free(owned);
+    const value = try Value.Map.initOwned(gc.allocator(), owned);
     try gc.track(value);
     return value;
 }
 
-fn evalBlock(block: Node.Block, gc: *Gc, env: *Environment) anyerror!Value {
-    const scope = try Environment.init(gc.allocator(), env);
-    var keep = false;
-    errdefer if (!keep) scope.deinit();
-    try gc.track(scope);
-    keep = true;
-    return evalNode(block.expression, gc, scope);
+fn evalTuple(tuple: Node.Tuple, gc: *Gc, env: *Environment) anyerror!Value {
+    var items: std.ArrayList(Value) = .empty;
+    errdefer items.deinit(gc.allocator());
+    for (tuple.items) |item| {
+        try items.append(gc.allocator(), try evalNode(item, gc, env));
+    }
+    const owned = try items.toOwnedSlice(gc.allocator());
+    errdefer gc.allocator().free(owned);
+    const value = try Value.Tuple.initOwned(gc.allocator(), owned);
+    try gc.track(value);
+    return value;
 }
 
 fn evalFunction(function: Node.Function, gc: *Gc, env: *Environment) anyerror!Value {
-    const value = try Value.Closure.init(gc.allocator(), function.parameters, function.body, env);
+    const value = try Value.Closure.init(gc.allocator(), function.clauses, env);
     try gc.track(value);
     return value;
 }
 
 fn evalBinding(binding: Node.Binding, gc: *Gc, env: *Environment) anyerror!Value {
-    if (binding.pattern.* == .identifier and binding.value.* == .function) {
-        const name = binding.pattern.identifier.lexeme;
-        const scope = try Environment.init(gc.allocator(), env);
-        var keep = false;
-        errdefer if (!keep) scope.deinit();
-
-        try scope.bind(name, null);
-        const value = try evalNode(binding.value, gc, scope);
-        try scope.set(name, value);
-        try gc.track(scope);
-        keep = true;
-        return evalNode(binding.body, gc, scope);
-    }
-
-    const value = try evalNode(binding.value, gc, env);
     const scope = try Environment.init(gc.allocator(), env);
     var keep = false;
     errdefer if (!keep) scope.deinit();
 
-    if (!try matchPattern(binding.pattern, value, scope, gc)) {
-        return error.PatternMatchFailure;
+    try preallocatePatternCells(binding.pattern, scope);
+
+    const value = try evalNode(binding.value, gc, scope);
+    if (!try tryMatchPattern(binding.pattern, value, scope, gc)) {
+        return error.NoMatch;
     }
 
     try gc.track(scope);
@@ -201,83 +228,99 @@ fn evalBinding(binding: Node.Binding, gc: *Gc, env: *Environment) anyerror!Value
     return evalNode(binding.body, gc, scope);
 }
 
-fn evalBranches(
-    branches: []*Branch,
-    closure: *Value.Closure,
-    arguments: []const Value,
-    gc: *Gc,
-) anyerror!Value {
-    for (branches) |branch| {
-        if (try prepareBranchScope(branch, closure, arguments, gc)) |scope| {
-            return evalNode(branch.result, gc, scope);
-        }
+fn preallocatePatternCells(pattern: *Pattern, env: *Environment) anyerror!void {
+    switch (pattern.*) {
+        .wildcard, .literal => {},
+        .identifier => |token| {
+            env.bind(token.lexeme, null) catch |err| switch (err) {
+                error.AlreadyDefined => {},
+                else => return err,
+            };
+        },
+        .tuple => |tuple| {
+            for (tuple.items) |p| try preallocatePatternCells(p, env);
+        },
+        .list => |list| {
+            for (list.items) |p| try preallocatePatternCells(p, env);
+            switch (list.rest) {
+                .pattern => |p| try preallocatePatternCells(p, env),
+                else => {},
+            }
+        },
+        .map => |map| {
+            for (map.entries) |entry| try preallocatePatternCells(entry.pattern, env);
+            switch (map.rest) {
+                .pattern => |p| try preallocatePatternCells(p, env),
+                else => {},
+            }
+        },
+        .refinement => |r| try preallocatePatternCells(r.base, env),
+        .alternative => |a| {
+            try preallocatePatternCells(a.left, env);
+            try preallocatePatternCells(a.right, env);
+        },
     }
-    return error.NoMatchingBranch;
 }
 
-fn prepareBranchScope(
-    branch: *Branch,
-    closure: *Value.Closure,
-    arguments: []const Value,
-    gc: *Gc,
-) anyerror!?*Environment {
-    const scope = try Environment.init(gc.allocator(), closure.env);
-    var keep = false;
-    defer if (!keep) scope.deinit();
-
-    if (branch.patterns) |patterns| {
-        if (patterns.len != arguments.len) return null;
-        for (patterns, arguments) |pattern, argument| {
-            if (!try matchPattern(pattern, argument, scope, gc)) return null;
-        }
-    } else {
-        if (closure.parameters.len != arguments.len) return error.ArityMismatch;
-        for (closure.parameters, arguments) |parameter, argument| {
-            try scope.bind(parameter.lexeme, argument);
-        }
-    }
-
-    if (branch.guard) |guard| {
-        const guard_value = try evalNode(guard, gc, scope);
-        const guard_bool = guard_value.asBoolean() orelse return error.NotBoolean;
-        if (!guard_bool) return null;
-    }
-
-    try gc.track(scope);
-    keep = true;
-    return scope;
-}
-
-fn bindParameters(
-    gc: *Gc,
-    parent: *Environment,
-    parameters: []const Token,
-    arguments: []const Value,
-) anyerror!*Environment {
-    const scope = try Environment.init(gc.allocator(), parent);
-    errdefer scope.deinit();
-
-    for (parameters, arguments) |parameter, argument| {
-        try scope.bind(parameter.lexeme, argument);
-    }
-
-    return scope;
-}
-
-fn matchPattern(pattern: *Pattern, value: Value, env: *Environment, gc: *Gc) anyerror!bool {
+fn tryMatchPattern(pattern: *Pattern, value: Value, env: *Environment, gc: *Gc) anyerror!bool {
     return switch (pattern.*) {
         .wildcard => true,
         .identifier => |token| blk: {
-            env.bind(token.lexeme, value) catch |err| switch (err) {
-                error.AlreadyDefined => return error.DuplicatePatternBinding,
-                else => return err,
-            };
+            try bindOrSet(env, token.lexeme, value);
             break :blk true;
         },
-        .literal => |token| try literalMatches(token, value, gc.allocator()),
-        .group => |inner| matchPattern(inner, value, env, gc),
-        .list => |list_pattern| matchListPattern(list_pattern, value, env, gc),
+        .literal => |lit| try literalMatches(lit, value, gc.allocator()),
+        .tuple => |tuple| try matchTuplePattern(tuple.items, value, env, gc),
+        .list => |list| try matchListPattern(list, value, env, gc),
+        .map => |map| try matchMapPattern(map, value, env, gc),
+        .refinement => |r| blk: {
+            const mark = try env.snapshot();
+            defer mark.deinit(env.gpa);
+
+            if (!try tryMatchPattern(r.base, value, env, gc)) break :blk false;
+            const cond = try evalNode(r.condition, gc, env);
+            const b = cond.asBoolean() orelse return error.TypeError;
+            if (!b) env.restore(mark);
+            break :blk b;
+        },
+        .alternative => |a| blk: {
+            const mark = try env.snapshot();
+            defer mark.deinit(env.gpa);
+
+            if (try tryMatchPattern(a.left, value, env, gc)) break :blk true;
+            env.restore(mark);
+            if (try tryMatchPattern(a.right, value, env, gc)) break :blk true;
+            env.restore(mark);
+            break :blk false;
+        },
     };
+}
+
+fn bindOrSet(env: *Environment, name: []const u8, value: Value) !void {
+    env.bind(name, value) catch |err| switch (err) {
+        error.AlreadyDefined => try env.set(name, value),
+        else => return err,
+    };
+}
+
+fn matchTuplePattern(
+    items: []const *Pattern,
+    value: Value,
+    env: *Environment,
+    gc: *Gc,
+) anyerror!bool {
+    const tuple = value.asTuple() orelse return false;
+    if (tuple.items.len != items.len) return false;
+    const mark = try env.snapshot();
+    defer mark.deinit(env.gpa);
+
+    for (items, tuple.items) |p, v| {
+        if (!try tryMatchPattern(p, v, env, gc)) {
+            env.restore(mark);
+            return false;
+        }
+    }
+    return true;
 }
 
 fn matchListPattern(
@@ -287,56 +330,153 @@ fn matchListPattern(
     gc: *Gc,
 ) anyerror!bool {
     const list = value.asList() orelse return false;
-    if (pattern.spread == null and list.items.len != pattern.items.len) return false;
-    if (pattern.spread != null and list.items.len < pattern.items.len) return false;
+    const has_rest = switch (pattern.rest) {
+        .none => false,
+        else => true,
+    };
+    if (!has_rest and list.items.len != pattern.items.len) return false;
+    if (has_rest and list.items.len < pattern.items.len) return false;
+    const mark = try env.snapshot();
+    defer mark.deinit(env.gpa);
 
-    for (pattern.items, 0..) |item_pattern, index| {
-        if (!try matchPattern(item_pattern, list.items[index], env, gc)) return false;
+    for (pattern.items, 0..) |p, i| {
+        if (!try tryMatchPattern(p, list.items[i], env, gc)) {
+            env.restore(mark);
+            return false;
+        }
     }
 
-    if (pattern.spread) |spread| {
-        const suffix = list.items[pattern.items.len..];
-        const tail = try Value.List.init(gc.allocator(), suffix);
-        try gc.track(tail);
-        return matchPattern(spread, tail, env, gc);
+    switch (pattern.rest) {
+        .none, .wildcard => {},
+        .pattern => |p| {
+            const suffix = list.items[pattern.items.len..];
+            const tail = try Value.List.init(gc.allocator(), suffix);
+            try gc.track(tail);
+            if (!try tryMatchPattern(p, tail, env, gc)) {
+                env.restore(mark);
+                return false;
+            }
+        },
+    }
+    return true;
+}
+
+fn matchMapPattern(
+    pattern: Pattern.MapPattern,
+    value: Value,
+    env: *Environment,
+    gc: *Gc,
+) anyerror!bool {
+    const map = value.asMap() orelse return false;
+    const has_rest = switch (pattern.rest) {
+        .none => false,
+        else => true,
+    };
+    if (!has_rest and map.entries.len != pattern.entries.len) return false;
+
+    const mark = try env.snapshot();
+    defer mark.deinit(env.gpa);
+
+    for (pattern.entries) |entry| {
+        const index = map.findStringIndex(entry.key) orelse {
+            env.restore(mark);
+            return false;
+        };
+        if (!try tryMatchPattern(entry.pattern, map.entries[index].value, env, gc)) {
+            env.restore(mark);
+            return false;
+        }
+    }
+
+    switch (pattern.rest) {
+        .none, .wildcard => {},
+        .pattern => |rest_pattern| {
+            const rest = try restMapForPattern(pattern.entries, map, gc);
+            try gc.track(rest);
+            if (!try tryMatchPattern(rest_pattern, rest, env, gc)) {
+                env.restore(mark);
+                return false;
+            }
+        },
     }
 
     return true;
 }
 
+fn restMapForPattern(
+    pattern_entries: []const Pattern.MapPattern.Entry,
+    map: *Value.Map,
+    gc: *Gc,
+) !Value {
+    var rest_len: usize = 0;
+    for (map.entries) |entry| {
+        if (!mapKeyInPattern(pattern_entries, entry.key)) rest_len += 1;
+    }
+
+    const entries = try gc.allocator().alloc(Value.Map.Entry, rest_len);
+    errdefer gc.allocator().free(entries);
+
+    var out_index: usize = 0;
+    for (map.entries) |entry| {
+        if (mapKeyInPattern(pattern_entries, entry.key)) continue;
+        entries[out_index] = entry;
+        out_index += 1;
+    }
+
+    return Value.Map.initOwned(gc.allocator(), entries);
+}
+
+fn mapKeyInPattern(pattern_entries: []const Pattern.MapPattern.Entry, key: Value) bool {
+    const bytes = key.asString() orelse return false;
+    for (pattern_entries) |entry| {
+        if (std.mem.eql(u8, entry.key, bytes)) return true;
+    }
+    return false;
+}
+
 const Comparison = enum { greater, greater_equal, less, less_equal };
 
-fn compareNumbers(left: Value, right: Value, comparison: Comparison) anyerror!Value {
-    const lhs = left.asNumber() orelse return error.TypeError;
-    const rhs = right.asNumber() orelse return error.TypeError;
-    return .{
-        .boolean = switch (comparison) {
-            .greater => lhs > rhs,
-            .greater_equal => lhs >= rhs,
-            .less => lhs < rhs,
-            .less_equal => lhs <= rhs,
-        },
-    };
+fn compareIntegers(left: Value, right: Value, comparison: Comparison) anyerror!Value {
+    const lhs = left.asInteger() orelse return error.TypeError;
+    const rhs = right.asInteger() orelse return error.TypeError;
+    return .{ .boolean = switch (comparison) {
+        .greater => lhs > rhs,
+        .greater_equal => lhs >= rhs,
+        .less => lhs < rhs,
+        .less_equal => lhs <= rhs,
+    } };
 }
 
 const Arithmetic = enum { plus, minus, star, slash, percent };
 
-fn arithmetic(left: Value, right: Value, operation: Arithmetic) anyerror!Value {
-    const lhs = left.asNumber() orelse return error.TypeError;
-    const rhs = right.asNumber() orelse return error.TypeError;
+fn arithmetic(left: Value, right: Value, op: Arithmetic) anyerror!Value {
+    const lhs = left.asInteger() orelse return error.TypeError;
+    const rhs = right.asInteger() orelse return error.TypeError;
 
-    return switch (operation) {
-        .plus => .{ .number = lhs + rhs },
-        .minus => .{ .number = lhs - rhs },
-        .star => .{ .number = lhs * rhs },
+    return switch (op) {
+        .plus => .{ .integer = std.math.add(i64, lhs, rhs) catch return error.IntegerOverflow },
+        .minus => .{ .integer = std.math.sub(i64, lhs, rhs) catch return error.IntegerOverflow },
+        .star => .{ .integer = std.math.mul(i64, lhs, rhs) catch return error.IntegerOverflow },
         .slash => blk: {
-            if (rhs == 0) return error.DivisionByZero;
-            break :blk .{ .number = lhs / rhs };
+            if (rhs == 0) return error.DivideByZero;
+            const quotient = std.math.divTrunc(i64, lhs, rhs) catch |err| switch (err) {
+                error.DivisionByZero => return error.DivideByZero,
+                error.Overflow => return error.IntegerOverflow,
+            };
+            break :blk .{ .integer = quotient };
         },
         .percent => blk: {
-            if (rhs == 0) return error.DivisionByZero;
-            break :blk .{ .number = lhs - @floor(lhs / rhs) * rhs };
+            if (rhs == 0) return error.DivideByZero;
+            if (lhs == std.math.minInt(i64) and rhs == -1) return error.IntegerOverflow;
+            break :blk .{ .integer = @rem(lhs, rhs) };
         },
+    };
+}
+
+fn parseInteger(lexeme: []const u8) anyerror!i64 {
+    return parseInt(i64, lexeme, 10) catch |err| switch (err) {
+        error.Overflow => error.IntegerOverflow,
+        else => err,
     };
 }
 
@@ -344,7 +484,7 @@ fn concatValues(left: Value, right: Value, gc: *Gc) anyerror!Value {
     if (left.asList()) |lhs| {
         const rhs = right.asList() orelse return error.TypeError;
 
-        var items = try gc.allocator().alloc(Value, lhs.items.len + rhs.items.len);
+        const items = try gc.allocator().alloc(Value, lhs.items.len + rhs.items.len);
         errdefer gc.allocator().free(items);
 
         @memcpy(items[0..lhs.items.len], lhs.items);
@@ -369,20 +509,79 @@ fn concatValues(left: Value, right: Value, gc: *Gc) anyerror!Value {
         return value;
     }
 
+    if (left.asMap()) |lhs| {
+        const rhs = right.asMap() orelse return error.TypeError;
+
+        var entries: std.ArrayList(Value.Map.Entry) = .empty;
+        errdefer entries.deinit(gc.allocator());
+
+        for (lhs.entries) |entry| {
+            try entries.append(gc.allocator(), entry);
+        }
+        for (rhs.entries) |entry| {
+            try putMapEntryInList(&entries, gc.allocator(), entry.key, entry.value);
+        }
+
+        const owned = try entries.toOwnedSlice(gc.allocator());
+        errdefer gc.allocator().free(owned);
+        const value = try Value.Map.initOwned(gc.allocator(), owned);
+        try gc.track(value);
+        return value;
+    }
+
     return error.TypeError;
 }
 
-fn literalMatches(token: Token, value: Value, gpa: Allocator) anyerror!bool {
+fn putMapEntryInList(
+    entries: *std.ArrayList(Value.Map.Entry),
+    gpa: Allocator,
+    key: Value,
+    value: Value,
+) !void {
+    for (entries.items) |*entry| {
+        if (entry.key.equal(key)) {
+            entry.value = value;
+            return;
+        }
+    }
+    try entries.append(gpa, .{ .key = key, .value = value });
+}
+
+fn consValue(head: Value, tail: Value, gc: *Gc) anyerror!Value {
+    const list = tail.asList() orelse return error.TypeError;
+
+    const items = try gc.allocator().alloc(Value, list.items.len + 1);
+    errdefer gc.allocator().free(items);
+
+    items[0] = head;
+    @memcpy(items[1..], list.items);
+
+    const value = try Value.List.initOwned(gc.allocator(), items);
+    try gc.track(value);
+    return value;
+}
+
+fn literalMatches(lit: Pattern.LiteralPattern, value: Value, gpa: Allocator) anyerror!bool {
+    const token = lit.token;
     return switch (token.tag) {
+        .unit => switch (value) {
+            .unit => true,
+            else => false,
+        },
         .true => switch (value) {
-            .boolean => |boolean| boolean,
+            .boolean => |b| b,
             else => false,
         },
         .false => switch (value) {
-            .boolean => |boolean| !boolean,
+            .boolean => |b| !b,
             else => false,
         },
-        .number => (value.asNumber()) != null and (value.asNumber().? == try parseFloat(f64, token.lexeme)),
+        .integer => blk: {
+            const v = value.asInteger() orelse break :blk false;
+            const parsed = try parseInteger(token.lexeme);
+            const target = if (lit.negate) std.math.negate(parsed) catch return error.IntegerOverflow else parsed;
+            break :blk v == target;
+        },
         .string => blk: {
             const decoded = try decodeStringLiteral(gpa, token.lexeme);
             defer gpa.free(decoded);
@@ -394,7 +593,11 @@ fn literalMatches(token: Token, value: Value, gpa: Allocator) anyerror!bool {
 }
 
 fn decodeStringLiteral(gpa: Allocator, lexeme: []const u8) anyerror![]u8 {
-    var buffer = std.ArrayList(u8).empty;
+    if (lexeme.len == 0 or (lexeme[0] != '"' and lexeme[0] != '\'')) {
+        return try gpa.dupe(u8, lexeme);
+    }
+
+    var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(gpa);
 
     var index: usize = 1;
@@ -410,7 +613,8 @@ fn decodeStringLiteral(gpa: Allocator, lexeme: []const u8) anyerror![]u8 {
                 't' => '\t',
                 '\\' => '\\',
                 '"' => '"',
-                else => escaped,
+                '\'' => '\'',
+                else => return error.InvalidStringLiteral,
             });
         } else {
             try buffer.append(gpa, byte);
@@ -428,7 +632,7 @@ fn expectEvaluatesTo(input: []const u8, expected: Value) !void {
     defer gc.deinit();
 
     const env = try Environment.init(testing.allocator, null);
-    defer env.deinit();
+    try gc.track(env);
     try @import("builtins.zig").install(&gc, env);
 
     const owned_input = try testing.allocator.dupe(u8, input);
@@ -442,12 +646,12 @@ fn expectEvaluatesTo(input: []const u8, expected: Value) !void {
     try testing.expect(value.equal(expected));
 }
 
-fn expectEvaluationError(input: []const u8, expected: anyerror) !void {
+fn expectEvalError(input: []const u8, expected: anyerror) !void {
     var gc = try Gc.init(testing.allocator, testing.io);
     defer gc.deinit();
 
     const env = try Environment.init(testing.allocator, null);
-    defer env.deinit();
+    try gc.track(env);
     try @import("builtins.zig").install(&gc, env);
 
     const owned_input = try testing.allocator.dupe(u8, input);
@@ -460,156 +664,247 @@ fn expectEvaluationError(input: []const u8, expected: anyerror) !void {
     try testing.expectError(expected, evaluate(ast, &gc, env));
 }
 
-test "evaluates arithmetic" {
-    try expectEvaluatesTo("1 + 2 * 3", .{ .number = 7 });
+test "arithmetic" {
+    try expectEvaluatesTo("1 + 2 * 3", .{ .integer = 7 });
 }
 
-test "evaluates unary boolean negation" {
-    try expectEvaluatesTo("!false", .{ .boolean = true });
+test "integer division truncated toward zero" {
+    try expectEvaluatesTo("7 / 3", .{ .integer = 2 });
+    try expectEvaluatesTo("-7 / 3", .{ .integer = -2 });
+    try expectEvaluatesTo("7 % 3", .{ .integer = 1 });
+    try expectEvaluatesTo("-7 % 3", .{ .integer = -1 });
 }
 
-test "evaluates string concatenation" {
-    const expected = try Value.String.init(testing.allocator, "ab");
-    defer expected.deinit(testing.allocator);
-    try expectEvaluatesTo("\"a\" ++ \"b\"", expected);
+test "unit literal evaluation" {
+    try expectEvaluatesTo("()", .{ .unit = {} });
 }
 
-test "concat rejects mixed types" {
-    try expectEvaluationError("\"a\" ++ [1]", error.TypeError);
+test "boolean operators evaluate both operands" {
+    try expectEvalError("false && x", error.UnboundName);
+    try expectEvalError("true || x", error.UnboundName);
+    try expectEvaluatesTo("true && false", .{ .boolean = false });
+    try expectEvaluatesTo("false || true", .{ .boolean = true });
 }
 
-test "evaluates simple function application" {
+test "binding and identifier" {
+    try expectEvaluatesTo("let x = 42; x", .{ .integer = 42 });
+}
+
+test "recursive binding" {
     try expectEvaluatesTo(
-        \\let add = (x, y) { x + y };
+        \\let fact = \ 0 -> 1 | n -> n * fact(n - 1);
+        \\fact(5)
+    , .{ .integer = 120 });
+}
+
+test "lambda tuple application" {
+    try expectEvaluatesTo(
+        \\let add = \ x, y -> x + y;
         \\add(1, 2)
-    , .{ .number = 3 });
+    , .{ .integer = 3 });
 }
 
-test "evaluates branch selection" {
+test "zero-arg call passes unit" {
     try expectEvaluatesTo(
-        \\let abs = (n) {
-        \\    ? n >= 0 => n,
-        \\    => -n
-        \\};
-        \\abs(-5)
-    , .{ .number = 5 });
+        \\let always = \ () -> 42;
+        \\always()
+    , .{ .integer = 42 });
 }
 
-test "evaluates recursive functions" {
+test "match expression" {
     try expectEvaluatesTo(
-        \\let sum = (xs) {
-        \\    [] => 0,
-        \\    [head, ...tail] => head + sum(tail)
-        \\};
-        \\sum([1..5])
-    , .{ .number = 15 });
+        \\match [1, 2, 3] \ [] -> 0 | [x, ..] -> x
+    , .{ .integer = 1 });
 }
 
-test "evaluates greatest common divisor" {
-    try expectEvaluatesTo(
-        \\let gcd = (a, b) {
-        \\    ? a < 0 => gcd(-a, b),
-        \\    ? b < 0 => gcd(a, -b),
-        \\    a, 0 => a,
-        \\    => gcd(b, a % b)
-        \\};
-        \\gcd(1071, 462)
-    , .{ .number = 21 });
+test "string indexing returns byte" {
+    try expectEvaluatesTo("\"cat\"[0]", .{ .integer = 99 });
 }
 
-test "evaluates sum and product of a list in one traversal" {
+test "list cons" {
     var gc = try Gc.init(testing.allocator, testing.io);
     defer gc.deinit();
-
     const env = try Environment.init(testing.allocator, null);
-    defer env.deinit();
-    try @import("builtins.zig").install(&gc, env);
+    try gc.track(env);
 
-    const input =
-        \\let sumAndProduct = (xs) {
-        \\    [] => [0, 1],
-        \\    [x, ...rest] => {
-        \\        let [sum, product] = sumAndProduct(rest);
-        \\        [x + sum, x * product]
-        \\    }
-        \\};
-        \\sumAndProduct([1, 2, 3, 4, 5])
-    ;
-    var parser = try @import("Parser.zig").init(testing.allocator, input);
+    var parser = try @import("Parser.zig").init(testing.allocator, "1 :: [2, 3]");
     defer parser.deinit();
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
+
     const value = try evaluate(ast, &gc, env);
-
     const list = value.asList() orelse return error.TestExpectedList;
-    try testing.expectEqual(@as(usize, 2), list.items.len);
-    try testing.expect(list.items[0].equal(.{ .number = 15 }));
-    try testing.expect(list.items[1].equal(.{ .number = 120 }));
+    try testing.expectEqual(@as(usize, 3), list.items.len);
+    try testing.expect(list.items[0].equal(.{ .integer = 1 }));
 }
 
-test "evaluates pattern binding" {
-    try expectEvaluatesTo(
-        \\let [head, ..._] = [1, 2, 3];
-        \\head
-    , .{ .number = 1 });
+test "apply non function" {
+    try expectEvalError("1(2)", error.ApplyNonFunction);
 }
 
-test "evaluates list spread and range" {
-    var gc = try Gc.init(testing.allocator, testing.io);
-    defer gc.deinit();
-
-    const env = try Environment.init(testing.allocator, null);
-    defer env.deinit();
-    try @import("builtins.zig").install(&gc, env);
-
-    const input =
-        \\let xs = [1..3];
-        \\[0, ...xs]
-    ;
-    var parser = try @import("Parser.zig").init(testing.allocator, input);
-    defer parser.deinit();
-    const ast = try parser.parse();
-    defer ast.deinit(testing.allocator);
-    const value = try evaluate(ast, &gc, env);
-
-    const list = value.asList() orelse return error.TestExpectedList;
-    try testing.expectEqual(@as(usize, 4), list.items.len);
-    try testing.expect(list.items[0].equal(.{ .number = 0 }));
-    try testing.expect(list.items[3].equal(.{ .number = 3 }));
-}
-
-test "binding pattern failure errors" {
-    var gc = try Gc.init(testing.allocator, testing.io);
-    defer gc.deinit();
-
-    const env = try Environment.init(testing.allocator, null);
-    defer env.deinit();
-    try @import("builtins.zig").install(&gc, env);
-    var parser = try @import("Parser.zig").init(testing.allocator,
-        \\let [] = [1];
-        \\0
-    );
-    defer parser.deinit();
-    const ast = try parser.parse();
-    defer ast.deinit(testing.allocator);
-    try testing.expectError(error.PatternMatchFailure, evaluate(ast, &gc, env));
-}
-
-test "branch failure errors" {
-    var gc = try Gc.init(testing.allocator, testing.io);
-    defer gc.deinit();
-
-    const env = try Environment.init(testing.allocator, null);
-    defer env.deinit();
-    try @import("builtins.zig").install(&gc, env);
-    var parser = try @import("Parser.zig").init(testing.allocator,
-        \\let f = (x) {
-        \\    0 => 1
-        \\};
+test "no match" {
+    try expectEvalError(
+        \\let f = \ 0 -> 1;
         \\f(2)
+    , error.NoMatch);
+}
+
+test "divide by zero" {
+    try expectEvalError("1 / 0", error.DivideByZero);
+}
+
+test "index out of bounds" {
+    try expectEvalError("[1, 2][5]", error.IndexOutOfBounds);
+}
+
+test "refinement pattern" {
+    try expectEvaluatesTo(
+        \\let classify = \ n & n > 0 -> 1 | n & n < 0 -> -1 | _ -> 0;
+        \\classify(5)
+    , .{ .integer = 1 });
+}
+
+test "alternative pattern" {
+    try expectEvaluatesTo(
+        \\let isZeroOrOne = \ 0 | 1 -> true | _ -> false;
+        \\isZeroOrOne(1)
+    , .{ .boolean = true });
+}
+
+test "tuple equality" {
+    try expectEvaluatesTo("(1, 2) == (1, 2)", .{ .boolean = true });
+}
+
+test "tuple list inequality" {
+    try expectEvaluatesTo("(1, 2) != [1, 2]", .{ .boolean = true });
+}
+
+test "unit list inequality" {
+    try expectEvaluatesTo("() != []", .{ .boolean = true });
+}
+
+test "destructuring binding" {
+    try expectEvaluatesTo("let x, y = (10, 20); x + y", .{ .integer = 30 });
+}
+
+test "concatenation" {
+    var gc = try Gc.init(testing.allocator, testing.io);
+    defer gc.deinit();
+    const env = try Environment.init(testing.allocator, null);
+    try gc.track(env);
+    var parser = try @import("Parser.zig").init(testing.allocator,
+        \\"hello" ++ " " ++ "world"
     );
     defer parser.deinit();
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
-    try testing.expectError(error.NoMatchingBranch, evaluate(ast, &gc, env));
+    const value = try evaluate(ast, &gc, env);
+    const bytes = value.asString() orelse return error.TestExpectedString;
+    try testing.expectEqualStrings("hello world", bytes);
+}
+
+test "sum via recursion" {
+    try expectEvaluatesTo(
+        \\let sum = \ [] -> 0 | [x, ..xs] -> x + sum(xs);
+        \\sum([1, 2, 3, 4])
+    , .{ .integer = 10 });
+}
+
+test "record literal indexing and duplicate keys" {
+    try expectEvaluatesTo("{\"a\": 1, b: 2}.b", .{ .integer = 2 });
+    try expectEvaluatesTo("{a: 1, \"a\": 2}.a", .{ .integer = 2 });
+    try expectEvalError("{a: 1}[1]", error.TypeError);
+}
+
+test "record equality ignores entry order" {
+    try expectEvaluatesTo("{a: 1, b: 2} == {b: 2, a: 1}", .{ .boolean = true });
+}
+
+test "record missing key reports runtime error" {
+    try expectEvalError("{a: 1}.b", error.KeyNotFound);
+}
+
+test "member access desugars to string-key record lookup" {
+    try expectEvaluatesTo("{name: 42}.name", .{ .integer = 42 });
+    try expectEvaluatesTo("{user: {name: 7}}.user.name", .{ .integer = 7 });
+    try expectEvaluatesTo("let id = \\ x -> x; id({name: 5}).name", .{ .integer = 5 });
+    try expectEvalError("{name: 1}.missing", error.KeyNotFound);
+    try expectEvalError("[1, 2].name", error.TypeError);
+}
+
+test "record concat merges right-biased" {
+    try expectEvaluatesTo(
+        \\let r = {a: 1} ++ {a: 2, b: 3};
+        \\r.a == 2 && r.b == 3
+    , .{ .boolean = true });
+}
+
+test "record builtins" {
+    try expectEvaluatesTo("record_size({a: 1, b: 2})", .{ .integer = 2 });
+    try expectEvaluatesTo("record_has({a: 1}, \"a\")", .{ .boolean = true });
+    try expectEvaluatesTo("record_get_or({a: 1}, \"b\", 9)", .{ .integer = 9 });
+    try expectEvaluatesTo("record_put({}, \"a\", 5).a", .{ .integer = 5 });
+    try expectEvaluatesTo("record_remove({a: 1}, \"a\") == {}", .{ .boolean = true });
+    try expectEvaluatesTo("record_entries({a: 1}) == [(\"a\", 1)]", .{ .boolean = true });
+    try expectEvalError("record_has({}, 1)", error.TypeError);
+    try expectEvalError("record_put({}, 1, 5)", error.TypeError);
+}
+
+test "record patterns" {
+    try expectEvaluatesTo(
+        \\let f = \ {name: n} -> n | _ -> 0;
+        \\f({name: 7})
+    , .{ .integer = 7 });
+    try expectEvaluatesTo(
+        \\let f = \ {name: n} -> n | _ -> 0;
+        \\f({name: 7, extra: true})
+    , .{ .integer = 0 });
+    try expectEvaluatesTo(
+        \\let f = \ {name: n, ..} -> n | _ -> 0;
+        \\f({name: 7, extra: true})
+    , .{ .integer = 7 });
+    try expectEvaluatesTo(
+        \\let f = \ {name: n, ..rest} -> rest.extra;
+        \\f({name: 7, extra: 9})
+    , .{ .integer = 9 });
+    try expectEvaluatesTo(
+        \\let f = \ {point: (x, y), ..} -> x + y;
+        \\f({point: (2, 3), extra: true})
+    , .{ .integer = 5 });
+    try expectEvaluatesTo(
+        \\let f = \ {name: n, ..} -> n | _ -> 0;
+        \\f({other: 7})
+    , .{ .integer = 0 });
+}
+
+test "failed record alternatives roll back partial bindings" {
+    try expectEvalError(
+        \\let f = \ {a: x, b: 0} | _ -> x;
+        \\f({a: 1, b: 2})
+    , error.UnboundName);
+}
+
+test "failed refinement alternatives roll back pattern bindings" {
+    try expectEvalError(
+        \\let f = \ (x & false) | _ -> x;
+        \\f(1)
+    , error.UnboundName);
+}
+
+test "failed tuple alternatives roll back partial bindings" {
+    try expectEvalError(
+        \\let f = \ (x, 0) | (_, 1) -> x;
+        \\f((42, 1))
+    , error.UnboundName);
+}
+
+test "integer overflow reports runtime error" {
+    try expectEvalError("9223372036854775808", error.IntegerOverflow);
+    try expectEvalError("9223372036854775807 + 1", error.IntegerOverflow);
+    try expectEvalError("-9223372036854775808 - 1", error.IntegerOverflow);
+    try expectEvalError("-9223372036854775808 / -1", error.IntegerOverflow);
+}
+
+test "invalid string escape reports runtime error" {
+    try expectEvalError("\"\\q\"", error.InvalidStringLiteral);
 }
