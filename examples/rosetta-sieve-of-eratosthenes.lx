@@ -16,4 +16,4 @@ let sieve =
 
 let primes_upto = \ n -> sieve(range_from(2, n));
 
-primes_upto(30)
+pretty.print(primes_upto(30))

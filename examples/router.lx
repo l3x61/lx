@@ -79,4 +79,4 @@ let requests = [
   {method: "GET", path: "/missing", user: {name: "Eve", role: "guest"}}
 ];
 
-map(audit, requests)
+pretty.print(map(audit, requests))

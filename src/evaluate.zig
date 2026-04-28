@@ -840,14 +840,45 @@ test "record concat merges right-biased" {
 }
 
 test "record builtins" {
-    try expectEvaluatesTo("record_size({a: 1, b: 2})", .{ .integer = 2 });
-    try expectEvaluatesTo("record_has({a: 1}, \"a\")", .{ .boolean = true });
-    try expectEvaluatesTo("record_get_or({a: 1}, \"b\", 9)", .{ .integer = 9 });
-    try expectEvaluatesTo("record_put({}, \"a\", 5).a", .{ .integer = 5 });
-    try expectEvaluatesTo("record_remove({a: 1}, \"a\") == {}", .{ .boolean = true });
-    try expectEvaluatesTo("record_entries({a: 1}) == [(\"a\", 1)]", .{ .boolean = true });
-    try expectEvalError("record_has({}, 1)", error.TypeError);
-    try expectEvalError("record_put({}, 1, 5)", error.TypeError);
+    try expectEvaluatesTo("record.has({a: 1}, \"a\")", .{ .boolean = true });
+    try expectEvaluatesTo("record.put({}, \"a\", 5).a", .{ .integer = 5 });
+    try expectEvaluatesTo("record.remove({a: 1}, \"a\") == {}", .{ .boolean = true });
+    try expectEvaluatesTo("record.entries({a: 1}) == [(\"a\", 1)]", .{ .boolean = true });
+    try expectEvalError("record.has({}, 1)", error.TypeError);
+    try expectEvalError("record.put({}, 1, 5)", error.TypeError);
+    try expectEvalError("record_has({}, \"a\")", error.UnboundName);
+    try expectEvalError("record.get({a: 1}, \"a\")", error.KeyNotFound);
+}
+
+test "list and tuple builtins" {
+    try expectEvaluatesTo("list.size([1, 2, 3])", .{ .integer = 3 });
+    try expectEvaluatesTo("list.entries([\"a\", \"b\"]) == [(0, \"a\"), (1, \"b\")]", .{ .boolean = true });
+    try expectEvaluatesTo("tuple.size((true, 42, \"x\"))", .{ .integer = 3 });
+    try expectEvaluatesTo("tuple.entries((\"a\", \"b\")) == [(0, \"a\"), (1, \"b\")]", .{ .boolean = true });
+    try expectEvalError("list.size((1, 2))", error.TypeError);
+    try expectEvalError("tuple.size([1, 2])", error.TypeError);
+}
+
+test "string builtins" {
+    try expectEvaluatesTo("string.size(\"cat\")", .{ .integer = 3 });
+    try expectEvaluatesTo("string.size(\"å\")", .{ .integer = 2 });
+    try expectEvalError("string.size([1, 2])", error.TypeError);
+}
+
+test "pretty builtins" {
+    const expected = try Value.String.init(testing.allocator, "{\n" ++
+        "  status: 200,\n" ++
+        "  body: {\n" ++
+        "    ok: true\n" ++
+        "  },\n" ++
+        "  \"bad-key\": [1, 2]\n" ++
+        "}");
+    defer expected.deinit(testing.allocator);
+
+    try expectEvaluatesTo(
+        \\pretty.show({status: 200, body: {ok: true}, "bad-key": [1, 2]})
+    , expected);
+    try expectEvaluatesTo("record.has(pretty, \"print\")", .{ .boolean = true });
 }
 
 test "record patterns" {

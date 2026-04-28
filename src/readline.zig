@@ -295,7 +295,7 @@ fn writeCommandColored(t: Terminal, source: []const u8) !void {
     const command_end = mem.indexOfAny(u8, rest, " \t") orelse rest.len;
     const command = rest[0..command_end];
     try t.setColor(.bold);
-    try t.setColor(.cyan);
+    try t.setColor(Token.Palette.command);
     try out.writeAll(command);
     try t.setColor(.reset);
 
@@ -319,12 +319,12 @@ fn writeCommandColored(t: Terminal, source: []const u8) !void {
 
 fn colorForCommandToken(command: []const u8, token: []const u8) Terminal.Color {
     if (mem.eql(u8, command, ".ast") or mem.eql(u8, command, ":ast")) {
-        if (mem.eql(u8, token, "tree")) return .magenta;
-        if (mem.eql(u8, token, "off")) return .dim;
-        return .red;
+        if (mem.eql(u8, token, "tree")) return Token.Palette.literal;
+        if (mem.eql(u8, token, "off")) return Token.Palette.meta;
+        return Token.Palette.keyword;
     }
 
-    return .yellow;
+    return Token.Palette.operator;
 }
 
 fn uncook() !termios {

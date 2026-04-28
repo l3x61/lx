@@ -1,6 +1,9 @@
-let length =
-    \ []        -> 0
-    | [_, ..xs]  -> 1 + length(xs);
+# https://rosettacode.org/wiki/Run-length_encoding
+# Input: WWWWWWWWWWWWBWWWWWWWWWWWWBBBWWWWWWWWWWWWWWWWWWWWWWWWBWWWWWWWWWWWWWW
+
+let repeat =
+    \ _, 0 -> []
+    | x, n -> x :: repeat(x, n - 1);
 
 let take_same =
     \ x, [] -> ([], [])
@@ -14,7 +17,16 @@ let encode =
     \ [] -> []
     | [x, ..xs] -> (
         let run, rest = take_same(x, xs);
-        (1 + length(run), x) :: encode(rest)
+        (1 + list.size(run), x) :: encode(rest)
     );
 
-encode(["W", "W", "W", "B", "B", "W"])
+let input =
+    repeat("W", 12) ++
+    repeat("B", 1) ++
+    repeat("W", 12) ++
+    repeat("B", 3) ++
+    repeat("W", 24) ++
+    repeat("B", 1) ++
+    repeat("W", 14);
+
+pretty.print(encode(input))

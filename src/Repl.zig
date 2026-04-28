@@ -137,7 +137,7 @@ fn renderLine(self: *Repl, source: []const u8) !void {
         switch (value) {
             .unit => {},
             else => {
-                try value.write(out);
+                try value.writePrettyTerminal(self.stdoutTerminal());
                 try out.writeByte('\n');
                 try out.flush();
             },
@@ -242,7 +242,7 @@ fn handleCommand(self: *Repl, line: []const u8) !bool {
 fn welcomeMessage(self: *Repl) !void {
     const t = self.stderrTerminal();
     try t.setColor(.bold);
-    try t.setColor(.red);
+    try t.setColor(Token.Palette.keyword);
     try t.writer.writeAll("lx");
     try t.setColor(.reset);
     try t.writer.print(" runtime {s}\n", .{build_options.version});

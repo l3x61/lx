@@ -1,7 +1,19 @@
 const std = @import("std");
 const eql = std.mem.eql;
 
+const Color = std.Io.Terminal.Color;
+
 const Token = @This();
+
+pub const Palette = struct {
+    pub const keyword: Color = .red;
+    pub const literal: Color = .blue;
+    pub const operator: Color = .red;
+    pub const comment: Color = .dim;
+    pub const meta: Color = .dim;
+    pub const command: Color = .magenta;
+    pub const default: Color = .reset;
+};
 
 tag: Tag,
 source: []const u8,
@@ -148,25 +160,24 @@ pub fn isOneOf(self: Token, expected: []const Tag) bool {
     return false;
 }
 
-pub fn color(self: Token) std.Io.Terminal.Color {
+pub fn color(self: Token) Color {
     return switch (self.tag) {
-        .let, .match => .red,
-        .backslash, .lambda => .red,
+        .let, .match => Palette.keyword,
+        .backslash, .lambda => Palette.keyword,
 
         .true,
         .false,
-        => .cyan,
+        => Palette.literal,
 
         .integer,
         .string,
         .string_open,
-        => .blue,
+        => Palette.literal,
 
         .comment,
         .newline,
-        => .dim,
-
-        .invalid => .red,
+        .invalid,
+        => Palette.comment,
 
         .arrow,
         .bar,
@@ -177,7 +188,6 @@ pub fn color(self: Token) std.Io.Terminal.Color {
         .dot,
         .dot_dot,
         .assign,
-        .colon,
         .equal,
         .not,
         .not_equal,
@@ -191,8 +201,8 @@ pub fn color(self: Token) std.Io.Terminal.Color {
         .star,
         .slash,
         .percent,
-        => .yellow,
+        => Palette.operator,
 
-        else => .reset,
+        else => Palette.default,
     };
 }

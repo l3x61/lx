@@ -11,4 +11,4 @@ let result = (
     0 :: l1
 );
 
-print(result)
+pretty.print(result)

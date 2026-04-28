@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Terminal = Io.Terminal;
 
 const Environment = @import("Environment.zig");
 const Clause = @import("node.zig").Clause;
@@ -371,6 +372,237 @@ pub const Value = union(Tag) {
             .native => |native| try writer.print("<native {s}>", .{native.name}),
             .closure => try writer.writeAll("<function>"),
         }
+    }
+
+    pub fn writePretty(self: Value, writer: anytype) anyerror!void {
+        try self.writePrettyAt(writer, 0);
+    }
+
+    pub fn writePrettyTerminal(self: Value, term: Terminal) anyerror!void {
+        try self.writePrettyTerminalAt(term, 0);
+        try term.setColor(.reset);
+    }
+
+    fn writePrettyAt(self: Value, writer: anytype, indent: usize) anyerror!void {
+        switch (self) {
+            .list => |list| try writePrettySequence(writer, "[", "]", list.items, indent),
+            .tuple => |tuple| try writePrettySequence(writer, "(", ")", tuple.items, indent),
+            .map => |map| try writePrettyMap(writer, map, indent),
+            else => try self.write(writer),
+        }
+    }
+
+    fn writePrettySequence(
+        writer: anytype,
+        comptime open: []const u8,
+        comptime close: []const u8,
+        items: []const Value,
+        indent: usize,
+    ) anyerror!void {
+        try writer.writeAll(open);
+        if (items.len == 0) {
+            try writer.writeAll(close);
+            return;
+        }
+
+        if (isInlineSequence(items)) {
+            for (items, 0..) |item, index| {
+                if (index != 0) try writer.writeAll(", ");
+                try item.write(writer);
+            }
+            try writer.writeAll(close);
+            return;
+        }
+
+        try writer.writeByte('\n');
+        for (items, 0..) |item, index| {
+            try writeIndent(writer, indent + 2);
+            try item.writePrettyAt(writer, indent + 2);
+            if (index + 1 < items.len) try writer.writeByte(',');
+            try writer.writeByte('\n');
+        }
+        try writeIndent(writer, indent);
+        try writer.writeAll(close);
+    }
+
+    fn writePrettyMap(writer: anytype, map: *Map, indent: usize) anyerror!void {
+        try writer.writeByte('{');
+        if (map.entries.len == 0) {
+            try writer.writeByte('}');
+            return;
+        }
+
+        try writer.writeByte('\n');
+        for (map.entries, 0..) |entry, index| {
+            try writeIndent(writer, indent + 2);
+            try writePrettyMapKey(writer, entry.key);
+            try writer.writeAll(": ");
+            try entry.value.writePrettyAt(writer, indent + 2);
+            if (index + 1 < map.entries.len) try writer.writeByte(',');
+            try writer.writeByte('\n');
+        }
+        try writeIndent(writer, indent);
+        try writer.writeByte('}');
+    }
+
+    fn writePrettyTerminalAt(self: Value, term: Terminal, indent: usize) anyerror!void {
+        switch (self) {
+            .list => |list| try writePrettySequenceTerminal(term, "[", "]", list.items, indent),
+            .tuple => |tuple| try writePrettySequenceTerminal(term, "(", ")", tuple.items, indent),
+            .map => |map| try writePrettyMapTerminal(term, map, indent),
+            else => try writePrettyScalarTerminal(term, self),
+        }
+    }
+
+    fn writePrettySequenceTerminal(
+        term: Terminal,
+        comptime open: []const u8,
+        comptime close: []const u8,
+        items: []const Value,
+        indent: usize,
+    ) anyerror!void {
+        try writePrettyPunctuationTerminal(term, open);
+        if (items.len == 0) {
+            try writePrettyPunctuationTerminal(term, close);
+            return;
+        }
+
+        if (isInlineSequence(items)) {
+            for (items, 0..) |item, index| {
+                if (index != 0) {
+                    try writePrettyPunctuationTerminal(term, ",");
+                    try term.writer.writeByte(' ');
+                }
+                try item.writePrettyTerminalAt(term, indent);
+            }
+            try writePrettyPunctuationTerminal(term, close);
+            return;
+        }
+
+        try term.writer.writeByte('\n');
+        for (items, 0..) |item, index| {
+            try writeIndent(term.writer, indent + 2);
+            try item.writePrettyTerminalAt(term, indent + 2);
+            if (index + 1 < items.len) try writePrettyPunctuationTerminal(term, ",");
+            try term.writer.writeByte('\n');
+        }
+        try writeIndent(term.writer, indent);
+        try writePrettyPunctuationTerminal(term, close);
+    }
+
+    fn writePrettyMapTerminal(term: Terminal, map: *Map, indent: usize) anyerror!void {
+        try writePrettyPunctuationTerminal(term, "{");
+        if (map.entries.len == 0) {
+            try writePrettyPunctuationTerminal(term, "}");
+            return;
+        }
+
+        try term.writer.writeByte('\n');
+        for (map.entries, 0..) |entry, index| {
+            try writeIndent(term.writer, indent + 2);
+            try writePrettyMapKeyTerminal(term, entry.key);
+            try writePrettyPunctuationTerminal(term, ":");
+            try term.writer.writeByte(' ');
+            try entry.value.writePrettyTerminalAt(term, indent + 2);
+            if (index + 1 < map.entries.len) try writePrettyPunctuationTerminal(term, ",");
+            try term.writer.writeByte('\n');
+        }
+        try writeIndent(term.writer, indent);
+        try writePrettyPunctuationTerminal(term, "}");
+    }
+
+    fn writePrettyMapKeyTerminal(term: Terminal, key: Value) anyerror!void {
+        if (key.asString()) |bytes| {
+            if (isBareRecordKey(bytes)) {
+                try term.writer.writeAll(bytes);
+                return;
+            }
+        }
+        try key.writePrettyTerminalAt(term, 0);
+    }
+
+    fn writePrettyScalarTerminal(term: Terminal, value: Value) anyerror!void {
+        switch (value) {
+            .unit => try writePrettyPunctuationTerminal(term, "()"),
+            .boolean => |boolean| try writePrettyStyledTerminal(term, if (boolean) "true" else "false", Token.Palette.literal),
+            .integer => |i| {
+                try term.setColor(Token.Palette.literal);
+                try term.writer.print("{d}", .{i});
+                try term.setColor(.reset);
+            },
+            .string => |string| {
+                try term.setColor(Token.Palette.literal);
+                try term.writer.print("\"{s}\"", .{string.bytes});
+                try term.setColor(.reset);
+            },
+            .native => |native| {
+                try term.setColor(Token.Palette.meta);
+                try term.writer.print("<native {s}>", .{native.name});
+                try term.setColor(.reset);
+            },
+            .closure => try writePrettyStyledTerminal(term, "<function>", Token.Palette.meta),
+            .list, .tuple, .map => unreachable,
+        }
+    }
+
+    fn writePrettyPunctuationTerminal(term: Terminal, bytes: []const u8) anyerror!void {
+        try term.writer.writeAll(bytes);
+    }
+
+    fn writePrettyStyledTerminal(term: Terminal, bytes: []const u8, color: Terminal.Color) anyerror!void {
+        try term.setColor(color);
+        try term.writer.writeAll(bytes);
+        try term.setColor(.reset);
+    }
+
+    fn writePrettyMapKey(writer: anytype, key: Value) anyerror!void {
+        if (key.asString()) |bytes| {
+            if (isBareRecordKey(bytes)) {
+                try writer.writeAll(bytes);
+                return;
+            }
+        }
+        try key.write(writer);
+    }
+
+    fn isInlineSequence(items: []const Value) bool {
+        for (items) |item| {
+            switch (item) {
+                .unit, .boolean, .integer, .string, .native, .closure => {},
+                else => return false,
+            }
+        }
+        return true;
+    }
+
+    fn writeIndent(writer: anytype, indent: usize) anyerror!void {
+        for (0..indent) |_| try writer.writeByte(' ');
+    }
+
+    fn isBareRecordKey(bytes: []const u8) bool {
+        if (bytes.len == 0) return false;
+        if (isKeyword(bytes)) return false;
+        if (bytes.len == 1 and bytes[0] == '_') return false;
+        if (!isIdentifierStart(bytes[0])) return false;
+        for (bytes[1..]) |byte| {
+            if (!isIdentifierContinue(byte)) return false;
+        }
+        return true;
+    }
+
+    fn isKeyword(bytes: []const u8) bool {
+        return std.mem.eql(u8, bytes, "let") or
+            std.mem.eql(u8, bytes, "match") or
+            std.mem.eql(u8, bytes, "true") or
+            std.mem.eql(u8, bytes, "false");
+    }
+
+    fn isIdentifierStart(byte: u8) bool {
+        return byte == '_' or std.ascii.isAlphabetic(byte);
+    }
+
+    fn isIdentifierContinue(byte: u8) bool {
+        return isIdentifierStart(byte) or std.ascii.isDigit(byte);
     }
 
     pub fn display(self: Value, writer: anytype) !void {

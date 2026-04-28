@@ -41,4 +41,4 @@ let place =
 
 let queens = \ n -> place(n, 1, []);
 
-queens(4)
+pretty.print(queens(4))

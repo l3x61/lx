@@ -2,4 +2,4 @@ let hanoi =
     \ 0, _, _, _ -> []
     | n, from, via, to -> hanoi(n - 1, from, to, via) ++ [(from, to)] ++ hanoi(n - 1, via, from, to);
 
-hanoi(3, "A", "B", "C")
+pretty.print(hanoi(3, "A", "B", "C"))

@@ -19,4 +19,4 @@ let merge_sort = \ [] -> []
                    merge(merge_sort(as), merge_sort(bs))
                  );
 
-merge_sort([7, 3, 9, 1, 4, 8, 2])
+pretty.print(merge_sort([7, 3, 9, 1, 4, 8, 2]))
