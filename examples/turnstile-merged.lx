@@ -1,0 +1,21 @@
+let run_turnstile_merged =
+    \ state, count, [] ->
+        (state, count)
+
+    | "locked", count, ["coin", ..events] ->
+        run_turnstile_merged("unlocked", count, events)
+
+    | "locked", count, ["push", ..events] ->
+        run_turnstile_merged("locked", count, events)
+
+    | "unlocked", count, ["push", ..events] ->
+        run_turnstile_merged("locked", count + 1, events)
+
+    | "unlocked", count, ["coin", ..events] ->
+        run_turnstile_merged("unlocked", count, events);
+
+run_turnstile_merged(
+    "locked",
+    0,
+    ["push", "coin", "push", "coin", "coin", "push"]
+)

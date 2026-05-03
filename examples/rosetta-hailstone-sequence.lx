@@ -1,0 +1,8 @@
+# https://rosettacode.org/wiki/Hailstone_sequence
+
+let hailstone =
+    \ 1              -> [1]
+    | n & n % 2 == 0 -> n :: hailstone(n / 2)
+    | n              -> n :: hailstone(3 * n + 1);
+
+hailstone(27)

@@ -1,0 +1,29 @@
+let step_turnstile =
+    \ "locked", "coin", count ->
+        ("unlocked", count)
+
+    | "locked", "push", count ->
+        ("locked", count)
+
+    | "unlocked", "push", count ->
+        ("locked", count + 1)
+
+    | "unlocked", "coin", count ->
+        ("unlocked", count);
+
+let run_turnstile =
+    \ state, count, [] ->
+        (state, count)
+
+    | state, count, [event, ..events] -> (
+        let (next_state, next_count) =
+            step_turnstile(state, event, count);
+
+        run_turnstile(next_state, next_count, events)
+    );
+
+run_turnstile(
+    "locked",
+    0,
+    ["push", "coin", "push", "coin", "coin", "push"]
+)
