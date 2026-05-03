@@ -11,7 +11,4 @@ let map_range =
 let fizzbuzz_factored =
     \ max -> map_range(fizzbuzz_value, 1, max);
 
-(
-    fizzbuzz_merged(1, 30),
-    fizzbuzz_factored(30)
-)
+fizzbuzz_factored(30)
