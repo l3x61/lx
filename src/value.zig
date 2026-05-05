@@ -416,8 +416,8 @@ pub const Value = union(Tag) {
 
         try writer.writeByte('\n');
         for (items, 0..) |item, index| {
-            try writeIndent(writer, indent + 2);
-            try item.writePrettyAt(writer, indent + 2);
+            try writeIndent(writer, indent + 4);
+            try item.writePrettyAt(writer, indent + 4);
             if (index + 1 < items.len) try writer.writeByte(',');
             try writer.writeByte('\n');
         }
@@ -434,10 +434,10 @@ pub const Value = union(Tag) {
 
         try writer.writeByte('\n');
         for (map.entries, 0..) |entry, index| {
-            try writeIndent(writer, indent + 2);
+            try writeIndent(writer, indent + 4);
             try writePrettyMapKey(writer, entry.key);
             try writer.writeAll(": ");
-            try entry.value.writePrettyAt(writer, indent + 2);
+            try entry.value.writePrettyAt(writer, indent + 4);
             if (index + 1 < map.entries.len) try writer.writeByte(',');
             try writer.writeByte('\n');
         }
@@ -481,8 +481,8 @@ pub const Value = union(Tag) {
 
         try term.writer.writeByte('\n');
         for (items, 0..) |item, index| {
-            try writeIndent(term.writer, indent + 2);
-            try item.writePrettyTerminalAt(term, indent + 2);
+            try writeIndent(term.writer, indent + 4);
+            try item.writePrettyTerminalAt(term, indent + 4);
             if (index + 1 < items.len) try writePrettyPunctuationTerminal(term, ",");
             try term.writer.writeByte('\n');
         }
@@ -499,11 +499,11 @@ pub const Value = union(Tag) {
 
         try term.writer.writeByte('\n');
         for (map.entries, 0..) |entry, index| {
-            try writeIndent(term.writer, indent + 2);
+            try writeIndent(term.writer, indent + 4);
             try writePrettyMapKeyTerminal(term, entry.key);
             try writePrettyPunctuationTerminal(term, ":");
             try term.writer.writeByte(' ');
-            try entry.value.writePrettyTerminalAt(term, indent + 2);
+            try entry.value.writePrettyTerminalAt(term, indent + 4);
             if (index + 1 < map.entries.len) try writePrettyPunctuationTerminal(term, ",");
             try term.writer.writeByte('\n');
         }

@@ -867,11 +867,11 @@ test "string builtins" {
 
 test "pretty builtins" {
     const expected = try Value.String.init(testing.allocator, "{\n" ++
-        "  status: 200,\n" ++
-        "  body: {\n" ++
-        "    ok: true\n" ++
-        "  },\n" ++
-        "  \"bad-key\": [1, 2]\n" ++
+        "    status: 200,\n" ++
+        "    body: {\n" ++
+        "        ok: true\n" ++
+        "    },\n" ++
+        "    \"bad-key\": [1, 2]\n" ++
         "}");
     defer expected.deinit(testing.allocator);
 
