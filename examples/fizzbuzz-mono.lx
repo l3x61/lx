@@ -2,9 +2,9 @@
 
 let fizzbuzz =
     \ i, max & i > max     -> []
-    | i, max & i % 15 == 0 -> "FizzBuzz" :: fizzbuzz_merged(i + 1, max)
-    | i, max & i % 3 == 0  -> "Fizz"     :: fizzbuzz_merged(i + 1, max)
-    | i, max & i % 5 == 0  -> "Buzz"     :: fizzbuzz_merged(i + 1, max)
-    | i, max               -> i          :: fizzbuzz_merged(i + 1, max);
+    | i, max & i % 15 == 0 -> "FizzBuzz" :: fizzbuzz(i + 1, max)
+    | i, max & i % 3 == 0  -> "Fizz"     :: fizzbuzz(i + 1, max)
+    | i, max & i % 5 == 0  -> "Buzz"     :: fizzbuzz(i + 1, max)
+    | i, max               -> i          :: fizzbuzz(i + 1, max);
 
 fizzbuzz(1, 30)
