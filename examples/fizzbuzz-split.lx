@@ -1,0 +1,16 @@
+# https://rosettacode.org/wiki/FizzBuzz
+
+let fizzbuzz =
+    \ n & n % 15 == 0 -> "FizzBuzz"
+    | n & n % 3 == 0  -> "Fizz"
+    | n & n % 5 == 0  -> "Buzz"
+    | n               -> n;
+
+let map =
+    \ _, i, max & i > max -> []
+    | f, i, max -> f(i) :: map(f, i + 1, max);
+
+let fizzbuzz =
+    \ max -> map(fizzbuzz, 1, max);
+
+fizzbuzz(30)

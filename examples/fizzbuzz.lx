@@ -1,3 +1,5 @@
+# https://rosettacode.org/wiki/FizzBuzz
+
 let fizzbuzz =
     \ n & n % 15 == 0 -> print("FizzBuzz")
     | n & n % 3  == 0 -> print("Fizz")

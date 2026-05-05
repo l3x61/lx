@@ -1,3 +1,5 @@
+# https://rosettacode.org/wiki/N-queens_problem
+
 let abs =
     \ n & n >= 0 -> n
     | n -> -n;

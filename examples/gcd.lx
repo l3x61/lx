@@ -1,3 +1,5 @@
+# https://rosettacode.org/wiki/Greatest_common_divisor
+
 let abs =
     \ n & n >= 0 -> n
     | n            -> -n;

@@ -1,3 +1,5 @@
+# https://rosettacode.org/wiki/Sieve_of_Eratosthenes
+
 let range_from =
     \ i, n & i > n -> []
     | i, n -> i :: range_from(i + 1, n);

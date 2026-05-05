@@ -1,5 +1,4 @@
 # https://rosettacode.org/wiki/Run-length_encoding
-# Input: WWWWWWWWWWWWBWWWWWWWWWWWWBBBWWWWWWWWWWWWWWWWWWWWWWWWBWWWWWWWWWWWWWW
 
 let repeat =
     \ _, 0 -> []

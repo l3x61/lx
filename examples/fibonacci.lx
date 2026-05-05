@@ -1,3 +1,5 @@
+# https://rosettacode.org/wiki/Fibonacci_sequence
+
 let fib =
     \ n & n <= 1 -> n
     | n          -> fib(n - 1) + fib(n - 2);
