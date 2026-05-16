@@ -20,7 +20,6 @@ const String = ArrayList(u8);
 
 const csi = "\x1b[";
 const erase_to_end = csi ++ "0K";
-const get_cursor_position = csi ++ "6n";
 
 // https://github.com/termbox/termbox2/blob/290ac6b8225aacfd16851224682b851b65fcb918/termbox2.h#L122
 const KeyCode = enum(u64) {
@@ -206,30 +205,6 @@ fn utf8PreviousCodepoint(s: []const u8, index: usize) usize {
     var i = index - 1;
     while (i > 0 and (s[i] & 0xC0) == 0x80) : (i -= 1) {}
     return i;
-}
-
-fn getCursorPosition(out: *Writer) ![2]usize {
-    try out.writeAll(get_cursor_position);
-    try out.flush();
-
-    const Buffer = [@sizeOf(u64)]u8;
-    var buffer: Buffer = zeroes(Buffer);
-
-    const bytes = try readBytes(&buffer);
-
-    const response = bytes[2 .. bytes.len - 1];
-    var it = mem.splitScalar(u8, response, ';');
-    const row_str = it.next() orelse return error.BadResponse;
-    const col_str = it.next() orelse return error.BadResponse;
-
-    const row = try fmt.parseInt(usize, row_str, 10);
-    const col = try fmt.parseInt(usize, col_str, 10);
-    return .{ row, col };
-}
-
-fn setCursorPos(out: *Writer, row: usize, col: usize) !void {
-    try out.print("\x1b[{d};{d}H", .{ row, col });
-    try out.flush();
 }
 
 fn readBytes(buffer: []u8) ![]const u8 {

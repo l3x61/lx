@@ -165,12 +165,6 @@ fn current(self: *const Parser) Token {
     return self.tokens[self.index];
 }
 
-fn peek(self: *const Parser, offset: usize) Token {
-    const next = self.index + offset;
-    if (next >= self.tokens.len) return self.tokens[self.tokens.len - 1];
-    return self.tokens[next];
-}
-
 fn advance(self: *Parser) Token {
     const token = self.current();
     if (self.index + 1 < self.tokens.len) self.index += 1;
@@ -640,7 +634,7 @@ fn parseRecordKey(self: *Parser) anyerror![]const u8 {
         },
         .string => {
             _ = self.advance();
-            return decodeStaticStringLiteral(self.allocator, token.lexeme) catch |err| switch (err) {
+            return decodeStringLiteral(self.allocator, token.lexeme) catch |err| switch (err) {
                 error.InvalidStringLiteral => self.failMessage("invalid record key string"),
                 else => return err,
             };
@@ -923,7 +917,7 @@ fn parseRecordPatternKey(self: *Parser) anyerror![]const u8 {
         },
         .string => {
             _ = self.advance();
-            return decodeStaticStringLiteral(self.allocator, token.lexeme) catch |err| switch (err) {
+            return decodeStringLiteral(self.allocator, token.lexeme) catch |err| switch (err) {
                 error.InvalidStringLiteral => self.failMessage("invalid record pattern key string"),
                 else => return err,
             };
@@ -952,7 +946,16 @@ fn isPatternStart(tag: Token.Tag) bool {
     };
 }
 
-fn decodeStaticStringLiteral(gpa: Allocator, lexeme: []const u8) anyerror![]u8 {
+/// Decode a string lexeme into its raw byte contents. If the lexeme is
+/// quoted (\" or '), the surrounding quotes are stripped and escape sequences
+/// are processed. Otherwise the bytes are returned verbatim; this lets the
+/// same helper serve both string literals and the bare-identifier lexemes
+/// produced by desugaring member access (`rec.field` ⇝ `rec["field"]`).
+pub fn decodeStringLiteral(gpa: Allocator, lexeme: []const u8) anyerror![]u8 {
+    if (lexeme.len == 0 or (lexeme[0] != '"' and lexeme[0] != '\'')) {
+        return try gpa.dupe(u8, lexeme);
+    }
+
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(gpa);
 

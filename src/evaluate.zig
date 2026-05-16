@@ -9,6 +9,7 @@ const Node = node_mod.Node;
 const Clause = node_mod.Clause;
 const Pattern = node_mod.Pattern;
 const Rest = node_mod.Rest;
+const Parser = @import("Parser.zig");
 const Token = @import("Token.zig");
 const Value = @import("value.zig").Value;
 
@@ -589,38 +590,7 @@ fn literalMatches(lit: Pattern.LiteralPattern, value: Value, gpa: Allocator) any
     };
 }
 
-fn decodeStringLiteral(gpa: Allocator, lexeme: []const u8) anyerror![]u8 {
-    if (lexeme.len == 0 or (lexeme[0] != '"' and lexeme[0] != '\'')) {
-        return try gpa.dupe(u8, lexeme);
-    }
-
-    var buffer: std.ArrayList(u8) = .empty;
-    errdefer buffer.deinit(gpa);
-
-    var index: usize = 1;
-    while (index + 1 < lexeme.len) {
-        const byte = lexeme[index];
-        if (byte == '\\') {
-            index += 1;
-            if (index + 1 > lexeme.len) return error.InvalidStringLiteral;
-            const escaped = lexeme[index];
-            try buffer.append(gpa, switch (escaped) {
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                '\\' => '\\',
-                '"' => '"',
-                '\'' => '\'',
-                else => return error.InvalidStringLiteral,
-            });
-        } else {
-            try buffer.append(gpa, byte);
-        }
-        index += 1;
-    }
-
-    return buffer.toOwnedSlice(gpa);
-}
+const decodeStringLiteral = Parser.decodeStringLiteral;
 
 const testing = std.testing;
 

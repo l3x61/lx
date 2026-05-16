@@ -35,7 +35,7 @@ const pretty_builtins = [_]Builtin{
 };
 
 pub fn install(gc: *Gc, env: *Environment) !void {
-    try buildIn(gc, env, "print", printBuiltin);
+    try installBuiltin(gc, env, "print", printBuiltin);
     try installNamespace(gc, env, "record", &record_builtins);
     try installNamespace(gc, env, "list", &list_builtins);
     try installNamespace(gc, env, "tuple", &tuple_builtins);
@@ -43,7 +43,7 @@ pub fn install(gc: *Gc, env: *Environment) !void {
     try installNamespace(gc, env, "pretty", &pretty_builtins);
 }
 
-fn buildIn(
+fn installBuiltin(
     gc: *Gc,
     env: *Environment,
     name: []const u8,

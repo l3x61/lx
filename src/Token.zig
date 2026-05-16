@@ -153,13 +153,6 @@ pub fn format(self: Token, writer: anytype) !void {
     }
 }
 
-pub fn isOneOf(self: Token, expected: []const Tag) bool {
-    for (expected) |tag| {
-        if (self.tag == tag) return true;
-    }
-    return false;
-}
-
 pub fn color(self: Token) Color {
     return switch (self.tag) {
         .let, .match => Palette.keyword,
