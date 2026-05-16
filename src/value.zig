@@ -14,7 +14,7 @@ pub const Value = union(Tag) {
     string: *String,
     list: *List,
     tuple: *Tuple,
-    map: *Map,
+    record: *Record,
     native: *Native,
     closure: *Closure,
 
@@ -25,7 +25,7 @@ pub const Value = union(Tag) {
         string,
         list,
         tuple,
-        map,
+        record,
         native,
         closure,
 
@@ -112,41 +112,33 @@ pub const Value = union(Tag) {
         }
     };
 
-    pub const Map = struct {
+    pub const Record = struct {
         entries: []Entry,
 
         pub const Entry = struct {
-            key: Value,
+            key: []const u8,
             value: Value,
         };
 
         pub fn initOwned(gpa: Allocator, entries: []Entry) !Value {
-            const ptr = try gpa.create(Map);
+            const ptr = try gpa.create(Record);
             errdefer gpa.destroy(ptr);
             ptr.* = .{ .entries = entries };
-            return .{ .map = ptr };
+            return .{ .record = ptr };
         }
 
         pub fn init(gpa: Allocator, entries: []const Entry) !Value {
             return initOwned(gpa, try gpa.dupe(Entry, entries));
         }
 
-        pub fn deinit(self: *Map, gpa: Allocator) void {
+        pub fn deinit(self: *Record, gpa: Allocator) void {
             gpa.free(self.entries);
             gpa.destroy(self);
         }
 
-        pub fn findIndex(self: *const Map, key: Value) ?usize {
+        pub fn findIndex(self: *const Record, key: []const u8) ?usize {
             for (self.entries, 0..) |entry, index| {
-                if (entry.key.equal(key)) return index;
-            }
-            return null;
-        }
-
-        pub fn findStringIndex(self: *const Map, key: []const u8) ?usize {
-            for (self.entries, 0..) |entry, index| {
-                const bytes = entry.key.asString() orelse continue;
-                if (std.mem.eql(u8, bytes, key)) return index;
+                if (std.mem.eql(u8, entry.key, key)) return index;
             }
             return null;
         }
@@ -214,7 +206,7 @@ pub const Value = union(Tag) {
             .string => |string| string.deinit(gpa),
             .list => |list| list.deinit(gpa),
             .tuple => |tuple| tuple.deinit(gpa),
-            .map => |map| map.deinit(gpa),
+            .record => |record| record.deinit(gpa),
             .native => |native| native.deinit(gpa),
             .closure => |closure| gpa.destroy(closure),
             else => {},
@@ -256,9 +248,9 @@ pub const Value = union(Tag) {
         };
     }
 
-    pub fn asMap(self: Value) ?*Map {
+    pub fn asRecord(self: Value) ?*Record {
         return switch (self) {
-            .map => |map| map,
+            .record => |record| record,
             else => null,
         };
     }
@@ -315,8 +307,8 @@ pub const Value = union(Tag) {
                 },
                 else => false,
             },
-            .map => |value| switch (right) {
-                .map => |other| blk: {
+            .record => |value| switch (right) {
+                .record => |other| blk: {
                     if (value.entries.len != other.entries.len) break :blk false;
                     for (value.entries) |entry| {
                         const index = other.findIndex(entry.key) orelse break :blk false;
@@ -359,11 +351,11 @@ pub const Value = union(Tag) {
                 }
                 try writer.writeByte(')');
             },
-            .map => |map| {
+            .record => |record| {
                 try writer.writeByte('{');
-                for (map.entries, 0..) |entry, index| {
+                for (record.entries, 0..) |entry, index| {
                     if (index != 0) try writer.writeAll(", ");
-                    try entry.key.write(writer);
+                    try writer.print("\"{s}\"", .{entry.key});
                     try writer.writeAll(": ");
                     try entry.value.write(writer);
                 }
@@ -387,7 +379,7 @@ pub const Value = union(Tag) {
         switch (self) {
             .list => |list| try writePrettySequence(writer, "[", "]", list.items, indent),
             .tuple => |tuple| try writePrettySequence(writer, "(", ")", tuple.items, indent),
-            .map => |map| try writePrettyMap(writer, map, indent),
+            .record => |record| try writePrettyRecord(writer, record, indent),
             else => try self.write(writer),
         }
     }
@@ -425,20 +417,20 @@ pub const Value = union(Tag) {
         try writer.writeAll(close);
     }
 
-    fn writePrettyMap(writer: anytype, map: *Map, indent: usize) anyerror!void {
+    fn writePrettyRecord(writer: anytype, record: *Record, indent: usize) anyerror!void {
         try writer.writeByte('{');
-        if (map.entries.len == 0) {
+        if (record.entries.len == 0) {
             try writer.writeByte('}');
             return;
         }
 
         try writer.writeByte('\n');
-        for (map.entries, 0..) |entry, index| {
+        for (record.entries, 0..) |entry, index| {
             try writeIndent(writer, indent + 4);
-            try writePrettyMapKey(writer, entry.key);
+            try writePrettyRecordKey(writer, entry.key);
             try writer.writeAll(": ");
             try entry.value.writePrettyAt(writer, indent + 4);
-            if (index + 1 < map.entries.len) try writer.writeByte(',');
+            if (index + 1 < record.entries.len) try writer.writeByte(',');
             try writer.writeByte('\n');
         }
         try writeIndent(writer, indent);
@@ -449,7 +441,7 @@ pub const Value = union(Tag) {
         switch (self) {
             .list => |list| try writePrettySequenceTerminal(term, "[", "]", list.items, indent),
             .tuple => |tuple| try writePrettySequenceTerminal(term, "(", ")", tuple.items, indent),
-            .map => |map| try writePrettyMapTerminal(term, map, indent),
+            .record => |record| try writePrettyRecordTerminal(term, record, indent),
             else => try writePrettyScalarTerminal(term, self),
         }
     }
@@ -490,35 +482,35 @@ pub const Value = union(Tag) {
         try writePrettyPunctuationTerminal(term, close);
     }
 
-    fn writePrettyMapTerminal(term: Terminal, map: *Map, indent: usize) anyerror!void {
+    fn writePrettyRecordTerminal(term: Terminal, record: *Record, indent: usize) anyerror!void {
         try writePrettyPunctuationTerminal(term, "{");
-        if (map.entries.len == 0) {
+        if (record.entries.len == 0) {
             try writePrettyPunctuationTerminal(term, "}");
             return;
         }
 
         try term.writer.writeByte('\n');
-        for (map.entries, 0..) |entry, index| {
+        for (record.entries, 0..) |entry, index| {
             try writeIndent(term.writer, indent + 4);
-            try writePrettyMapKeyTerminal(term, entry.key);
+            try writePrettyRecordKeyTerminal(term, entry.key);
             try writePrettyPunctuationTerminal(term, ":");
             try term.writer.writeByte(' ');
             try entry.value.writePrettyTerminalAt(term, indent + 4);
-            if (index + 1 < map.entries.len) try writePrettyPunctuationTerminal(term, ",");
+            if (index + 1 < record.entries.len) try writePrettyPunctuationTerminal(term, ",");
             try term.writer.writeByte('\n');
         }
         try writeIndent(term.writer, indent);
         try writePrettyPunctuationTerminal(term, "}");
     }
 
-    fn writePrettyMapKeyTerminal(term: Terminal, key: Value) anyerror!void {
-        if (key.asString()) |bytes| {
-            if (isBareRecordKey(bytes)) {
-                try term.writer.writeAll(bytes);
-                return;
-            }
+    fn writePrettyRecordKeyTerminal(term: Terminal, key: []const u8) anyerror!void {
+        if (isBareRecordKey(key)) {
+            try term.writer.writeAll(key);
+            return;
         }
-        try key.writePrettyTerminalAt(term, 0);
+        try term.setColor(Token.Palette.literal);
+        try term.writer.print("\"{s}\"", .{key});
+        try term.setColor(.reset);
     }
 
     fn writePrettyScalarTerminal(term: Terminal, value: Value) anyerror!void {
@@ -541,7 +533,7 @@ pub const Value = union(Tag) {
                 try term.setColor(.reset);
             },
             .closure => try writePrettyStyledTerminal(term, "<function>", Token.Palette.meta),
-            .list, .tuple, .map => unreachable,
+            .list, .tuple, .record => unreachable,
         }
     }
 
@@ -555,14 +547,12 @@ pub const Value = union(Tag) {
         try term.setColor(.reset);
     }
 
-    fn writePrettyMapKey(writer: anytype, key: Value) anyerror!void {
-        if (key.asString()) |bytes| {
-            if (isBareRecordKey(bytes)) {
-                try writer.writeAll(bytes);
-                return;
-            }
+    fn writePrettyRecordKey(writer: anytype, key: []const u8) anyerror!void {
+        if (isBareRecordKey(key)) {
+            try writer.writeAll(key);
+            return;
         }
-        try key.write(writer);
+        try writer.print("\"{s}\"", .{key});
     }
 
     fn isInlineSequence(items: []const Value) bool {

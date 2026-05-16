@@ -44,7 +44,7 @@ fn evalNode(node: *Node, gc: *Gc, env: *Environment) anyerror!Value {
         .index => |idx| evalIndex(idx, gc, env),
         .list => |list| evalList(list, gc, env),
         .tuple => |tuple| evalTuple(tuple, gc, env),
-        .map => |map| evalMap(map, gc, env),
+        .record => |record| evalRecord(record, gc, env),
         .function => |function| evalFunction(function, gc, env),
         .binding => |binding| evalBinding(binding, gc, env),
     };
@@ -136,10 +136,10 @@ fn evalIndex(idx: Node.Index, gc: *Gc, env: *Environment) anyerror!Value {
     const target = try evalNode(idx.target, gc, env);
     const key = try evalNode(idx.index, gc, env);
 
-    if (target.asMap()) |map| {
+    if (target.asRecord()) |record| {
         const key_bytes = key.asString() orelse return error.TypeError;
-        const entry_index = map.findStringIndex(key_bytes) orelse return error.KeyNotFound;
-        return map.entries[entry_index].value;
+        const entry_index = record.findIndex(key_bytes) orelse return error.KeyNotFound;
+        return record.entries[entry_index].value;
     }
 
     const i = key.asInteger() orelse return error.TypeError;
@@ -174,20 +174,18 @@ fn evalList(list: Node.List, gc: *Gc, env: *Environment) anyerror!Value {
     return value;
 }
 
-fn evalMap(map: Node.Map, gc: *Gc, env: *Environment) anyerror!Value {
-    var entries: std.ArrayList(Value.Map.Entry) = .empty;
+fn evalRecord(record: Node.Record, gc: *Gc, env: *Environment) anyerror!Value {
+    var entries: std.ArrayList(Value.Record.Entry) = .empty;
     errdefer entries.deinit(gc.allocator());
 
-    for (map.entries) |entry| {
-        const key = try Value.String.init(gc.allocator(), entry.key);
-        try gc.track(key);
+    for (record.entries) |entry| {
         const value = try evalNode(entry.value, gc, env);
-        try putMapEntryInList(&entries, gc.allocator(), key, value);
+        try putRecordEntryInList(&entries, gc.allocator(), entry.key, value);
     }
 
     const owned = try entries.toOwnedSlice(gc.allocator());
     errdefer gc.allocator().free(owned);
-    const value = try Value.Map.initOwned(gc.allocator(), owned);
+    const value = try Value.Record.initOwned(gc.allocator(), owned);
     try gc.track(value);
     return value;
 }
@@ -247,9 +245,9 @@ fn preallocatePatternCells(pattern: *Pattern, env: *Environment) anyerror!void {
                 else => {},
             }
         },
-        .map => |map| {
-            for (map.entries) |entry| try preallocatePatternCells(entry.pattern, env);
-            switch (map.rest) {
+        .record => |record| {
+            for (record.entries) |entry| try preallocatePatternCells(entry.pattern, env);
+            switch (record.rest) {
                 .pattern => |p| try preallocatePatternCells(p, env),
                 else => {},
             }
@@ -272,7 +270,7 @@ fn tryMatchPattern(pattern: *Pattern, value: Value, env: *Environment, gc: *Gc) 
         .literal => |lit| try literalMatches(lit, value, gc.allocator()),
         .tuple => |tuple| try matchTuplePattern(tuple.items, value, env, gc),
         .list => |list| try matchListPattern(list, value, env, gc),
-        .map => |map| try matchMapPattern(map, value, env, gc),
+        .record => |record| try matchRecordPattern(record, value, env, gc),
         .refinement => |r| blk: {
             const mark = try env.snapshot();
             defer mark.deinit(env.gpa);
@@ -361,28 +359,28 @@ fn matchListPattern(
     return true;
 }
 
-fn matchMapPattern(
-    pattern: Pattern.MapPattern,
+fn matchRecordPattern(
+    pattern: Pattern.RecordPattern,
     value: Value,
     env: *Environment,
     gc: *Gc,
 ) anyerror!bool {
-    const map = value.asMap() orelse return false;
+    const record = value.asRecord() orelse return false;
     const has_rest = switch (pattern.rest) {
         .none => false,
         else => true,
     };
-    if (!has_rest and map.entries.len != pattern.entries.len) return false;
+    if (!has_rest and record.entries.len != pattern.entries.len) return false;
 
     const mark = try env.snapshot();
     defer mark.deinit(env.gpa);
 
     for (pattern.entries) |entry| {
-        const index = map.findStringIndex(entry.key) orelse {
+        const index = record.findIndex(entry.key) orelse {
             env.restore(mark);
             return false;
         };
-        if (!try tryMatchPattern(entry.pattern, map.entries[index].value, env, gc)) {
+        if (!try tryMatchPattern(entry.pattern, record.entries[index].value, env, gc)) {
             env.restore(mark);
             return false;
         }
@@ -391,7 +389,7 @@ fn matchMapPattern(
     switch (pattern.rest) {
         .none, .wildcard => {},
         .pattern => |rest_pattern| {
-            const rest = try restMapForPattern(pattern.entries, map, gc);
+            const rest = try restRecordForPattern(pattern.entries, record, gc);
             try gc.track(rest);
             if (!try tryMatchPattern(rest_pattern, rest, env, gc)) {
                 env.restore(mark);
@@ -403,33 +401,32 @@ fn matchMapPattern(
     return true;
 }
 
-fn restMapForPattern(
-    pattern_entries: []const Pattern.MapPattern.Entry,
-    map: *Value.Map,
+fn restRecordForPattern(
+    pattern_entries: []const Pattern.RecordPattern.Entry,
+    record: *Value.Record,
     gc: *Gc,
 ) !Value {
     var rest_len: usize = 0;
-    for (map.entries) |entry| {
-        if (!mapKeyInPattern(pattern_entries, entry.key)) rest_len += 1;
+    for (record.entries) |entry| {
+        if (!recordKeyInPattern(pattern_entries, entry.key)) rest_len += 1;
     }
 
-    const entries = try gc.allocator().alloc(Value.Map.Entry, rest_len);
+    const entries = try gc.allocator().alloc(Value.Record.Entry, rest_len);
     errdefer gc.allocator().free(entries);
 
     var out_index: usize = 0;
-    for (map.entries) |entry| {
-        if (mapKeyInPattern(pattern_entries, entry.key)) continue;
+    for (record.entries) |entry| {
+        if (recordKeyInPattern(pattern_entries, entry.key)) continue;
         entries[out_index] = entry;
         out_index += 1;
     }
 
-    return Value.Map.initOwned(gc.allocator(), entries);
+    return Value.Record.initOwned(gc.allocator(), entries);
 }
 
-fn mapKeyInPattern(pattern_entries: []const Pattern.MapPattern.Entry, key: Value) bool {
-    const bytes = key.asString() orelse return false;
+fn recordKeyInPattern(pattern_entries: []const Pattern.RecordPattern.Entry, key: []const u8) bool {
     for (pattern_entries) |entry| {
-        if (std.mem.eql(u8, entry.key, bytes)) return true;
+        if (std.mem.eql(u8, entry.key, key)) return true;
     }
     return false;
 }
@@ -509,22 +506,22 @@ fn concatValues(left: Value, right: Value, gc: *Gc) anyerror!Value {
         return value;
     }
 
-    if (left.asMap()) |lhs| {
-        const rhs = right.asMap() orelse return error.TypeError;
+    if (left.asRecord()) |lhs| {
+        const rhs = right.asRecord() orelse return error.TypeError;
 
-        var entries: std.ArrayList(Value.Map.Entry) = .empty;
+        var entries: std.ArrayList(Value.Record.Entry) = .empty;
         errdefer entries.deinit(gc.allocator());
 
         for (lhs.entries) |entry| {
             try entries.append(gc.allocator(), entry);
         }
         for (rhs.entries) |entry| {
-            try putMapEntryInList(&entries, gc.allocator(), entry.key, entry.value);
+            try putRecordEntryInList(&entries, gc.allocator(), entry.key, entry.value);
         }
 
         const owned = try entries.toOwnedSlice(gc.allocator());
         errdefer gc.allocator().free(owned);
-        const value = try Value.Map.initOwned(gc.allocator(), owned);
+        const value = try Value.Record.initOwned(gc.allocator(), owned);
         try gc.track(value);
         return value;
     }
@@ -532,14 +529,14 @@ fn concatValues(left: Value, right: Value, gc: *Gc) anyerror!Value {
     return error.TypeError;
 }
 
-fn putMapEntryInList(
-    entries: *std.ArrayList(Value.Map.Entry),
+fn putRecordEntryInList(
+    entries: *std.ArrayList(Value.Record.Entry),
     gpa: Allocator,
-    key: Value,
+    key: []const u8,
     value: Value,
 ) !void {
     for (entries.items) |*entry| {
-        if (entry.key.equal(key)) {
+        if (std.mem.eql(u8, entry.key, key)) {
             entry.value = value;
             return;
         }

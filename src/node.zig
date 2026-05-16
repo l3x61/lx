@@ -14,7 +14,7 @@ pub const Tag = enum {
     index,
     list,
     tuple,
-    map,
+    record,
     function,
     binding,
 };
@@ -25,7 +25,7 @@ pub const PatternTag = enum {
     literal,
     tuple,
     list,
-    map,
+    record,
     refinement,
     alternative,
 };
@@ -40,7 +40,7 @@ pub const Node = union(Tag) {
     index: Index,
     list: List,
     tuple: Tuple,
-    map: Map,
+    record: Record,
     function: Function,
     binding: Binding,
 
@@ -77,7 +77,7 @@ pub const Node = union(Tag) {
         items: []*Node,
     };
 
-    pub const Map = struct {
+    pub const Record = struct {
         entries: []Entry,
 
         pub const Entry = struct {
@@ -127,12 +127,12 @@ pub const Node = union(Tag) {
                 for (tuple.items) |item| item.deinit(ator);
                 ator.free(tuple.items);
             },
-            .map => |map| {
-                for (map.entries) |entry| {
+            .record => |record| {
+                for (record.entries) |entry| {
                     ator.free(entry.key);
                     entry.value.deinit(ator);
                 }
-                ator.free(map.entries);
+                ator.free(record.entries);
             },
             .function => |function| {
                 for (function.clauses) |clause| clause.deinit(ator);
@@ -198,9 +198,9 @@ pub const Node = union(Tag) {
                     try item.writeTreeIndented(term, indent + 4, item_label);
                 }
             },
-            .map => |map| {
-                try writeTreeKind(term, "map");
-                for (map.entries, 0..) |entry, index| {
+            .record => |record| {
+                try writeTreeKind(term, "record");
+                for (record.entries, 0..) |entry, index| {
                     var key_label_buffer: [32]u8 = undefined;
                     const key_label = try std.fmt.bufPrint(&key_label_buffer, "entry[{d}].key", .{index});
                     try writeIndent(term.writer, indent + 4);
@@ -290,7 +290,7 @@ pub const Pattern = union(PatternTag) {
     literal: LiteralPattern,
     tuple: TuplePattern,
     list: ListPattern,
-    map: MapPattern,
+    record: RecordPattern,
     refinement: Refinement,
     alternative: Alternative,
 
@@ -308,7 +308,7 @@ pub const Pattern = union(PatternTag) {
         rest: Rest,
     };
 
-    pub const MapPattern = struct {
+    pub const RecordPattern = struct {
         entries: []Entry,
         rest: Rest,
 
@@ -349,13 +349,13 @@ pub const Pattern = union(PatternTag) {
                     else => {},
                 }
             },
-            .map => |map| {
-                for (map.entries) |entry| {
+            .record => |record| {
+                for (record.entries) |entry| {
                     ator.free(entry.key);
                     entry.pattern.deinit(ator);
                 }
-                ator.free(map.entries);
-                switch (map.rest) {
+                ator.free(record.entries);
+                switch (record.rest) {
                     .pattern => |p| p.deinit(ator),
                     else => {},
                 }
@@ -429,14 +429,14 @@ fn writePatternTree(pattern: *const Pattern, term: Terminal, indent: usize, labe
                 .pattern => |p| try writePatternTree(p, term, indent + 4, "rest"),
             }
         },
-        .map => |map| {
-            try Node.writeTreeKind(term, "map");
-            for (map.entries, 0..) |entry, index| {
+        .record => |record| {
+            try Node.writeTreeKind(term, "record");
+            for (record.entries, 0..) |entry, index| {
                 var label_buffer: [128]u8 = undefined;
                 const entry_label = try std.fmt.bufPrint(&label_buffer, "entry[{d}] \"{s}\"", .{ index, entry.key });
                 try writePatternTree(entry.pattern, term, indent + 4, entry_label);
             }
-            switch (map.rest) {
+            switch (record.rest) {
                 .none => {},
                 .wildcard => {
                     try writeIndent(writer, indent + 4);

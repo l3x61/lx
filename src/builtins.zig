@@ -70,17 +70,15 @@ fn installNative(
 }
 
 fn installNamespace(gc: *Gc, env: *Environment, name: []const u8, builtins: []const Builtin) !void {
-    const entries = try gc.allocator().alloc(Value.Map.Entry, builtins.len);
+    const entries = try gc.allocator().alloc(Value.Record.Entry, builtins.len);
     errdefer gc.allocator().free(entries);
 
     for (builtins, 0..) |builtin, index| {
         const function = try installNative(gc, builtin.name, builtin.function);
-        const key = try Value.String.init(gc.allocator(), builtin.field_name);
-        try gc.track(key);
-        entries[index] = .{ .key = key, .value = function };
+        entries[index] = .{ .key = builtin.field_name, .value = function };
     }
 
-    const namespace = try Value.Map.initOwned(gc.allocator(), entries);
+    const namespace = try Value.Record.initOwned(gc.allocator(), entries);
     try gc.track(namespace);
     try env.bind(name, namespace);
 }
@@ -133,49 +131,52 @@ fn prettyShowBuiltin(context: NativeContext, argument: Value) !Value {
 fn recordHasBuiltin(context: NativeContext, argument: Value) !Value {
     _ = context;
     const args = try expectTuple(argument, 2);
-    const map = args[0].asMap() orelse return error.TypeError;
+    const record = args[0].asRecord() orelse return error.TypeError;
     const key = args[1].asString() orelse return error.TypeError;
-    return .{ .boolean = map.findStringIndex(key) != null };
+    return .{ .boolean = record.findIndex(key) != null };
 }
 
 fn recordPutBuiltin(context: NativeContext, argument: Value) !Value {
     const args = try expectTuple(argument, 3);
-    const map = args[0].asMap() orelse return error.TypeError;
-    _ = args[1].asString() orelse return error.TypeError;
-    return copyMapWithEntry(context, map, args[1], args[2]);
+    const record = args[0].asRecord() orelse return error.TypeError;
+    const key = args[1].asString() orelse return error.TypeError;
+    return copyRecordWithEntry(context, record, key, args[2]);
 }
 
 fn recordRemoveBuiltin(context: NativeContext, argument: Value) !Value {
     const args = try expectTuple(argument, 2);
-    const map = args[0].asMap() orelse return error.TypeError;
+    const record = args[0].asRecord() orelse return error.TypeError;
     const key = args[1].asString() orelse return error.TypeError;
-    const remove_index = map.findStringIndex(key) orelse return args[0];
+    const remove_index = record.findIndex(key) orelse return args[0];
 
-    const entries = try context.allocator().alloc(Value.Map.Entry, map.entries.len - 1);
+    const entries = try context.allocator().alloc(Value.Record.Entry, record.entries.len - 1);
     errdefer context.allocator().free(entries);
 
     var out_index: usize = 0;
-    for (map.entries, 0..) |entry, index| {
+    for (record.entries, 0..) |entry, index| {
         if (index == remove_index) continue;
         entries[out_index] = entry;
         out_index += 1;
     }
 
-    const value = try Value.Map.initOwned(context.allocator(), entries);
+    const value = try Value.Record.initOwned(context.allocator(), entries);
     try context.track(value);
     return value;
 }
 
 fn recordEntriesBuiltin(context: NativeContext, argument: Value) !Value {
-    const map = argument.asMap() orelse return error.TypeError;
-    const items = try context.allocator().alloc(Value, map.entries.len);
+    const record = argument.asRecord() orelse return error.TypeError;
+    const items = try context.allocator().alloc(Value, record.entries.len);
     errdefer context.allocator().free(items);
 
-    for (map.entries, 0..) |entry, index| {
+    for (record.entries, 0..) |entry, index| {
         const tuple_items = try context.allocator().alloc(Value, 2);
         errdefer context.allocator().free(tuple_items);
 
-        tuple_items[0] = entry.key;
+        const key_value = try Value.String.init(context.allocator(), entry.key);
+        try context.track(key_value);
+
+        tuple_items[0] = key_value;
         tuple_items[1] = entry.value;
 
         const tuple = try Value.Tuple.initOwned(context.allocator(), tuple_items);
@@ -222,26 +223,25 @@ fn expectTuple(argument: Value, len: usize) ![]Value {
     return tuple.items;
 }
 
-fn copyMapWithEntry(
+fn copyRecordWithEntry(
     context: NativeContext,
-    map: *Value.Map,
-    key: Value,
+    record: *Value.Record,
+    key: []const u8,
     value: Value,
 ) !Value {
-    const key_bytes = key.asString() orelse return error.TypeError;
-    const existing = map.findStringIndex(key_bytes);
-    const len = if (existing == null) map.entries.len + 1 else map.entries.len;
-    const entries = try context.allocator().alloc(Value.Map.Entry, len);
+    const existing = record.findIndex(key);
+    const len = if (existing == null) record.entries.len + 1 else record.entries.len;
+    const entries = try context.allocator().alloc(Value.Record.Entry, len);
     errdefer context.allocator().free(entries);
 
-    @memcpy(entries[0..map.entries.len], map.entries);
+    @memcpy(entries[0..record.entries.len], record.entries);
     if (existing) |index| {
         entries[index].value = value;
     } else {
-        entries[map.entries.len] = .{ .key = key, .value = value };
+        entries[record.entries.len] = .{ .key = key, .value = value };
     }
 
-    const result = try Value.Map.initOwned(context.allocator(), entries);
+    const result = try Value.Record.initOwned(context.allocator(), entries);
     try context.track(result);
     return result;
 }

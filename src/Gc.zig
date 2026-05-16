@@ -15,7 +15,7 @@ const Tracked = union(enum) {
     string: *Value.String,
     list: *Value.List,
     tuple: *Value.Tuple,
-    map: *Value.Map,
+    record: *Value.Record,
     native: *Value.Native,
     closure: *Value.Closure,
 };
@@ -41,7 +41,7 @@ pub fn deinit(self: *Gc) void {
             .string => |string| string.deinit(self.gpa),
             .list => |list| list.deinit(self.gpa),
             .tuple => |tuple| tuple.deinit(self.gpa),
-            .map => |map| map.deinit(self.gpa),
+            .record => |record| record.deinit(self.gpa),
             .native => |native| native.deinit(self.gpa),
             .closure => |closure| self.gpa.destroy(closure),
         }
@@ -71,7 +71,7 @@ pub fn track(self: *Gc, object: anytype) !void {
             .string => |string| .{ .string = string },
             .list => |list| .{ .list = list },
             .tuple => |tuple| .{ .tuple = tuple },
-            .map => |map| .{ .map = map },
+            .record => |record| .{ .record = record },
             .native => |native| .{ .native = native },
             .closure => |closure| .{ .closure = closure },
             else => null,

@@ -508,7 +508,7 @@ fn parsePrimary(self: *Parser) anyerror!*Node {
         },
         .lparen => self.parseParenOrTupleOrUnit(),
         .lbracket => self.parseList(),
-        .lbrace => self.parseMap(),
+        .lbrace => self.parseRecord(),
         .backslash, .lambda => self.parseFunction(),
         else => self.failMessage("expected expression"),
     };
@@ -574,10 +574,10 @@ fn parseList(self: *Parser) anyerror!*Node {
     return Node.create(self.allocator, .{ .list = .{ .items = owned } });
 }
 
-fn parseMap(self: *Parser) anyerror!*Node {
+fn parseRecord(self: *Parser) anyerror!*Node {
     _ = try self.expect(.lbrace);
 
-    var entries: std.ArrayList(Node.Map.Entry) = .empty;
+    var entries: std.ArrayList(Node.Record.Entry) = .empty;
     errdefer {
         for (entries.items) |entry| {
             self.allocator.free(entry.key);
@@ -605,7 +605,7 @@ fn parseMap(self: *Parser) anyerror!*Node {
 
     _ = try self.expect(.rbrace);
     const owned = try entries.toOwnedSlice(self.allocator);
-    return Node.create(self.allocator, .{ .map = .{ .entries = owned } });
+    return Node.create(self.allocator, .{ .record = .{ .entries = owned } });
 }
 
 fn parseRecordKey(self: *Parser) anyerror![]const u8 {
@@ -747,7 +747,7 @@ fn parseAtomicPattern(self: *Parser) anyerror!*Pattern {
         },
         .lparen => return self.parseParenPattern(),
         .lbracket => return self.parseListPattern(),
-        .lbrace => return self.parseMapPattern(),
+        .lbrace => return self.parseRecordPattern(),
         else => return self.failMessage("expected pattern"),
     }
 }
@@ -829,10 +829,10 @@ fn parseListPattern(self: *Parser) anyerror!*Pattern {
     });
 }
 
-fn parseMapPattern(self: *Parser) anyerror!*Pattern {
+fn parseRecordPattern(self: *Parser) anyerror!*Pattern {
     _ = try self.expect(.lbrace);
 
-    var entries: std.ArrayList(Pattern.MapPattern.Entry) = .empty;
+    var entries: std.ArrayList(Pattern.RecordPattern.Entry) = .empty;
     errdefer {
         for (entries.items) |entry| {
             self.allocator.free(entry.key);
@@ -852,7 +852,7 @@ fn parseMapPattern(self: *Parser) anyerror!*Pattern {
             rest = try self.parseRestBinder();
         } else {
             while (true) {
-                const key = try self.parseMapPatternKey();
+                const key = try self.parseRecordPatternKey();
                 var key_transferred = false;
                 var value_pattern: ?*Pattern = null;
                 errdefer if (!key_transferred) {
@@ -860,7 +860,7 @@ fn parseMapPattern(self: *Parser) anyerror!*Pattern {
                     if (value_pattern) |p| p.deinit(self.allocator);
                 };
 
-                if (mapPatternHasKey(entries.items, key)) {
+                if (recordPatternHasKey(entries.items, key)) {
                     return self.failMessage("duplicate record pattern key");
                 }
 
@@ -883,11 +883,11 @@ fn parseMapPattern(self: *Parser) anyerror!*Pattern {
     _ = try self.expect(.rbrace);
     const owned = try entries.toOwnedSlice(self.allocator);
     return Pattern.create(self.allocator, .{
-        .map = .{ .entries = owned, .rest = rest },
+        .record = .{ .entries = owned, .rest = rest },
     });
 }
 
-fn parseMapPatternKey(self: *Parser) anyerror![]const u8 {
+fn parseRecordPatternKey(self: *Parser) anyerror![]const u8 {
     const token = self.current();
     switch (token.tag) {
         .identifier => {
@@ -905,7 +905,7 @@ fn parseMapPatternKey(self: *Parser) anyerror![]const u8 {
     }
 }
 
-fn mapPatternHasKey(entries: []const Pattern.MapPattern.Entry, key: []const u8) bool {
+fn recordPatternHasKey(entries: []const Pattern.RecordPattern.Entry, key: []const u8) bool {
     for (entries) |entry| {
         if (std.mem.eql(u8, entry.key, key)) return true;
     }

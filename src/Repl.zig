@@ -358,7 +358,7 @@ test "input completeness for multiline function" {
     ));
 }
 
-test "input completeness for map literal" {
+test "input completeness for record literal" {
     try testing.expect(!(try inputIsComplete("{\"a\":")));
     try testing.expect(!(try inputIsComplete("{\"a\": 1")));
     try testing.expect(try inputIsComplete("{\"a\": 1}"));
