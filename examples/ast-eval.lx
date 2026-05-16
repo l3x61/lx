@@ -1,0 +1,12 @@
+let eval =
+    \ {tag: "num", value: n}           -> n
+    | {tag: "add", left: l, right: r}  -> eval(l) + eval(r)
+    | {tag: "sub", left: l, right: r}  -> eval(l) - eval(r)
+    | {tag: "mul", left: l, right: r}  -> eval(l) * eval(r);
+
+# Evaluates (2 + 3) * (10 - 4) = 30.
+eval({
+    tag: "mul",
+    left:  {tag: "add", left: {tag: "num", value: 2}, right: {tag: "num", value: 3}},
+    right: {tag: "sub", left: {tag: "num", value: 10}, right: {tag: "num", value: 4}}
+})

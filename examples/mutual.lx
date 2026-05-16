@@ -1,0 +1,6 @@
+let (even, odd) = (
+    \ 0 -> true  | n -> odd(n - 1),
+    \ 0 -> false | n -> even(n - 1)
+);
+
+(even(10), odd(10), even(7), odd(7))

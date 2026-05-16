@@ -1,0 +1,21 @@
+let insert =
+    \ {}, k -> {key: k, left: {}, right: {}}
+    | {key: kn, left: l, right: r}, k & k < kn ->
+        {key: kn, left: insert(l, k), right: r}
+    | {key: kn, left: l, right: r}, k & k > kn ->
+        {key: kn, left: l, right: insert(r, k)}
+    | t, _ -> t;
+
+let contains =
+    \ {}, _ -> false
+    | {key: kn, left: _, right: _}, k & k == kn -> true
+    | {key: kn, left: l, right: _}, k & k < kn -> contains(l, k)
+    | {key: _,  left: _, right: r}, k -> contains(r, k);
+
+let from_list =
+    \ t, [] -> t
+    | t, [x, ..xs] -> from_list(insert(t, x), xs);
+
+let tree = from_list({}, [5, 2, 8, 1, 3, 7, 9]);
+
+(contains(tree, 3), contains(tree, 4), contains(tree, 8), contains(tree, 100))
