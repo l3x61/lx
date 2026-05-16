@@ -929,3 +929,76 @@ test "integer overflow reports runtime error" {
 test "invalid string escape reports runtime error" {
     try expectEvalError("\"\\q\"", error.InvalidStringLiteral);
 }
+
+test "uninitialized recursive binding" {
+    try expectEvalError("let x = x + 1; x", error.UninitializedRecursiveBinding);
+}
+
+test "unary type errors" {
+    try expectEvalError("-true", error.TypeError);
+    try expectEvalError("-\"a\"", error.TypeError);
+    try expectEvalError("!1", error.TypeError);
+    try expectEvalError("!()", error.TypeError);
+}
+
+test "arithmetic type errors" {
+    try expectEvalError("1 + true", error.TypeError);
+    try expectEvalError("true - 1", error.TypeError);
+    try expectEvalError("\"a\" + \"b\"", error.TypeError);
+    try expectEvalError("[1] * 2", error.TypeError);
+    try expectEvalError("() % 1", error.TypeError);
+}
+
+test "comparison type errors" {
+    try expectEvalError("\"a\" < \"b\"", error.TypeError);
+    try expectEvalError("1 < true", error.TypeError);
+    try expectEvalError("[1] > [2]", error.TypeError);
+}
+
+test "logical operator type errors" {
+    try expectEvalError("1 && true", error.TypeError);
+    try expectEvalError("false || 0", error.TypeError);
+}
+
+test "concat type errors" {
+    try expectEvalError("[1] ++ \"a\"", error.TypeError);
+    try expectEvalError("\"a\" ++ [1]", error.TypeError);
+    try expectEvalError("[1] ++ {a: 1}", error.TypeError);
+    try expectEvalError("1 ++ 2", error.TypeError);
+}
+
+test "cons type error" {
+    try expectEvalError("1 :: 2", error.TypeError);
+    try expectEvalError("1 :: \"a\"", error.TypeError);
+}
+
+test "indexing edge cases" {
+    try expectEvalError("\"cat\"[10]", error.IndexOutOfBounds);
+    try expectEvalError("(1, 2)[5]", error.IndexOutOfBounds);
+    try expectEvalError("[1, 2][-1]", error.IndexOutOfBounds);
+    try expectEvalError("(1, 2)[\"x\"]", error.TypeError);
+    try expectEvalError("\"cat\"[\"a\"]", error.TypeError);
+    try expectEvalError("1[0]", error.TypeError);
+}
+
+test "match expression no match" {
+    try expectEvalError("match 5 \\ 0 -> 0", error.NoMatch);
+}
+
+test "refinement returns non boolean" {
+    try expectEvalError(
+        \\let f = \ x & x -> x;
+        \\f(1)
+    , error.TypeError);
+}
+
+test "expression sequencing desugars to wildcard bindings" {
+    try expectEvaluatesTo("1; 2; 3", .{ .integer = 3 });
+    try expectEvaluatesTo("1; 2; 3; 4", .{ .integer = 4 });
+    try expectEvaluatesTo("let x = 1; x; x + 1", .{ .integer = 2 });
+}
+
+test "sequencing evaluates left to right" {
+    try expectEvalError("1 / 0; 42", error.DivideByZero);
+    try expectEvalError("42; \"a\" + 1", error.TypeError);
+}

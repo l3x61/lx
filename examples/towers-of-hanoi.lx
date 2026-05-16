@@ -1,6 +1,8 @@
 # https://rosettacode.org/wiki/Towers_of_Hanoi
 let hanoi =
-    \ 0, _, _, _ -> []
-    | n, from, via, to -> hanoi(n - 1, from, to, via) ++ [(from, to)] ++ hanoi(n - 1, via, from, to);
+    \ 0, _, _, _ ->
+        []
+    | n, from, via, to ->
+        hanoi(n - 1, from, to, via) ++ [(from, to)] ++ hanoi(n - 1, via, from, to);
 
 pretty.print(hanoi(3, "A", "B", "C"))

@@ -208,18 +208,35 @@ fn failMessage(self: *Parser, message: []const u8) error{SyntaxError} {
 }
 
 fn parseExpression(self: *Parser) anyerror!*Node {
-    return self.parseBind();
+    const expr = try self.parseBind();
+    if (self.current().tag != .semicolon) return expr;
+    errdefer expr.deinit(self.allocator);
+
+    _ = self.advance();
+    const body = try self.parseExpression();
+    errdefer body.deinit(self.allocator);
+
+    const wildcard = try Pattern.create(self.allocator, .{ .wildcard = {} });
+    errdefer wildcard.deinit(self.allocator);
+
+    return Node.create(self.allocator, .{
+        .binding = .{
+            .pattern = wildcard,
+            .value = expr,
+            .body = body,
+        },
+    });
 }
 
 fn parseBind(self: *Parser) anyerror!*Node {
-    if (self.current().tag != .let) return self.parseMatch();
+    if (self.current().tag != .let) return self.parseNonBind();
 
     _ = self.advance();
     const pattern = try self.parseBindOrHeadPattern();
     errdefer pattern.deinit(self.allocator);
 
     _ = try self.expect(.assign);
-    const value = try self.parseExpression();
+    const value = try self.parseNonBind();
     errdefer value.deinit(self.allocator);
 
     _ = try self.expect(.semicolon);
@@ -233,6 +250,10 @@ fn parseBind(self: *Parser) anyerror!*Node {
             .body = body,
         },
     });
+}
+
+fn parseNonBind(self: *Parser) anyerror!*Node {
+    return self.parseMatch();
 }
 
 fn parseMatch(self: *Parser) anyerror!*Node {
@@ -523,7 +544,8 @@ fn parseParenOrTupleOrUnit(self: *Parser) anyerror!*Node {
     }
 
     const first = try self.parseExpression();
-    errdefer first.deinit(self.allocator);
+    var first_transferred = false;
+    errdefer if (!first_transferred) first.deinit(self.allocator);
 
     if (self.match(.comma)) {
         var items: std.ArrayList(*Node) = .empty;
@@ -532,6 +554,7 @@ fn parseParenOrTupleOrUnit(self: *Parser) anyerror!*Node {
             items.deinit(self.allocator);
         }
         try items.append(self.allocator, first);
+        first_transferred = true;
 
         while (true) {
             try items.append(self.allocator, try self.parseExpression());
@@ -654,7 +677,7 @@ fn parseClause(self: *Parser) anyerror!*Clause {
     errdefer pattern.deinit(self.allocator);
 
     _ = try self.expect(.arrow);
-    const body = try self.parseExpression();
+    const body = try self.parseNonBind();
     errdefer body.deinit(self.allocator);
 
     return Clause.create(self.allocator, pattern, body);
@@ -662,7 +685,8 @@ fn parseClause(self: *Parser) anyerror!*Clause {
 
 fn parseBindOrHeadPattern(self: *Parser) anyerror!*Pattern {
     const first = try self.parsePattern();
-    errdefer first.deinit(self.allocator);
+    var first_transferred = false;
+    errdefer if (!first_transferred) first.deinit(self.allocator);
 
     if (self.current().tag != .comma) return first;
 
@@ -672,6 +696,7 @@ fn parseBindOrHeadPattern(self: *Parser) anyerror!*Pattern {
         items.deinit(self.allocator);
     }
     try items.append(self.allocator, first);
+    first_transferred = true;
 
     while (self.match(.comma)) {
         try items.append(self.allocator, try self.parsePattern());
@@ -761,7 +786,8 @@ fn parseParenPattern(self: *Parser) anyerror!*Pattern {
     }
 
     const first = try self.parsePattern();
-    errdefer first.deinit(self.allocator);
+    var first_transferred = false;
+    errdefer if (!first_transferred) first.deinit(self.allocator);
 
     if (self.match(.comma)) {
         var items: std.ArrayList(*Pattern) = .empty;
@@ -770,6 +796,7 @@ fn parseParenPattern(self: *Parser) anyerror!*Pattern {
             items.deinit(self.allocator);
         }
         try items.append(self.allocator, first);
+        first_transferred = true;
 
         while (true) {
             try items.append(self.allocator, try self.parsePattern());
@@ -1157,4 +1184,66 @@ test "call then index" {
 
 test "index then call" {
     try expectParses("f[0](x)");
+}
+
+test "binding missing semicolon" {
+    try expectSyntaxError("let x = 1");
+}
+
+test "binding missing value" {
+    try expectSyntaxError("let x =");
+}
+
+test "lambda missing arrow" {
+    try expectSyntaxError("\\ x x");
+}
+
+test "lambda missing pattern" {
+    try expectSyntaxError("\\ -> 1");
+}
+
+test "unclosed list literal" {
+    try expectSyntaxError("[1, 2");
+}
+
+test "unclosed paren" {
+    try expectSyntaxError("(1, 2");
+}
+
+test "unclosed record literal" {
+    try expectSyntaxError("{a: 1");
+}
+
+test "record entry missing colon" {
+    try expectSyntaxError("{a 1}");
+}
+
+test "trailing comma in list" {
+    try expectSyntaxError("[1, 2,]");
+}
+
+test "match without function clauses" {
+    try expectSyntaxError("match 5");
+}
+
+test "expression sequence" {
+    try expectParses("1; 2");
+    try expectParses("1; 2; 3");
+    try expectParses("let x = 1; x; x + 1");
+    try expectParses("(1; 2) + 3");
+}
+
+test "trailing semicolon is syntax error" {
+    try expectSyntaxError("1;");
+    try expectSyntaxError("1; 2;");
+}
+
+test "let value cannot be a bare let without parens" {
+    try expectSyntaxError("let x = let y = 1; y; x");
+    try expectParses("let x = (let y = 1; y); x");
+}
+
+test "clause body cannot be a bare let without parens" {
+    try expectSyntaxError("\\ x -> let y = x; y");
+    try expectParses("\\ x -> (let y = x; y)");
 }

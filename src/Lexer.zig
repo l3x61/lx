@@ -610,3 +610,23 @@ test "double and single quoted strings" {
         try runTest(input, &tokens);
     }
 }
+
+test "invalid character produces invalid token" {
+    {
+        const input = "@";
+        const tokens = [_]Token{
+            Token.init(.invalid, input, "@"),
+            Token.init(.eof, input, ""),
+        };
+        try runTest(input, &tokens);
+    }
+
+    {
+        const input = "$";
+        const tokens = [_]Token{
+            Token.init(.invalid, input, "$"),
+            Token.init(.eof, input, ""),
+        };
+        try runTest(input, &tokens);
+    }
+}

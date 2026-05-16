@@ -7,12 +7,18 @@ Program
     = Expression .
 
 Expression 
+    = Bind { ";" Bind } .
+
+Bind 
     = Binding
-    | MatchExpr
+    | NonBind .
+
+NonBind 
+    = MatchExpr
     | LogicOr .
 
 Binding 
-    = "let" BindPattern "=" Expression ";" Expression .
+    = "let" BindPattern "=" NonBind ";" Expression .
 
 MatchExpr 
     = "match" LogicOr Function .
@@ -88,7 +94,7 @@ Function
     = ( "\" | "λ" ) Clause { "|" Clause } .
 
 Clause 
-    = BindPattern "->" Expression .
+    = BindPattern "->" NonBind .
 
 BindPattern 
     = Pattern { "," Pattern } .
