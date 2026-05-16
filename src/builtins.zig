@@ -14,20 +14,15 @@ const Builtin = struct {
 };
 
 const record_builtins = [_]Builtin{
-    .{ .name = "record.has", .field_name = "has", .function = recordHasBuiltin },
-    .{ .name = "record.put", .field_name = "put", .function = recordPutBuiltin },
-    .{ .name = "record.remove", .field_name = "remove", .function = recordRemoveBuiltin },
     .{ .name = "record.entries", .field_name = "entries", .function = recordEntriesBuiltin },
 };
 
 const list_builtins = [_]Builtin{
     .{ .name = "list.size", .field_name = "size", .function = listSizeBuiltin },
-    .{ .name = "list.entries", .field_name = "entries", .function = listEntriesBuiltin },
 };
 
 const tuple_builtins = [_]Builtin{
     .{ .name = "tuple.size", .field_name = "size", .function = tupleSizeBuiltin },
-    .{ .name = "tuple.entries", .field_name = "entries", .function = tupleEntriesBuiltin },
 };
 
 const string_builtins = [_]Builtin{
@@ -41,7 +36,6 @@ const pretty_builtins = [_]Builtin{
 
 pub fn install(gc: *Gc, env: *Environment) !void {
     try buildIn(gc, env, "print", printBuiltin);
-    try buildIn(gc, env, "exit", exitBuiltin);
     try installNamespace(gc, env, "record", &record_builtins);
     try installNamespace(gc, env, "list", &list_builtins);
     try installNamespace(gc, env, "tuple", &tuple_builtins);
@@ -92,16 +86,6 @@ fn printBuiltin(context: NativeContext, argument: Value) !Value {
     return .{ .unit = {} };
 }
 
-fn exitBuiltin(context: NativeContext, argument: Value) !Value {
-    _ = context;
-    const status = switch (argument) {
-        .unit => 0,
-        .integer => |integer| integer,
-        else => return error.TypeError,
-    };
-    std.process.exit(@intCast(status));
-}
-
 fn prettyPrintBuiltin(context: NativeContext, argument: Value) !Value {
     var buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(context.io, &buffer);
@@ -124,42 +108,6 @@ fn prettyShowBuiltin(context: NativeContext, argument: Value) !Value {
     errdefer context.allocator().free(bytes);
 
     const value = try Value.String.initOwned(context.allocator(), bytes);
-    try context.track(value);
-    return value;
-}
-
-fn recordHasBuiltin(context: NativeContext, argument: Value) !Value {
-    _ = context;
-    const args = try expectTuple(argument, 2);
-    const record = args[0].asRecord() orelse return error.TypeError;
-    const key = args[1].asString() orelse return error.TypeError;
-    return .{ .boolean = record.findIndex(key) != null };
-}
-
-fn recordPutBuiltin(context: NativeContext, argument: Value) !Value {
-    const args = try expectTuple(argument, 3);
-    const record = args[0].asRecord() orelse return error.TypeError;
-    const key = args[1].asString() orelse return error.TypeError;
-    return copyRecordWithEntry(context, record, key, args[2]);
-}
-
-fn recordRemoveBuiltin(context: NativeContext, argument: Value) !Value {
-    const args = try expectTuple(argument, 2);
-    const record = args[0].asRecord() orelse return error.TypeError;
-    const key = args[1].asString() orelse return error.TypeError;
-    const remove_index = record.findIndex(key) orelse return args[0];
-
-    const entries = try context.allocator().alloc(Value.Record.Entry, record.entries.len - 1);
-    errdefer context.allocator().free(entries);
-
-    var out_index: usize = 0;
-    for (record.entries, 0..) |entry, index| {
-        if (index == remove_index) continue;
-        entries[out_index] = entry;
-        out_index += 1;
-    }
-
-    const value = try Value.Record.initOwned(context.allocator(), entries);
     try context.track(value);
     return value;
 }
@@ -195,77 +143,16 @@ fn listSizeBuiltin(context: NativeContext, argument: Value) !Value {
     return integerFromLen(list.items.len);
 }
 
-fn listEntriesBuiltin(context: NativeContext, argument: Value) !Value {
-    const list = argument.asList() orelse return error.TypeError;
-    return indexedEntries(context, list.items);
-}
-
 fn tupleSizeBuiltin(context: NativeContext, argument: Value) !Value {
     _ = context;
     const tuple = argument.asTuple() orelse return error.TypeError;
     return integerFromLen(tuple.items.len);
 }
 
-fn tupleEntriesBuiltin(context: NativeContext, argument: Value) !Value {
-    const tuple = argument.asTuple() orelse return error.TypeError;
-    return indexedEntries(context, tuple.items);
-}
-
 fn stringSizeBuiltin(context: NativeContext, argument: Value) !Value {
     _ = context;
     const bytes = argument.asString() orelse return error.TypeError;
     return integerFromLen(bytes.len);
-}
-
-fn expectTuple(argument: Value, len: usize) ![]Value {
-    const tuple = argument.asTuple() orelse return error.TypeError;
-    if (tuple.items.len != len) return error.TypeError;
-    return tuple.items;
-}
-
-fn copyRecordWithEntry(
-    context: NativeContext,
-    record: *Value.Record,
-    key: []const u8,
-    value: Value,
-) !Value {
-    const existing = record.findIndex(key);
-    const len = if (existing == null) record.entries.len + 1 else record.entries.len;
-    const entries = try context.allocator().alloc(Value.Record.Entry, len);
-    errdefer context.allocator().free(entries);
-
-    @memcpy(entries[0..record.entries.len], record.entries);
-    if (existing) |index| {
-        entries[index].value = value;
-    } else {
-        entries[record.entries.len] = .{ .key = key, .value = value };
-    }
-
-    const result = try Value.Record.initOwned(context.allocator(), entries);
-    try context.track(result);
-    return result;
-}
-
-fn indexedEntries(context: NativeContext, values: []const Value) !Value {
-    _ = try integerFromLen(values.len);
-    const items = try context.allocator().alloc(Value, values.len);
-    errdefer context.allocator().free(items);
-
-    for (values, 0..) |value, index| {
-        const tuple_items = try context.allocator().alloc(Value, 2);
-        errdefer context.allocator().free(tuple_items);
-
-        tuple_items[0] = .{ .integer = @intCast(index) };
-        tuple_items[1] = value;
-
-        const tuple = try Value.Tuple.initOwned(context.allocator(), tuple_items);
-        try context.track(tuple);
-        items[index] = tuple;
-    }
-
-    const result = try Value.List.initOwned(context.allocator(), items);
-    try context.track(result);
-    return result;
 }
 
 fn integerFromLen(len: usize) !Value {

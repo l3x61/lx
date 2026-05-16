@@ -837,21 +837,14 @@ test "record concat merges right-biased" {
 }
 
 test "record builtins" {
-    try expectEvaluatesTo("record.has({a: 1}, \"a\")", .{ .boolean = true });
-    try expectEvaluatesTo("record.put({}, \"a\", 5).a", .{ .integer = 5 });
-    try expectEvaluatesTo("record.remove({a: 1}, \"a\") == {}", .{ .boolean = true });
     try expectEvaluatesTo("record.entries({a: 1}) == [(\"a\", 1)]", .{ .boolean = true });
-    try expectEvalError("record.has({}, 1)", error.TypeError);
-    try expectEvalError("record.put({}, 1, 5)", error.TypeError);
-    try expectEvalError("record_has({}, \"a\")", error.UnboundName);
-    try expectEvalError("record.get({a: 1}, \"a\")", error.KeyNotFound);
+    try expectEvalError("record.entries(1)", error.TypeError);
+    try expectEvalError("record.put({}, \"a\", 5)", error.KeyNotFound);
 }
 
 test "list and tuple builtins" {
     try expectEvaluatesTo("list.size([1, 2, 3])", .{ .integer = 3 });
-    try expectEvaluatesTo("list.entries([\"a\", \"b\"]) == [(0, \"a\"), (1, \"b\")]", .{ .boolean = true });
     try expectEvaluatesTo("tuple.size((true, 42, \"x\"))", .{ .integer = 3 });
-    try expectEvaluatesTo("tuple.entries((\"a\", \"b\")) == [(0, \"a\"), (1, \"b\")]", .{ .boolean = true });
     try expectEvalError("list.size((1, 2))", error.TypeError);
     try expectEvalError("tuple.size([1, 2])", error.TypeError);
 }
@@ -875,7 +868,7 @@ test "pretty builtins" {
     try expectEvaluatesTo(
         \\pretty.show({status: 200, body: {ok: true}, "bad-key": [1, 2]})
     , expected);
-    try expectEvaluatesTo("record.has(pretty, \"print\")", .{ .boolean = true });
+    try expectEvaluatesTo("pretty.print == pretty.print", .{ .boolean = true });
 }
 
 test "record patterns" {
