@@ -5,7 +5,8 @@ ARG JUST_VERSION=1.40.0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl xz-utils git \
+        ca-certificates curl xz-utils git bat \
+    && ln -s /usr/bin/batcat /usr/local/bin/bat \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \

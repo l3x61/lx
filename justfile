@@ -20,13 +20,17 @@ repl:
 test:
     zig build test --summary all
 
+# Run the transcript
+transcript:
+    ./transcript.sh
+
 # Build and execute every example program.
 examples:
     zig build
     for file in examples/*.lx; do \
         printf "# File: %s\n" $file; \
         if command -v bat >/dev/null 2>&1; then \
-            bat --style=plain --paging=never -l rb "$file"; \
+            bat --style=plain --paging=never -l ml "$file"; \
         else \
             cat "$file"; \
         fi; \
@@ -35,14 +39,10 @@ examples:
         echo; \
     done
 
-docker-build:
+# Build the Docker image and open a shell inside it.
+docker:
     docker build -t lx .
-
-docker-transcript:
-    docker run --rm lx
-
-docker-run *args:
-    docker run --rm lx {{ args }}
+    docker run --rm -it --entrypoint /bin/bash lx
 
 clean:
     rm -rf .zig-cache zig-out
