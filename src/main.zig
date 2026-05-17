@@ -2,121 +2,84 @@ const std = @import("std");
 const Level = std.log.Level;
 const Io = std.Io;
 
-const log = std.log.scoped(.main);
 const fatal = std.process.fatal;
 
-const Repl = @import("Repl.zig");
 const Runtime = @import("Runtime.zig");
 
-pub const std_options = std.Options{
-    .logFn = struct {
-        fn logFn(
-            comptime level: Level,
-            comptime scope: @EnumLiteral(),
-            comptime format: []const u8,
-            args: anytype,
-        ) void {
-            var buffer: [256]u8 = undefined;
-            const locked = std.debug.lockStderr(&buffer);
-            defer std.debug.unlockStderr();
-            const t = locked.terminal();
-            const color: std.Io.Terminal.Color = switch (level) {
-                .err, .warn => .red,
-                .info, .debug => .dim,
-            };
-            nosuspend {
-                t.setColor(color) catch return;
-                if (scope != .default) {
-                    t.writer.writeAll(@tagName(scope)) catch return;
-                    t.writer.writeAll(": ") catch return;
-                }
-                t.setColor(.dim) catch return;
-                t.writer.print(format, args) catch return;
-                t.setColor(.reset) catch return;
-            }
-        }
-    }.logFn,
-};
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    const io = init.io;
+    const arena = init.arena.allocator();
+    const argv = try init.minimal.args.toSlice(arena);
+
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buf);
+    const out = &stdout_writer.interface;
+    var stderr_buf: [4096]u8 = undefined;
+    var stderr_writer = Io.File.stderr().writer(io, &stderr_buf);
+    const err = &stderr_writer.interface;
+
+    const file: []const u8 = if (argv.len > 1) argv[1] else "-";
+    const source = try readSource(gpa, io, file);
+    defer gpa.free(source);
+    const name = if (std.mem.eql(u8, file, "-")) "<stdin>" else file;
+    try runSource(gpa, io, name, source, out, err);
+}
+
+fn readSource(gpa: std.mem.Allocator, io: Io, file: []const u8) ![]u8 {
+    if (std.mem.eql(u8, file, "-")) return readStdin(gpa);
+    return Io.Dir.cwd().readFileAlloc(io, file, gpa, .limited(16 * 1024 * 1024)) catch |read_err|
+        fatal("loading source {s} failed with {t}", .{ file, read_err });
+}
+
+fn readStdin(gpa: std.mem.Allocator) ![]u8 {
+    var collected: std.ArrayList(u8) = .empty;
+    errdefer collected.deinit(gpa);
+    var chunk: [4096]u8 = undefined;
+    while (true) {
+        const n = std.posix.read(std.posix.STDIN_FILENO, &chunk) catch |err|
+            fatal("reading stdin failed with {t}", .{err});
+        if (n == 0) break;
+        try collected.appendSlice(gpa, chunk[0..n]);
+    }
+    return try collected.toOwnedSlice(gpa);
+}
 
 fn wrapTerminal(writer: *Io.Writer) Io.Terminal {
     return .{ .writer = writer, .mode = .escape_codes };
 }
 
-pub fn main(init: std.process.Init) !void {
-    const gpa = init.gpa;
-    const io = init.io;
+fn runSource(
+    gpa: std.mem.Allocator,
+    io: Io,
+    name: []const u8,
+    source: []const u8,
+    out: *Io.Writer,
+    err: *Io.Writer,
+) !void {
+    var runtime = try Runtime.init(gpa, io);
+    defer runtime.deinit();
 
-    const arena = init.arena.allocator();
-    const argv = try init.minimal.args.toSlice(arena);
-
-    var mode: Repl.AstMode = .off;
-    var file_arg: ?[]const u8 = null;
-
-    var i: usize = 1;
-    while (i < argv.len) : (i += 1) {
-        const arg = argv[i];
-        if (std.mem.eql(u8, arg, "--ast-tree")) {
-            mode = .tree;
-            continue;
-        }
-        if (std.mem.eql(u8, arg, "--ast-off")) {
-            mode = .off;
-            continue;
-        }
-        file_arg = arg;
-        break;
-    }
-
-    if (file_arg) |file| {
-        const source = Io.Dir.cwd().readFileAlloc(io, file, gpa, .limited(16 * 1024 * 1024)) catch |err|
-            fatal("loading source {s} failed with {t}", .{ file, err });
-        defer gpa.free(source);
-
-        var stdout_buffer: [4096]u8 = undefined;
-        var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
-        const out = &stdout_writer.interface;
-        var stderr_buffer: [4096]u8 = undefined;
-        var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
-        const err = &stderr_writer.interface;
-        if (mode == .off) {
-            var runtime = try Runtime.init(gpa, io);
-            defer runtime.deinit();
-            const value = runtime.evaluateSourceNamed(file, source) catch |eval_err| switch (eval_err) {
-                error.SyntaxError => {
-                    if (runtime.last_parse_error) |diagnostic| {
-                        diagnostic.write(wrapTerminal(err)) catch {};
-                        err.flush() catch {};
-                        std.process.exit(1);
-                    }
-                    fatal("{t}", .{eval_err});
-                },
-                else => fatal("{t}", .{eval_err}),
-            };
-            switch (value) {
-                .unit => {},
-                else => {
-                    value.write(out) catch {};
-                    out.writeByte('\n') catch {};
-                    out.flush() catch {};
-                },
+    const value = runtime.evaluateSourceNamed(name, source) catch |eval_err| switch (eval_err) {
+        error.SyntaxError => {
+            if (runtime.last_parse_error) |diagnostic| {
+                diagnostic.write(wrapTerminal(err)) catch {};
+                err.flush() catch {};
+                std.process.exit(1);
             }
-        } else {
-            Repl.render(wrapTerminal(out), wrapTerminal(err), gpa, file, source, mode) catch |render_err| switch (render_err) {
-                error.SyntaxError => {
-                    err.flush() catch {};
-                    std.process.exit(1);
-                },
-                else => fatal("{t}", .{render_err}),
-            };
+            fatal("{t}", .{eval_err});
+        },
+        else => fatal("{t}", .{eval_err}),
+    };
+
+    switch (value) {
+        .unit => {},
+        else => {
+            value.write(out) catch {};
             out.writeByte('\n') catch {};
             out.flush() catch {};
-        }
-        return;
+        },
     }
-
-    const repl = try Repl.init(gpa, io);
-    defer repl.deinit();
-    try repl.run();
 }
 
 test "all" {
@@ -130,6 +93,4 @@ test "all" {
     _ = @import("builtins.zig");
     _ = @import("evaluate.zig");
     _ = @import("Runtime.zig");
-    _ = @import("readline.zig");
-    _ = @import("Repl.zig");
 }

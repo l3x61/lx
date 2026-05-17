@@ -10,7 +10,7 @@ run *args:
     zig build run -- {{ args }}
 
 repl:
-    zig build run --
+    ./repl.sh
 
 test:
     zig build test --summary all
