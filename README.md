@@ -1,6 +1,6 @@
 # Lx
 
-**Lx**, also written **λx** or **Lambda expression**, dynamically-typed
+**Lx**, also written **λx** or **Lambda expression**, is a dynamically-typed
 functional language investigating pattern-based function abstractions as its
 primary control-flow model.
 
