@@ -1,6 +1,24 @@
 # Lx
 
-## Syntax
+**Lx**, also written **λx** or **Lambda expression**, dynamically-typed
+functional language investigating pattern-based function abstractions as its
+primary control-flow model.
+
+## Requirements
+
+- [Zig](https://ziglang.org/) `0.16.0`
+- (Recommended) [just](https://github.com/casey/just) `1.40.0` lower may work (not tested)
+- (Optional) [bat](https://github.com/sharkdp/bat) `0.26.1` lower may work (not tested)
+- (Optional) [docker](https://www.docker.com/) `29.3.1` lower may work (not tested)
+
+## Usage
+
+All workflows are wired up in the [`justfile`](justfile). Run `just`
+(or `just --list`) to see the recipes; without `just`, copy the command
+line out of the `justfile` and run it directly.
+
+
+## Syntax (Wirth EBNF)
 
 ```wsn
 Program 
