@@ -1,5 +1,4 @@
 const std = @import("std");
-const Level = std.log.Level;
 const Io = std.Io;
 
 const fatal = std.process.fatal;

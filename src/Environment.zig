@@ -101,40 +101,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectError = testing.expectError;
 
-pub fn debug(self: *Environment) void {
-    var buffer: [1024]u8 = undefined;
-    const locked = std.debug.lockStderr(&buffer);
-    defer std.debug.unlockStderr();
-    const t = locked.terminal();
-
-    if (self.bindings.entries.len == 0) {
-        t.setColor(.dim) catch {};
-        t.writer.writeAll("empty") catch {};
-        t.setColor(.reset) catch {};
-        t.writer.writeByte('\n') catch {};
-    }
-    self.dbg(t, 0);
-}
-
-fn dbg(self: *Environment, t: std.Io.Terminal, depth: usize) void {
-    const w = t.writer;
-    var it = self.bindings.iterator();
-    while (it.next()) |entry| {
-        if (entry.value_ptr.*) |v| {
-            w.print("[{d}] {s} = {f}\n", .{ depth, entry.key_ptr.*, v }) catch {};
-        } else {
-            w.print("[{d}] {s} = ", .{ depth, entry.key_ptr.* }) catch {};
-            t.setColor(.dim) catch {};
-            w.writeAll("free") catch {};
-            t.setColor(.reset) catch {};
-            w.writeByte('\n') catch {};
-        }
-    }
-    if (self.parent) |parent| {
-        parent.dbg(t, depth + 1);
-    }
-}
-
 test "bind, get, and get not bound" {
     const env = try Environment.init(testing.allocator, null);
     defer env.deinitAll();
